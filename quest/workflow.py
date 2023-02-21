@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 from typing import Any, Protocol
 
-from events import Event, UniqueEvent, EventManager, InMemoryEventManager
+from .events import Event, UniqueEvent, EventManager, InMemoryEventManager
 
 ARGUMENTS = "INITIAL_ARGUMENTS"
 KW_ARGUMENTS = "INITIAL_KW_ARGUMENTS"
