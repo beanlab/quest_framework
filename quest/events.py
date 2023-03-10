@@ -45,8 +45,8 @@ class EventManager(Protocol):
 
 
 class InMemoryEventManager(EventManager):
-    def __init__(self):
-        self._state = {}
+    def __init__(self, initial_state: dict[str, Event] = None):
+        self._state = initial_state or {}
         self._counters = {}
 
     def __getitem__(self, key: str) -> Event:

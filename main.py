@@ -1,71 +1,59 @@
-import random
-from pathlib import Path
+import json
 import logging
+from pathlib import Path
 
-from caching import PickleCacheTool
-from checkpointing import Checkpoints
+from quest import event, external_event
+from quest.events import InMemoryEventManager
+from quest.workflow import WorkflowManager, JsonEventSerializer, RegisterUserFlowSerializer
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
+INPUT_EVENT_NAME = 'input'
 
 
-def go_on_quest(ch, payload):
-    config = ch.do("Load Config", lambda: print("Loading config") or {"config": "stuff"})
+class RegisterUserFlow:
 
-    # Make stuff up
-    @ch.step("Random")
-    def random_number():
-        return random.randint(0, 10)
+    @event
+    def display(self, text: str):
+        print(text)
 
-    print(random_number)
+    @external_event(INPUT_EVENT_NAME)
+    def get_input(self): ...
 
-    # Get user information
-    @ch.quest("User Info")
-    def user_info(qch):
-        name = qch.do("User Name", lambda: input("Enter name: "))
-        number = qch.do("User Number", lambda: int(input("Enter a number: ")))
+    def get_name(self):
+        self.display('Name: ')
+        return self.get_input()
 
-        if number < 7:
-            logging.warning(f"The number {number} is less than 7. Try again!")
-            qch.retry()
-        else:
-            return {"name": name, "number": number}
+    def get_student_id(self):
+        self.display('Student ID: ')
+        return self.get_input()
 
-    print(user_info)
-
-    # TODO - implement the following:
-
-    @ch.quest("Get user feedback")
-    def feedback(qch):
-        @qch.async_step("Send feedback email")
-        def send_email(token):
-            # Send an email
-            print(f"Sending email containing {token}")
-
-        @qch.wait("Wait for feedback", send_email)
-        def user_feedback(response):
-            # Wait for user to respond
-            return response['feedback']
-
-        return user_feedback
-
-    rch1 = ch.start_quest("Remote task 1")
-    task1 = rch1.do("Launch task 1", lambda: print("Launching task 1") or "task-id-123456")
-
-    rch2 = ch.start_quest("Remote task 2")
-    task2 = rch2.do("Launch task 2", lambda: print("Launching task 2") or "task-id-abcdef")
-
-    result1 = rch1.do("Wait on task 1", lambda: print(f"Waiting on task {task1}") or {"result": "foobar"})
-    rch1.complete_quest(result1)
-
-    result2 = rch2.do("Wait on task 2", lambda: print(f"Waiting on task {task2}") or {"result": "bazquux"})
-    rch2.complete_quest(result2)
+    def __call__(self, welcome_message):
+        self.display(welcome_message)
+        name = self.get_name()
+        sid = self.get_student_id()
+        self.display(f'Name: {name}, ID: {sid}')
 
 
 if __name__ == '__main__':
-    go_on_quest(Checkpoints("root", PickleCacheTool(Path("./step_cache"))), {})
+    workflow_manager = WorkflowManager(
+        InMemoryEventManager,
+        JsonEventSerializer(Path('saved-state')),
+        {str(type(RegisterUserFlow)): RegisterUserFlowSerializer()}
+    )
 
-# TODO - eventing: how do we wait for an event to come in?
-# TODO - tests: basic do, basic step, basic quest, retry quest, interleaved quests (with retry), signals
-# TODO - Orchestrator + signals + manual resumes
-# TODO - command-line interface
-# TODO - switch to JSON payloads (and use json instead of pickle) - use TypedDict for payload types
+    register_user = workflow_manager.new_workflow("123", RegisterUserFlow())
+
+    register_user('Howdy')
+    print('---')
+    result = register_user.send_event(INPUT_EVENT_NAME, 'Foo')
+    assert result is None
+    print('---')
+    result = register_user.send_event(INPUT_EVENT_NAME, '123')
+    print('---')
+    assert result is not None
+
+    # TODO - fix serialization
+    # When saving a workflow by type, get the type of the function, not Workflow
+    # workflow_manager.save_workflows()
+
+    print(json.dumps(register_user._events._state, indent=2))

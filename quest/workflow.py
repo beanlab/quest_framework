@@ -1,7 +1,8 @@
 import json
 import logging
 from datetime import datetime
-from typing import Any, Protocol
+from pathlib import Path
+from typing import Any, Protocol, Callable, TypeVar
 
 from .events import Event, UniqueEvent, EventManager, InMemoryEventManager
 
@@ -58,7 +59,8 @@ class Workflow:
     Function decorator
     """
 
-    def __init__(self, func: WorkflowFunction, event_manager: EventManager = None):
+    def __init__(self, workflow_id: str, func: WorkflowFunction, event_manager: EventManager = None):
+        self.workflow_id = workflow_id
         self._events: EventManager = event_manager if event_manager is not None else InMemoryEventManager()
         self._replay_events: list[UniqueEvent] = []
         self._func = self._decorate(func)
@@ -164,50 +166,122 @@ class Workflow:
         return self._run()
 
 
-class WorkflowManager:
-    def signal_workflow(self, workflow_id: str, event_name: str, payload: Any):
-        """Sends the event to the indicated workflow"""
+EM = TypeVar('EM', bound=EventManager)
 
-    def new_workflow(self, workflow_id: str, func: WorkflowFunction, *args, **kwargs):
+
+class EventSerializer(Protocol[EM]):
+    def save_events(self, key: str, event_manager: EM): ...
+
+    def load_events(self, key: str) -> EM: ...
+
+
+class WorkflowSerializer(Protocol):
+    """
+    The WorkflowSerializer handles the logic needed to save and load complex dependencies
+        in the workflow objects.
+
+    For example, if a workflow has stateful dependencies, such as an API client,
+        then the WorkflowSerializer is responsible for saving the information necessary
+        to recreate the client from data, as well as recreating the workflow from that data.
+
+    The WorkflowManager will save/load all the special workflow data (status, step, etc.)
+    """
+
+    def serialize_workflow(self, workflow_id: str, workflow: WorkflowFunction):
+        """
+        Serializes the data necessary to rehydrate the workflow object.
+
+        :param workflow_id: The ID of the workflow
+        :param workflow: The workflow object to be saved.
+        """
+
+    def deserialize_workflow(self, workflow_id: str) -> WorkflowFunction:
+        """
+        Recreate the workflow object that was associated with the workflow ID.
+
+        :param workflow_id: Unique string identifying the workflow to be recreated
+        :return: The WorkflowFunction associated with the workflow ID
+        """
+
+
+class WorkflowManager:
+    RESUME_WORKFLOW = '__resume_workflow__'
+
+    def __init__(
+            self,
+            create_event_manager: Callable[[], EM],
+            event_serializer: EventSerializer[EM],
+            workflow_serializers: dict[str, WorkflowSerializer],
+    ):
+        self.create_event_manager = create_event_manager
+        self.event_serializer = event_serializer
+        self.workflow_serializers = workflow_serializers
+        self.workflows: dict[str, Workflow] = {}
+        self.event_managers: dict[str, EventManager] = {}
+
+    def signal_workflow(self, workflow_id: str, event_name: str, payload: Any) -> WorkflowResult:
+        """Sends the event to the indicated workflow"""
+        workflow = self.workflows[workflow_id]
+        return workflow.send_event(event_name, payload)
+
+    def new_workflow(self, workflow_id: str, func: WorkflowFunction) -> Workflow:
         """Registers the function as a new workflow"""
+        event_manager = self.create_event_manager()
+        workflow = Workflow(
+            workflow_id,
+            func,
+            event_manager=event_manager
+        )
+        self.event_managers[workflow_id] = event_manager
+        self.workflows[workflow_id] = workflow
+        return workflow
+
+    def save_workflows(self) -> dict[str, str]:
+        """
+        Serialize the workflow event managers
+
+        Returns a dict of the workflow IDs to workflow types
+        """
+        for wid, event_manager in self.event_managers.items():
+            self.event_serializer.save_events(wid, event_manager)
+
+        for wid, workflow in self.workflows.items():
+            self.workflow_serializers[str(type(workflow))].serialize_workflow(wid, workflow)
+
+        return {wid: str(type(workflow)) for wid, workflow in self.workflows.items()}
+
+    def load_workflows(self, workflow_types: dict[str, str]):
+        for wid, wtype in workflow_types.items():
+            event_manager = self.event_serializer.load_events(wid)
+            workflow_func = self.workflow_serializers[wtype].deserialize_workflow(wid)
+            self.workflows[wid] = (workflow := Workflow(wid, workflow_func, event_manager))
+            self.event_managers[wid] = event_manager
+            workflow.send_event(WorkflowManager.RESUME_WORKFLOW, None)
+
+class JsonEventSerializer(EventSerializer[InMemoryEventManager]):
+    def __init__(self, folder: Path):
+        self.folder = folder
+        if not self.folder.exists():
+            self.folder.mkdir(parents=True)
+
+    def save_events(self, key: str, event_manager: InMemoryEventManager):
+        file = key + '.json'
+        with open(self.folder / file, 'w') as file:
+            json.dump(event_manager._state, file)
+
+    def load_events(self, key: str) -> InMemoryEventManager:
+        file = key + '.json'
+        with open(self.folder / file) as file:
+            state = json.load(file)
+            return InMemoryEventManager(state)
+
+class RegisterUserFlowSerializer(WorkflowSerializer):
+    def serialize_workflow(self, workflow_id: str, workflow: WorkflowFunction):
+        """No action necessary"""
+
+    def deserialize_workflow(self, workflow_id: str) -> WorkflowFunction:
+        return RegisterUserFlow()
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.DEBUG)
-    INPUT_EVENT_NAME = 'input'
-
-
-    class RegisterUserFlow:
-
-        @event
-        def display(self, text: str):
-            print(text)
-
-        @external_event(INPUT_EVENT_NAME)
-        def get_input(self): ...
-
-        def get_name(self):
-            self.display('Name: ')
-            return self.get_input()
-
-        def get_student_id(self):
-            self.display('Student ID: ')
-            return self.get_input()
-
-        def __call__(self, welcome_message):
-            self.display(welcome_message)
-            name = self.get_name()
-            sid = self.get_student_id()
-            self.display(f'Name: {name}, ID: {sid}')
-
-
-    register_user = Workflow(RegisterUserFlow())
-    register_user('Howdy')
-    print('---')
-    result = register_user.send_event(INPUT_EVENT_NAME, 'Foo')
-    assert result is None
-    print('---')
-    result = register_user.send_event(INPUT_EVENT_NAME, '123')
-    print('---')
-    assert result is not None
-    print(json.dumps(register_user._events._state, indent=2))
+    pass
