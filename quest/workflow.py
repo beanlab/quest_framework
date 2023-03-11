@@ -169,6 +169,17 @@ class Workflow:
 EM = TypeVar('EM', bound=EventManager)
 
 
+class WorkflowMetadataSerializer(Protocol):
+    """
+    Stores and retrieves workflow metadata.
+    There should be a unique WorkflowMetadataSerializer for each WorkflowManager
+    """
+
+    def save(self, workflow_metadata: dict): ...
+
+    def load(self) -> dict: ...
+
+
 class EventSerializer(Protocol[EM]):
     def save_events(self, key: str, event_manager: EM): ...
 
@@ -210,10 +221,12 @@ class WorkflowManager:
     def __init__(
             self,
             create_event_manager: Callable[[], EM],
+            metadata_serializer: WorkflowMetadataSerializer,
             event_serializer: EventSerializer[EM],
             workflow_serializers: dict[str, WorkflowSerializer],
     ):
         self.create_event_manager = create_event_manager
+        self.metadata_serializer = metadata_serializer
         self.event_serializer = event_serializer
         self.workflow_serializers = workflow_serializers
         self.workflows: dict[str, Workflow] = {}
@@ -236,7 +249,15 @@ class WorkflowManager:
         self.workflows[workflow_id] = workflow
         return workflow
 
-    def save_workflows(self) -> dict[str, str]:
+    def __enter__(self):
+        workflow_types = self.metadata_serializer.load()
+        self._load_workflows(workflow_types)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._save_workflows()
+
+    def _save_workflows(self) -> dict[str, str]:
         """
         Serialize the workflow event managers
 
@@ -246,17 +267,18 @@ class WorkflowManager:
             self.event_serializer.save_events(wid, event_manager)
 
         for wid, workflow in self.workflows.items():
-            self.workflow_serializers[str(type(workflow))].serialize_workflow(wid, workflow)
+            self.workflow_serializers[workflow._func.__class__.__name__].serialize_workflow(wid, workflow)
 
         return {wid: str(type(workflow)) for wid, workflow in self.workflows.items()}
 
-    def load_workflows(self, workflow_types: dict[str, str]):
+    def _load_workflows(self, workflow_types: dict[str, str]):
         for wid, wtype in workflow_types.items():
             event_manager = self.event_serializer.load_events(wid)
             workflow_func = self.workflow_serializers[wtype].deserialize_workflow(wid)
             self.workflows[wid] = (workflow := Workflow(wid, workflow_func, event_manager))
             self.event_managers[wid] = event_manager
             workflow.send_event(WorkflowManager.RESUME_WORKFLOW, None)
+
 
 class JsonEventSerializer(EventSerializer[InMemoryEventManager]):
     def __init__(self, folder: Path):
@@ -275,12 +297,21 @@ class JsonEventSerializer(EventSerializer[InMemoryEventManager]):
             state = json.load(file)
             return InMemoryEventManager(state)
 
-class RegisterUserFlowSerializer(WorkflowSerializer):
-    def serialize_workflow(self, workflow_id: str, workflow: WorkflowFunction):
-        """No action necessary"""
 
-    def deserialize_workflow(self, workflow_id: str) -> WorkflowFunction:
-        return RegisterUserFlow()
+class JsonMetadataSerializer(WorkflowMetadataSerializer):
+    def __init__(self, folder: Path):
+        self.folder = folder
+
+    def save(self, workflow_metadata: dict):
+        with open(self.folder / "workflow_metadata.json", 'w') as file:
+            json.dump(workflow_metadata, file)
+
+    def load(self) -> dict:
+        meta_file = self.folder / "workflow_metadata.json"
+        if not meta_file.exists():
+            return {}
+        with open(meta_file) as file:
+            return json.load(file)
 
 
 if __name__ == '__main__':
