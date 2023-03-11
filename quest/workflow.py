@@ -8,6 +8,7 @@ from .events import Event, UniqueEvent, EventManager, InMemoryEventManager
 
 ARGUMENTS = "INITIAL_ARGUMENTS"
 KW_ARGUMENTS = "INITIAL_KW_ARGUMENTS"
+WORKFLOW_RESULT = "WORKFLOW_RESULT"
 
 
 def event(func):
@@ -28,6 +29,11 @@ def external_event(func_or_name):
         func_or_name.__is_external_event = True
         func_or_name.__event_name = func_or_name.__name__
         return func_or_name
+
+
+class DuplicateWorkflowIDException(Exception):
+    def __init__(self, workflow_id: str):
+        super().__init__(f'Workflow id {workflow_id} already in use')
 
 
 class WorkflowFunction(Protocol):
@@ -64,6 +70,9 @@ class Workflow:
         self._events: EventManager = event_manager if event_manager is not None else InMemoryEventManager()
         self._replay_events: list[UniqueEvent] = []
         self._func = self._decorate(func)
+
+    def _workflow_type(self) -> str:
+        return self._func.__class__.__name__
 
     def _decorate(self, func: WorkflowFunction):
         for prop_name in dir(func):
@@ -146,6 +155,7 @@ class Workflow:
             logging.debug('Invoking workflow')
             result = self._func(*args, **kwargs)
             logging.debug('Workflow invocation complete')
+            self._record_event(WORKFLOW_RESULT, result)
             return WorkflowResult(result)
 
         except WorkflowSuspended as ws:
@@ -215,6 +225,17 @@ class WorkflowSerializer(Protocol):
         """
 
 
+class StatelessWorkflowSerializer(WorkflowSerializer):
+    def __init__(self, create_workflow: Callable[[], WorkflowFunction]):
+        self.create_workflow = create_workflow
+
+    def serialize_workflow(self, workflow_id: str, workflow: WorkflowFunction):
+        """Nothing needed"""
+
+    def deserialize_workflow(self, workflow_id: str) -> WorkflowFunction:
+        return self.create_workflow()
+
+
 class WorkflowManager:
     RESUME_WORKFLOW = '__resume_workflow__'
 
@@ -239,6 +260,10 @@ class WorkflowManager:
 
     def new_workflow(self, workflow_id: str, func: WorkflowFunction) -> Workflow:
         """Registers the function as a new workflow"""
+        if workflow_id in self.workflows:
+            logging.error(f'Workflow ID {workflow_id} already in use')
+            raise DuplicateWorkflowIDException(workflow_id)
+
         event_manager = self.create_event_manager()
         workflow = Workflow(
             workflow_id,
@@ -256,8 +281,12 @@ class WorkflowManager:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self._save_workflows()
+        self.metadata_serializer.save(self._workflow_types())
 
-    def _save_workflows(self) -> dict[str, str]:
+    def _workflow_types(self) -> dict[str, str]:
+        return {wid: workflow._workflow_type() for wid, workflow in self.workflows.items()}
+
+    def _save_workflows(self):
         """
         Serialize the workflow event managers
 
@@ -267,9 +296,7 @@ class WorkflowManager:
             self.event_serializer.save_events(wid, event_manager)
 
         for wid, workflow in self.workflows.items():
-            self.workflow_serializers[workflow._func.__class__.__name__].serialize_workflow(wid, workflow)
-
-        return {wid: str(type(workflow)) for wid, workflow in self.workflows.items()}
+            self.workflow_serializers[workflow._workflow_type()].serialize_workflow(wid, workflow)
 
     def _load_workflows(self, workflow_types: dict[str, str]):
         for wid, wtype in workflow_types.items():
