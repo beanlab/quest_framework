@@ -1,12 +1,12 @@
 import json
 import logging
 import shutil
+import uuid
 from pathlib import Path
 
 from quest import event, external_event
-from quest.events import InMemoryEventManager
-from quest.workflow import WorkflowManager, JsonEventSerializer, WorkflowSerializer, JsonMetadataSerializer, \
-    WorkflowFunction, StatelessWorkflowSerializer
+from quest.workflow import WorkflowManager, JsonEventSerializer, JsonMetadataSerializer, \
+    StatelessWorkflowSerializer
 
 logging.basicConfig(level=logging.DEBUG)
 INPUT_EVENT_NAME = 'input'
@@ -40,28 +40,28 @@ if __name__ == '__main__':
     saved_state = Path('saved-state')
 
     # Remove data
-    shutil.rmtree(saved_state, ignore_errors=True)
-    saved_state.mkdir(exist_ok=True, parents=True)
+    #shutil.rmtree(saved_state, ignore_errors=True)
 
     workflow_manager = WorkflowManager(
-        InMemoryEventManager,
         JsonMetadataSerializer(saved_state),
-        JsonEventSerializer(saved_state),
+        JsonEventSerializer(saved_state / 'workflow_state'),
         {'RegisterUserFlow': StatelessWorkflowSerializer(RegisterUserFlow)}
     )
 
+    workflow_id = str(uuid.uuid4())
+
     with workflow_manager:
-        result = workflow_manager.start_workflow("123", RegisterUserFlow(), 'Howdy')
+        result = workflow_manager.start_workflow(workflow_id, RegisterUserFlow(), 'Howdy')
         assert result is None
 
         print('---')
-        result = workflow_manager.signal_workflow("123", INPUT_EVENT_NAME, "Foo")
+        result = workflow_manager.signal_workflow(workflow_id, INPUT_EVENT_NAME, "Foo")
         assert result is None
 
     with workflow_manager:
         print('---')
-        result = workflow_manager.signal_workflow("123", INPUT_EVENT_NAME, '123')
+        result = workflow_manager.signal_workflow(workflow_id, INPUT_EVENT_NAME, '123')
         print('---')
         assert result is not None
 
-        print(json.dumps(workflow_manager.workflows["123"]._events._state, indent=2))
+        print(json.dumps(workflow_manager.workflows[workflow_id]._events._state, indent=2))

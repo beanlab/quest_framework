@@ -65,9 +65,13 @@ class Workflow:
     Function decorator
     """
 
-    def __init__(self, workflow_id: str, func: WorkflowFunction, event_manager: EventManager = None):
+    def __init__(self,
+                 workflow_id: str,
+                 func: WorkflowFunction,
+                 event_manager: EventManager
+                 ):
         self.workflow_id = workflow_id
-        self._events: EventManager = event_manager if event_manager is not None else InMemoryEventManager()
+        self._events: EventManager = event_manager
         self._replay_events: list[UniqueEvent] = []
         self._func = self._decorate(func)
 
@@ -123,8 +127,8 @@ class Workflow:
         self._replay_events.append(_unique_name)
 
         def new_func(*args, **kwargs):
-            event_name = next(_unique_name)
-            return self._await_event(event_name)
+            _event_name = next(_unique_name)
+            return self._await_event(_event_name)
 
         return new_func
 
@@ -155,7 +159,10 @@ class Workflow:
             logging.debug('Invoking workflow')
             result = self._func(*args, **kwargs)
             logging.debug('Workflow invocation complete')
-            self._record_event(WORKFLOW_RESULT, result)
+
+            if WORKFLOW_RESULT not in self._events:
+                self._record_event(WORKFLOW_RESULT, result)
+
             return WorkflowResult(result)
 
         except WorkflowSuspended as ws:
@@ -191,6 +198,8 @@ class WorkflowMetadataSerializer(Protocol):
 
 
 class EventSerializer(Protocol[EM]):
+    def new_event_manager(self, workflow_id: str) -> EM: ...
+
     def save_events(self, key: str, event_manager: EM): ...
 
     def load_events(self, key: str) -> EM: ...
@@ -241,15 +250,14 @@ class WorkflowManager:
 
     def __init__(
             self,
-            create_event_manager: Callable[[], EM],
             metadata_serializer: WorkflowMetadataSerializer,
             event_serializer: EventSerializer[EM],
             workflow_serializers: dict[str, WorkflowSerializer],
     ):
-        self.create_event_manager = create_event_manager
         self.metadata_serializer = metadata_serializer
         self.event_serializer = event_serializer
         self.workflow_serializers = workflow_serializers
+
         self.workflows: dict[str, Workflow] = {}
         self.event_managers: dict[str, EventManager] = {}
 
@@ -264,7 +272,7 @@ class WorkflowManager:
             logging.error(f'Workflow ID {workflow_id} already in use')
             raise DuplicateWorkflowIDException(workflow_id)
 
-        event_manager = self.create_event_manager()
+        event_manager = self.event_serializer.new_event_manager(workflow_id)
         workflow = Workflow(
             workflow_id,
             func,
@@ -317,16 +325,24 @@ class JsonEventSerializer(EventSerializer[InMemoryEventManager]):
         if not self.folder.exists():
             self.folder.mkdir(parents=True)
 
+    def new_event_manager(self, workflow_id: str):
+        return InMemoryEventManager(workflow_id)
+
     def save_events(self, key: str, event_manager: InMemoryEventManager):
         file = key + '.json'
         with open(self.folder / file, 'w') as file:
-            json.dump(event_manager._state, file)
+            json.dump({
+                'workflow_id': event_manager._workflow_id,
+                'events': event_manager._state,
+                'counters': {k: ue.to_json() for k, ue in event_manager._counters.items()}
+            }, file)
 
     def load_events(self, key: str) -> InMemoryEventManager:
         file = key + '.json'
         with open(self.folder / file) as file:
             state = json.load(file)
-            return InMemoryEventManager(state)
+            counters = {k: UniqueEvent(**ue) for k, ue in state['counters'].items()}
+            return InMemoryEventManager(state['workflow_id'], state['events'], counters)
 
 
 class JsonMetadataSerializer(WorkflowMetadataSerializer):

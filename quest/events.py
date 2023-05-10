@@ -1,5 +1,3 @@
-import json
-import os
 from typing import Protocol, Union, TypedDict
 
 
@@ -45,9 +43,14 @@ class EventManager(Protocol):
 
 
 class InMemoryEventManager(EventManager):
-    def __init__(self, initial_state: dict[str, Event] = None):
+    def __init__(self,
+                 workflow_id: str,
+                 initial_state: dict[str, Event] = None,
+                 initial_counters: dict[str, UniqueEvent] = None
+                 ):
+        self._workflow_id = workflow_id
         self._state = initial_state or {}
-        self._counters = {}
+        self._counters = initial_counters or {}
 
     def __getitem__(self, key: str) -> Event:
         return self._state[key]
@@ -62,39 +65,3 @@ class InMemoryEventManager(EventManager):
         if event_name not in self._counters:
             self._counters[event_name] = UniqueEvent(event_name)
         return self._counters[event_name]
-
-
-class LocalEventManager(EventManager):
-    def __init__(self, filename):
-        self._filename = filename
-        if os.path.exists(filename):
-            with open(filename) as file:
-                tmp = json.load(file)
-                self._state = tmp['events']
-                self._counters = {k: UniqueEvent(**v) for k, v in tmp['counters'].items()}
-
-        else:
-            self._state = {}
-            self._counters = {}
-
-    def __getitem__(self, key: str) -> Event:
-        return self._state[key]
-
-    def __setitem__(self, key: str, value: Event):
-        self._state[key] = value
-        self._save()
-
-    def __contains__(self, key: str) -> bool:
-        return key in self._state
-
-    def counter(self, event_name) -> UniqueEvent:
-        if event_name not in self._counters:
-            self._counters[event_name] = UniqueEvent(event_name)
-        return self._counters[event_name]
-
-    def _save(self):
-        with open(self._filename, 'w') as file:
-            json.dump({
-                "events": self._state,
-                "counters": {k: v.to_json() for k, v in self._counters.items()}
-            }, file)
