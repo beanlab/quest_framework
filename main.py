@@ -40,7 +40,8 @@ if __name__ == '__main__':
     saved_state = Path('saved-state')
 
     # Remove data
-    shutil.rmtree(saved_state)
+    shutil.rmtree(saved_state, ignore_errors=True)
+    saved_state.mkdir(exist_ok=True, parents=True)
 
     workflow_manager = WorkflowManager(
         InMemoryEventManager,
@@ -50,16 +51,17 @@ if __name__ == '__main__':
     )
 
     with workflow_manager:
-        register_user = workflow_manager.start_workflow("123", RegisterUserFlow(), 'Howdy')
+        result = workflow_manager.start_workflow("123", RegisterUserFlow(), 'Howdy')
+        assert result is None
 
         print('---')
-        result = register_user.send_event(INPUT_EVENT_NAME, 'Foo')
+        result = workflow_manager.signal_workflow("123", INPUT_EVENT_NAME, "Foo")
         assert result is None
 
     with workflow_manager:
         print('---')
-        result = register_user.send_event(INPUT_EVENT_NAME, '123')
+        result = workflow_manager.signal_workflow("123", INPUT_EVENT_NAME, '123')
         print('---')
         assert result is not None
 
-        print(json.dumps(register_user._events._state, indent=2))
+        print(json.dumps(workflow_manager.workflows["123"]._events._state, indent=2))

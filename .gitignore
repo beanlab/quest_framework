@@ -2,3 +2,4 @@
 /.idea/
 /dist/
 /saved-state/
+__pycache__/
