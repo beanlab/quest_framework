@@ -258,7 +258,7 @@ class WorkflowManager:
         workflow = self.workflows[workflow_id]
         return workflow.send_event(event_name, payload)
 
-    def new_workflow(self, workflow_id: str, func: WorkflowFunction) -> Workflow:
+    def start_workflow(self, workflow_id: str, func: WorkflowFunction, *args, **kwargs) -> WorkflowResult:
         """Registers the function as a new workflow"""
         if workflow_id in self.workflows:
             logging.error(f'Workflow ID {workflow_id} already in use')
@@ -272,7 +272,10 @@ class WorkflowManager:
         )
         self.event_managers[workflow_id] = event_manager
         self.workflows[workflow_id] = workflow
-        return workflow
+        return workflow(*args, **kwargs)
+
+    def has_workflow(self, wid: str):
+        return wid in self.workflows
 
     def __enter__(self):
         workflow_types = self.metadata_serializer.load()
@@ -304,7 +307,8 @@ class WorkflowManager:
             workflow_func = self.workflow_serializers[wtype].deserialize_workflow(wid)
             self.workflows[wid] = (workflow := Workflow(wid, workflow_func, event_manager))
             self.event_managers[wid] = event_manager
-            workflow.send_event(WorkflowManager.RESUME_WORKFLOW, None)
+            # workflow.send_event(WorkflowManager.RESUME_WORKFLOW + str(datetime.utcnow()), None)
+            workflow._run()
 
 
 class JsonEventSerializer(EventSerializer[InMemoryEventManager]):

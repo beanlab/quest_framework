@@ -50,9 +50,8 @@ if __name__ == '__main__':
     )
 
     with workflow_manager:
-        register_user = workflow_manager.new_workflow("123", RegisterUserFlow())
+        register_user = workflow_manager.start_workflow("123", RegisterUserFlow(), 'Howdy')
 
-        register_user('Howdy')
         print('---')
         result = register_user.send_event(INPUT_EVENT_NAME, 'Foo')
         assert result is None
