@@ -104,9 +104,10 @@ class Workflow:
 
         def new_func(*args, **kwargs):
             _event_name = next(_unique_name)
-
+            # self.parent = _event_name
+            # _event_name += self.parent
             if _event_name in self._events:
-                return self._events[_event_name]
+                return self._events[_event_name]['payload']
             else:
                 payload = func(*args, **kwargs)
                 self._record_event(_event_name, payload)

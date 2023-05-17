@@ -3,3 +3,5 @@
 /dist/
 /saved-state/
 __pycache__/
+/venv/
+
