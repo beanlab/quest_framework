@@ -39,6 +39,8 @@ class EventManager(Protocol):
 
     def __contains__(self, key: str) -> bool: ...
 
+    def __len__(self) -> int: ...
+
     def counter(self, event_name) -> UniqueEvent: ...
 
 
@@ -60,6 +62,9 @@ class InMemoryEventManager(EventManager):
 
     def __contains__(self, key: str) -> bool:
         return key in self._state
+
+    def __len__(self) -> int:
+        return len(self._state)
 
     def counter(self, event_name) -> UniqueEvent:
         if event_name not in self._counters:
