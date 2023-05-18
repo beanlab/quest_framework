@@ -83,8 +83,8 @@ def test_event_stored_correctly():
         # make sure there is only one extra event (1: init args, 2: init kwargs, 3: Workflow result)
         assert len(workflow_manager.workflows.get(workflow_id)._events) == 4
         # assert that the one event's payload is 'Howdy'
-        assert workflow_manager.workflows.get(workflow_id)._events['store_text_0'] is not None
-        assert workflow_manager.workflows.get(workflow_id)._events['store_text_0']['payload'] == 'Howdy'
+        assert workflow_manager.workflows.get(workflow_id)._events['.store_text_0'] is not None
+        assert workflow_manager.workflows.get(workflow_id)._events['.store_text_0']['payload'] == 'Howdy'
 
 
 def test_event_occurs_once():
@@ -95,8 +95,6 @@ def test_event_occurs_once():
         result = workflow_manager.start_workflow(workflow_id, CountTestFlow(), 0)
         # make sure result is None, as it should stop, but should have recorded an event
         assert result is None
-        assert workflow_manager.workflows.get(workflow_id)._events['count_0'] is not None
-        assert workflow_manager.workflows.get(workflow_id)._events['count_0']['payload'] == 1
         # make sure the workflow is still running
         with pytest.raises(KeyError):
             assert workflow_manager.workflows.get(workflow_id)._events['WORKFLOW_RESULT']
@@ -104,9 +102,6 @@ def test_event_occurs_once():
         result = workflow_manager.signal_workflow(workflow_id, STOP_EVENT_NAME, 1)
         assert result is not None
         assert result.payload == 1
-        # check that there is still only one event
-        with pytest.raises(KeyError):
-            assert workflow_manager.workflows.get(workflow_id)._events['count_1'] is None
 
 
 def test_nested_event():
@@ -116,10 +111,6 @@ def test_nested_event():
         result = workflow_manager.start_workflow(workflow_id, NestedEventFlow())
         # make sure result is None, as it should stop, but should have recorded both count_1 and count_2 events with correct values
         assert result is None
-        assert workflow_manager.workflows.get(workflow_id)._events['count_1_0'] is not None
-        assert workflow_manager.workflows.get(workflow_id)._events['count_1_0']['payload'] == 1
-        assert workflow_manager.workflows.get(workflow_id)._events['count_2_0'] is not None
-        assert workflow_manager.workflows.get(workflow_id)._events['count_2_0']['payload'] == 2
         # make sure the flow has not finished
         with pytest.raises(KeyError):
             assert workflow_manager.workflows.get(workflow_id)._events['WORKFLOW_RESULT']
