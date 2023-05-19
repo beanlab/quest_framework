@@ -74,6 +74,8 @@ class Workflow:
         self._events: EventManager = event_manager
         self._replay_events: list[UniqueEvent] = []
         self._func = self._decorate(func)
+        self.prefix = []
+        self.unique_events = {}
 
     def _workflow_type(self) -> str:
         return self._func.__class__.__name__
@@ -99,17 +101,19 @@ class Workflow:
         """
         logging.debug(f'Registering workflow event: {event_name}')
 
-        _unique_name = UniqueEvent(event_name)
-        self._replay_events.append(_unique_name)
-
         def new_func(*args, **kwargs):
-            _event_name = next(_unique_name)
-            # self.parent = _event_name
-            # _event_name += self.parent
+            prefixed_name = '.'.join(self.prefix) + '.' + event_name
+            if prefixed_name not in self.unique_events:
+                self.unique_events[prefixed_name] = UniqueEvent(prefixed_name)
+                self._replay_events.append(self.unique_events[prefixed_name])
+            _event_name = next(self.unique_events[prefixed_name])
+
             if _event_name in self._events:
                 return self._events[_event_name]['payload']
             else:
+                self.prefix.append(event_name)
                 payload = func(*args, **kwargs)
+                self.prefix.pop(-1)
                 self._record_event(_event_name, payload)
                 return payload
 
