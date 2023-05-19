@@ -111,8 +111,29 @@ def test_event_occurs_once_when_killed(tmp_path):
         assert result.payload == 0
 
 
-def test_nested_event():
-    workflow_manager = create_workflow_manager(NestedEventFlow, 'NestedEventFlow')
+class NestedEventFlow:
+
+    @event
+    def count_1(self, counter: int) -> int:
+        return counter + 1
+
+    @event
+    def count_2(self, counter: int) -> int:
+        counter = self.count_1(counter)
+        return counter + 1
+
+    @external_event(STOP_EVENT_NAME)
+    def stop(self): ...
+
+    def __call__(self):
+        count_2 = self.count_2(0)
+        count_1 = self.count_1(count_2)
+        self.stop()
+        return {"count_1": count_1, "count_2": count_2}
+
+
+def test_nested_event(tmp_path):
+    workflow_manager = create_workflow_manager(NestedEventFlow, 'NestedEventFlow', tmp_path)
     workflow_id = get_workflow_id()
     with workflow_manager:
         result = workflow_manager.start_workflow(workflow_id, NestedEventFlow())
