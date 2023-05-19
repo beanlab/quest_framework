@@ -35,7 +35,6 @@ class RegisterUserFlow:
         sid = self.get_student_id()
         self.display(f'Name: {name}, ID: {sid}')
 
-
 if __name__ == '__main__':
     saved_state = Path('saved-state')
 

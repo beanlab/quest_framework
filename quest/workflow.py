@@ -1,8 +1,10 @@
 import json
 import logging
 from datetime import datetime
+from functools import wraps
 from pathlib import Path
 from typing import Any, Protocol, Callable, TypeVar
+import inspect
 
 from .events import Event, UniqueEvent, EventManager, InMemoryEventManager
 
@@ -11,10 +13,26 @@ KW_ARGUMENTS = "INITIAL_KW_ARGUMENTS"
 WORKFLOW_RESULT = "WORKFLOW_RESULT"
 
 
+class WorkflowNotFoundException(Exception):
+    pass
+
+
 def event(func):
-    func.__is_workflow_event = True
-    func.__event_name = func.__name__
-    return func
+    @wraps(func)
+    def new_func(*args, **kwargs):
+        outer_frame = inspect.currentframe()
+        is_workflow = False
+        while not is_workflow:
+            outer_frame = outer_frame.f_back
+            if outer_frame is None:
+                raise WorkflowNotFoundException("Workflow object not found in event stack")
+            try:
+                is_workflow = isinstance(outer_frame.f_locals['self'], Workflow)
+            except KeyError as e:
+                logging.debug(str(e) + ": outer_frame not called from a class")
+        return outer_frame.f_locals['self'].run_event(func.__name__, func, *args, **kwargs)
+
+    return new_func
 
 
 def external_event(func_or_name):
@@ -79,6 +97,22 @@ class Workflow:
 
     def _workflow_type(self) -> str:
         return self._func.__class__.__name__
+
+    def run_event(self, event_name, func, *args, **kwargs):
+        prefixed_name = '.'.join(self.prefix) + '.' + event_name
+        if prefixed_name not in self.unique_events:
+            self.unique_events[prefixed_name] = UniqueEvent(prefixed_name)
+            self._replay_events.append(self.unique_events[prefixed_name])
+        _event_name = next(self.unique_events[prefixed_name])
+
+        if _event_name in self._events:
+            return self._events[_event_name]['payload']
+        else:
+            self.prefix.append(event_name)
+            payload = func(*args, **kwargs)
+            self.prefix.pop(-1)
+            self._record_event(_event_name, payload)
+            return payload
 
     def _decorate(self, func: WorkflowFunction):
         for prop_name in dir(func):
@@ -320,7 +354,6 @@ class WorkflowManager:
             workflow_func = self.workflow_serializers[wtype].deserialize_workflow(wid)
             self.workflows[wid] = (workflow := Workflow(wid, workflow_func, event_manager))
             self.event_managers[wid] = event_manager
-            # workflow.send_event(WorkflowManager.RESUME_WORKFLOW + str(datetime.utcnow()), None)
             workflow._run()
 
 
