@@ -34,7 +34,7 @@ def event(func):
 
     return new_func
 
-
+# signal event and then add async later
 def external_event(func_or_name):
     if isinstance(func_or_name, str):
         def decorator(func):
