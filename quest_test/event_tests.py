@@ -5,6 +5,9 @@ from quest import *
 from quest.workflow import *
 
 STOP_EVENT_NAME = 'stop'
+OTHER_EVENT_NAME = 'other_event'
+event_counter = 0
+not_event_counter = 0
 
 
 def create_workflow_manager(flow_function, flow_function_name, path) -> WorkflowManager:
@@ -22,127 +25,238 @@ def get_workflow_id() -> str:
     return str(uuid.uuid4())
 
 
-class CalledOnceFlow:
-
-    def __init__(self):
-        self.call_count = 0
-
-    @event
-    def count(self):
-        self.call_count += 1
-
-    def __call__(self):
-        self.count()
-
-
-def test_event_called_once(tmp_path):
-    EVENT_NAME = 'count'
-    workflow_manager = create_workflow_manager(CalledOnceFlow, 'CalledOnceFlow', tmp_path)
+# an event test should have an event call counter + a stop external event
+def event_test(tmp_path, workflow_func, workflow_name, run_test, event_counter_correct,
+               not_event_counter_correct, return_val):
+    global event_counter, not_event_counter
+    event_counter = 0
+    not_event_counter = 0
+    workflow_manager = create_workflow_manager(workflow_func, workflow_name, tmp_path)
     workflow_id = get_workflow_id()
-    with workflow_manager:
-        workflow_func = CalledOnceFlow()
-        # start initial workflow
-        result = workflow_manager.start_workflow(workflow_id, workflow_func)
-        # make sure workflow __call__ returns None
-        assert result is not None
-        assert result.payload is None
-        # signal workflow more times, each time count should be one
-        assert workflow_func.call_count == 1
-        for i in range(5):
-            workflow_manager.signal_workflow(workflow_id, EVENT_NAME, None)
-            assert workflow_func.call_count == 1
+    run_test(workflow_manager, workflow_id, workflow_func, event_counter_correct,
+             not_event_counter_correct, return_val)
 
 
-class CalledOnceExternalFlow:
-
-    def __init__(self):
-        self.call_count = 0
+class InternalEventFlow:
 
     @event
     def count(self):
-        self.call_count += 1
+        global event_counter
+        event_counter += 1
+
+    def not_event_count(self):
+        global not_event_counter
+        not_event_counter += 1
 
     @external_event(STOP_EVENT_NAME)
     def stop(self): ...
 
     def __call__(self):
         self.count()
+        self.not_event_count()
         self.stop()
-        return self.call_count
+        return "finished"
 
 
-def test_event_occurs_once_with_external_event(tmp_path):
-    EVENT_NAME = 'stop'
-    workflow_manager = create_workflow_manager(CalledOnceExternalFlow, 'CalledOnceExternalFlow', tmp_path)
-    workflow_id = get_workflow_id()
+def call_count_stop_external(workflow_manager, workflow_id, workflow_func, event_counter_correct,
+                             not_event_counter_correct, *args, **kwargs):
     with workflow_manager:
-        workflow_func = CalledOnceExternalFlow()
-        # start initial workflow
-        result = workflow_manager.start_workflow(workflow_id, workflow_func)
-        # make sure workflow returns None because of stop call
+        result = workflow_manager.start_workflow(workflow_id, workflow_func())
         assert result is None
-        # signal workflow more times, each time count should be one
-        assert workflow_func.call_count == 1
-        result = workflow_manager.signal_workflow(workflow_id, EVENT_NAME, None)
-        assert workflow_func.call_count == 1
-        # result of signal should not be none, but payload should be as it should finish
-        assert result is not None
+        assert event_counter == event_counter_correct
+        assert not_event_counter == not_event_counter_correct
 
 
-def test_event_occurs_once_when_killed(tmp_path):
-    EVENT_NAME = 'stop'
-    workflow_manager = create_workflow_manager(CalledOnceExternalFlow, 'CalledOnceExternalFlow', tmp_path)
-    workflow_id = get_workflow_id()
-    workflow_func = CalledOnceExternalFlow()
+def call_signal_external(workflow_manager, workflow_id, workflow_func, event_counter_correct,
+                         not_event_counter_correct, return_val, *args, **kwargs):
     with workflow_manager:
-        # start initial workflow
-        result = workflow_manager.start_workflow(workflow_id, workflow_func)
-        # make sure workflow returns None because of stop call
+        # Start workflow. Should return none because of the stop, would have called count once
+        result = workflow_manager.start_workflow(workflow_id, workflow_func())
         assert result is None
-    # "kill" the function by exiting context, create new workflow_manger and restart
-    workflow_manager = create_workflow_manager(CalledOnceExternalFlow, 'CalledOnceExternalFlow', tmp_path)
-    with workflow_manager:
-        # try to call same workflow, should get a duplicate workflow error
-        with pytest.raises(DuplicateWorkflowIDException):
-            workflow_manager.start_workflow(workflow_id, workflow_func)
-        # signal workflow to resume, call count return should be 0, because count() should not be called
-        result = workflow_manager.signal_workflow(workflow_id, EVENT_NAME, None)
+        assert event_counter == event_counter_correct
+        assert not_event_counter == not_event_counter_correct
+        # Signal the workflow to start again, call count should still be 1 and not 2
+        result = workflow_manager.signal_workflow(workflow_id, STOP_EVENT_NAME, None)
         assert result is not None
-        assert result.payload == 0
+        assert result.payload == return_val
+        assert event_counter == event_counter_correct
+        assert not_event_counter == not_event_counter_correct * 2
 
 
-class NestedEventFlow:
+def kill_context_in_stop(workflow_manager, workflow_id, workflow_func, event_counter_correct,
+                         not_event_counter_correct, *args, **kwargs):
+    with workflow_manager:
+        # Start workflow. Should return none because of the stop, would have called count once
+        result = workflow_manager.start_workflow(workflow_id, workflow_func())
+        assert result is None
+        assert event_counter == event_counter_correct
+        assert not_event_counter == not_event_counter_correct
+    with workflow_manager:
+        assert event_counter == event_counter_correct
+        assert not_event_counter == not_event_counter_correct * 2
 
-    @event
-    def count_1(self, counter: int) -> int:
-        return counter + 1
 
-    @event
-    def count_2(self, counter: int) -> int:
-        counter = self.count_1(counter)
-        return counter + 1
+def kill_context_after_stop(workflow_manager, workflow_id, workflow_func, event_counter_correct,
+                            not_event_counter_correct, return_val, *args, **kwargs):
+    with workflow_manager:
+        # Start workflow. Should return none because of the stop, would have called count once
+        result = workflow_manager.start_workflow(workflow_id, workflow_func())
+        assert result is None
+        assert event_counter == event_counter_correct
+        assert not_event_counter == not_event_counter_correct
+        # Signal the workflow to start again, call count should still be 1 and not 2
+        result = workflow_manager.signal_workflow(workflow_id, STOP_EVENT_NAME, None)
+        assert result is not None
+        assert result.payload == return_val
+        assert event_counter == event_counter_correct
+        assert not_event_counter == not_event_counter_correct * 2
+    with workflow_manager:
+        assert event_counter == event_counter_correct
+        assert not_event_counter == not_event_counter_correct * 3
+
+
+def test_call_count_stop_external(tmp_path):
+    event_test(tmp_path, InternalEventFlow, 'InternalEventFlow', call_count_stop_external, 1, 1, "finished")
+
+
+def test_call_signal_external(tmp_path):
+    event_test(tmp_path, InternalEventFlow, 'InternalEventFlow', call_signal_external, 1, 1, "finished")
+
+
+def test_kill_context_in_stop(tmp_path):
+    event_test(tmp_path, InternalEventFlow, 'InternalEventFlow', kill_context_in_stop, 1, 1, "finished")
+
+
+def test_kill_context_after_stop(tmp_path):
+    event_test(tmp_path, InternalEventFlow, 'InternalEventFlow', kill_context_after_stop, 1, 1, "finished")
+
+
+#################################################################################################################
+
+@event
+def count():
+    global event_counter
+    event_counter += 1
+
+
+def not_event_count():
+    global not_event_counter
+    not_event_counter += 1
+
+
+class ExternalEventFlow:
 
     @external_event(STOP_EVENT_NAME)
     def stop(self): ...
 
     def __call__(self):
-        count_2 = self.count_2(0)
-        count_1 = self.count_1(count_2)
+        count()
+        not_event_count()
         self.stop()
-        return {"count_1": count_1, "count_2": count_2}
+        return "finished"
 
 
-def test_nested_event(tmp_path):
-    workflow_manager = create_workflow_manager(NestedEventFlow, 'NestedEventFlow', tmp_path)
-    workflow_id = get_workflow_id()
-    with workflow_manager:
-        result = workflow_manager.start_workflow(workflow_id, NestedEventFlow())
-        # make sure result is None, as it should stop, but should have recorded both count_1 and count_2 events with correct values
-        assert result is None
-        # make sure the flow has not finished
-        with pytest.raises(KeyError):
-            assert workflow_manager.workflows.get(workflow_id)._events['WORKFLOW_RESULT']
-        # restart the flow and make sure the count return values are correct
-        result = workflow_manager.signal_workflow(workflow_id, STOP_EVENT_NAME, 1)
-        assert result.payload['count_1'] == 3
-        assert result.payload['count_2'] == 2
+def test_external_event_call_count_stop_external(tmp_path):
+    event_test(tmp_path, ExternalEventFlow, 'ExternalEventFlow', call_count_stop_external, 1, 1, "finished")
+
+
+def test_external_event_call_signal_external(tmp_path):
+    event_test(tmp_path, ExternalEventFlow, 'ExternalEventFlow', call_signal_external, 1, 1, "finished")
+
+
+def test_external_event_kill_context_in_stop(tmp_path):
+    event_test(tmp_path, ExternalEventFlow, 'ExternalEventFlow', kill_context_in_stop, 1, 1, "finished")
+
+
+def test_external_event_kill_context_after_stop(tmp_path):
+    event_test(tmp_path, ExternalEventFlow, 'ExternalEventFlow', kill_context_after_stop, 1, 1, "finished")
+
+
+#################################################################################################################
+
+class OtherClass:
+    @event
+    def count(self):
+        global event_counter
+        event_counter += 1
+
+    def not_event_count(self):
+        global not_event_counter
+        not_event_counter += 1
+
+
+class EventInOtherClassEventFlow:
+
+    @external_event(STOP_EVENT_NAME)
+    def stop(self): ...
+
+    def __call__(self):
+        other_class = OtherClass()
+        other_class.count()
+        other_class.not_event_count()
+        self.stop()
+        return "finished"
+
+
+def test_event_other_class_call_count_stop_external(tmp_path):
+    event_test(tmp_path, EventInOtherClassEventFlow, 'EventInOtherClassEventFlow', call_count_stop_external, 1, 1,
+               "finished")
+
+
+def test_event_other_class_call_signal_external(tmp_path):
+    event_test(tmp_path, EventInOtherClassEventFlow, 'EventInOtherClassEventFlow', call_signal_external, 1, 1,
+               "finished")
+
+
+def test_event_other_class_kill_context_in_stop(tmp_path):
+    event_test(tmp_path, EventInOtherClassEventFlow, 'EventInOtherClassEventFlow', kill_context_in_stop, 1, 1,
+               "finished")
+
+
+def test_event_other_class_kill_context_after_stop(tmp_path):
+    event_test(tmp_path, EventInOtherClassEventFlow, 'EventInOtherClassEventFlow', kill_context_after_stop, 1, 1,
+               "finished")
+
+
+#################################################################################################################
+
+class InternalNestedEventFlow:
+
+    @event
+    def another_event(self):
+        return self.count()
+
+    @event
+    def count(self):
+        global event_counter
+        event_counter += 1
+        return event_counter
+
+    def not_event_count(self):
+        global not_event_counter
+        not_event_counter += 1
+
+    @external_event(STOP_EVENT_NAME)
+    def stop(self): ...
+
+    def __call__(self):
+        self.another_event()
+        second_count = self.count()
+        self.stop()
+        return second_count
+
+
+def test_internal_nested_call_count_stop_external(tmp_path):
+    event_test(tmp_path, InternalNestedEventFlow, 'InternalNestedEventFlow', call_count_stop_external, 2, 0, 2)
+
+
+def test_internal_nested_call_signal_external(tmp_path):
+    event_test(tmp_path, InternalNestedEventFlow, 'InternalNestedEventFlow', call_signal_external, 2, 0, 2)
+
+
+def test_internal_nested_kill_context_in_stop(tmp_path):
+    event_test(tmp_path, InternalNestedEventFlow, 'InternalNestedEventFlow', kill_context_in_stop, 2, 0, 2)
+
+
+def test_internal_nested_kill_context_after_stop(tmp_path):
+    event_test(tmp_path, InternalNestedEventFlow, 'InternalNestedEventFlow', kill_context_after_stop, 2, 0, 2)

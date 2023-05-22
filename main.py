@@ -35,11 +35,12 @@ class RegisterUserFlow:
         sid = self.get_student_id()
         self.display(f'Name: {name}, ID: {sid}')
 
+
 if __name__ == '__main__':
     saved_state = Path('saved-state')
 
     # Remove data
-    #shutil.rmtree(saved_state, ignore_errors=True)
+    # shutil.rmtree(saved_state, ignore_errors=True)
 
     workflow_manager = WorkflowManager(
         JsonMetadataSerializer(saved_state),
