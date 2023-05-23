@@ -48,7 +48,7 @@ class InternalEventFlow:
         global not_event_counter
         not_event_counter += 1
 
-    @external_event(STOP_EVENT_NAME)
+    @signal_event(STOP_EVENT_NAME)
     def stop(self): ...
 
     def __call__(self):
@@ -146,7 +146,7 @@ def not_event_count():
 
 class ExternalEventFlow:
 
-    @external_event(STOP_EVENT_NAME)
+    @signal_event(STOP_EVENT_NAME)
     def stop(self): ...
 
     def __call__(self):
@@ -175,6 +175,9 @@ def test_external_event_kill_context_after_stop(tmp_path):
 #################################################################################################################
 
 class OtherClass:
+    @signal_event(STOP_EVENT_NAME)
+    def stop(self): ...
+
     @event
     def count(self):
         global event_counter
@@ -187,7 +190,7 @@ class OtherClass:
 
 class EventInOtherClassEventFlow:
 
-    @external_event(STOP_EVENT_NAME)
+    @signal_event(STOP_EVENT_NAME)
     def stop(self): ...
 
     def __call__(self):
@@ -236,7 +239,7 @@ class InternalNestedEventFlow:
         global not_event_counter
         not_event_counter += 1
 
-    @external_event(STOP_EVENT_NAME)
+    @signal_event(STOP_EVENT_NAME)
     def stop(self): ...
 
     def __call__(self):
@@ -246,17 +249,49 @@ class InternalNestedEventFlow:
         return second_count
 
 
-def test_internal_nested_call_count_stop_external(tmp_path):
-    event_test(tmp_path, InternalNestedEventFlow, 'InternalNestedEventFlow', call_count_stop_external, 2, 0, 2)
-
-
-def test_internal_nested_call_signal_external(tmp_path):
-    event_test(tmp_path, InternalNestedEventFlow, 'InternalNestedEventFlow', call_signal_external, 2, 0, 2)
-
-
 def test_internal_nested_kill_context_in_stop(tmp_path):
     event_test(tmp_path, InternalNestedEventFlow, 'InternalNestedEventFlow', kill_context_in_stop, 2, 0, 2)
 
 
-def test_internal_nested_kill_context_after_stop(tmp_path):
-    event_test(tmp_path, InternalNestedEventFlow, 'InternalNestedEventFlow', kill_context_after_stop, 2, 0, 2)
+#################################################################################################################
+
+@signal_event(STOP_EVENT_NAME)
+def stop(self): ...
+
+
+class ExternalSignalEvent:
+
+    @event
+    def count(self):
+        global event_counter
+        event_counter += 1
+
+    def __call__(self):
+        self.count()
+        stop()
+        return "finished"
+
+
+def test_external_signal_send_signal(tmp_path):
+    event_test(tmp_path, ExternalSignalEvent, 'ExternalSignalEvent', call_signal_external, 1, 0, "finished")
+
+
+#################################################################################################################
+
+
+class OtherClassSignalEvent:
+
+    @event
+    def count(self):
+        global event_counter
+        event_counter += 1
+
+    def __call__(self):
+        other_class = OtherClass()
+        self.count()
+        other_class.stop()
+        return "finished"
+
+
+def test_other_class_signal_event_send_signal(tmp_path):
+    event_test(tmp_path, OtherClassSignalEvent, 'OtherClassSignalEvent', call_signal_external, 1, 0, "finished")

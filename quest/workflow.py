@@ -17,36 +17,44 @@ class WorkflowNotFoundException(Exception):
     pass
 
 
+def find_frame():
+    outer_frame = inspect.currentframe()
+    is_workflow = False
+    while not is_workflow:
+        outer_frame = outer_frame.f_back
+        if outer_frame is None:
+            raise WorkflowNotFoundException("Workflow object not found in event stack")
+        try:
+            is_workflow = isinstance(outer_frame.f_locals['self'], Workflow)
+        except KeyError as e:
+            logging.debug(str(e) + ": outer_frame not called from a class")
+    return outer_frame
+
+
 def event(func):
     @wraps(func)
     def new_func(*args, **kwargs):
-        outer_frame = inspect.currentframe()
-        is_workflow = False
-        while not is_workflow:
-            outer_frame = outer_frame.f_back
-            if outer_frame is None:
-                raise WorkflowNotFoundException("Workflow object not found in event stack")
-            try:
-                is_workflow = isinstance(outer_frame.f_locals['self'], Workflow)
-            except KeyError as e:
-                logging.debug(str(e) + ": outer_frame not called from a class")
-        return outer_frame.f_locals['self'].run_event(func.__name__, func, *args, **kwargs)
+        return find_frame().f_locals['self'].run_event(func.__name__, func, *args, **kwargs)
 
     return new_func
 
-# signal event and then add async later
-def external_event(func_or_name):
+
+def signal_event(func_or_name):
     if isinstance(func_or_name, str):
         def decorator(func):
-            func.__is_external_event = True
             func.__event_name = func_or_name
-            return func
+
+            def new_func(*args, **kwargs):
+                return find_frame().f_locals['self'].run_signal_event(func_or_name)
+
+            return new_func
 
         return decorator
     else:
-        func_or_name.__is_external_event = True
-        func_or_name.__event_name = func_or_name.__name__
-        return func_or_name
+        def new_func(*args, **kwargs):
+            return find_frame().f_locals['self'].run_signal_event(func_or_name.__name__)
+
+        return new_func
 
 
 class DuplicateWorkflowIDException(Exception):
@@ -113,6 +121,15 @@ class Workflow:
             self.prefix.pop(-1)
             self._record_event(_event_name, payload)
             return payload
+
+    def run_signal_event(self, event_name: str):
+        logging.debug(f'Registering external event: {event_name}')
+        prefixed_name = '.'.join(self.prefix) + '.' + event_name
+        if prefixed_name not in self.unique_events:
+            self.unique_events[prefixed_name] = UniqueEvent(event_name)
+            self._replay_events.append(self.unique_events[prefixed_name])
+        _event_name = next(self.unique_events[prefixed_name])
+        return self._await_event(_event_name)
 
     def _decorate(self, func: WorkflowFunction):
         for prop_name in dir(func):

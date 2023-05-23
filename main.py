@@ -4,9 +4,9 @@ import shutil
 import uuid
 from pathlib import Path
 
-from quest import event, external_event
+from quest import event
 from quest.workflow import WorkflowManager, JsonEventSerializer, JsonMetadataSerializer, \
-    StatelessWorkflowSerializer
+    StatelessWorkflowSerializer, signal_event
 
 logging.basicConfig(level=logging.DEBUG)
 INPUT_EVENT_NAME = 'input'
@@ -18,7 +18,7 @@ class RegisterUserFlow:
     def display(self, text: str):
         print(text)
 
-    @external_event(INPUT_EVENT_NAME)
+    @signal_event(INPUT_EVENT_NAME)
     def get_input(self): ...
 
     def get_name(self):
