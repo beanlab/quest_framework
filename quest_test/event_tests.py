@@ -1,3 +1,4 @@
+import asyncio
 import shutil
 import uuid
 import pytest
@@ -58,8 +59,8 @@ class InternalEventFlow:
         return "finished"
 
 
-def call_count_stop_external(workflow_manager, workflow_id, workflow_func, event_counter_correct,
-                             not_event_counter_correct, *args, **kwargs):
+def call_count_and_stop(workflow_manager, workflow_id, workflow_func, event_counter_correct,
+                        not_event_counter_correct, *args, **kwargs):
     with workflow_manager:
         result = workflow_manager.start_workflow(workflow_id, workflow_func())
         assert result is None
@@ -67,8 +68,8 @@ def call_count_stop_external(workflow_manager, workflow_id, workflow_func, event
         assert not_event_counter == not_event_counter_correct
 
 
-def call_signal_external(workflow_manager, workflow_id, workflow_func, event_counter_correct,
-                         not_event_counter_correct, return_val, *args, **kwargs):
+def call_count_and_call_send_signal(workflow_manager, workflow_id, workflow_func, event_counter_correct,
+                                    not_event_counter_correct, return_val, *args, **kwargs):
     with workflow_manager:
         # Start workflow. Should return none because of the stop, would have called count once
         result = workflow_manager.start_workflow(workflow_id, workflow_func())
@@ -116,11 +117,11 @@ def kill_context_after_stop(workflow_manager, workflow_id, workflow_func, event_
 
 
 def test_call_count_stop_external(tmp_path):
-    event_test(tmp_path, InternalEventFlow, 'InternalEventFlow', call_count_stop_external, 1, 1, "finished")
+    event_test(tmp_path, InternalEventFlow, 'InternalEventFlow', call_count_and_stop, 1, 1, "finished")
 
 
 def test_call_signal_external(tmp_path):
-    event_test(tmp_path, InternalEventFlow, 'InternalEventFlow', call_signal_external, 1, 1, "finished")
+    event_test(tmp_path, InternalEventFlow, 'InternalEventFlow', call_count_and_call_send_signal, 1, 1, "finished")
 
 
 def test_kill_context_in_stop(tmp_path):
@@ -157,11 +158,11 @@ class ExternalEventFlow:
 
 
 def test_external_event_call_count_stop_external(tmp_path):
-    event_test(tmp_path, ExternalEventFlow, 'ExternalEventFlow', call_count_stop_external, 1, 1, "finished")
+    event_test(tmp_path, ExternalEventFlow, 'ExternalEventFlow', call_count_and_stop, 1, 1, "finished")
 
 
 def test_external_event_call_signal_external(tmp_path):
-    event_test(tmp_path, ExternalEventFlow, 'ExternalEventFlow', call_signal_external, 1, 1, "finished")
+    event_test(tmp_path, ExternalEventFlow, 'ExternalEventFlow', call_count_and_call_send_signal, 1, 1, "finished")
 
 
 def test_external_event_kill_context_in_stop(tmp_path):
@@ -202,12 +203,12 @@ class EventInOtherClassEventFlow:
 
 
 def test_event_other_class_call_count_stop_external(tmp_path):
-    event_test(tmp_path, EventInOtherClassEventFlow, 'EventInOtherClassEventFlow', call_count_stop_external, 1, 1,
+    event_test(tmp_path, EventInOtherClassEventFlow, 'EventInOtherClassEventFlow', call_count_and_stop, 1, 1,
                "finished")
 
 
 def test_event_other_class_call_signal_external(tmp_path):
-    event_test(tmp_path, EventInOtherClassEventFlow, 'EventInOtherClassEventFlow', call_signal_external, 1, 1,
+    event_test(tmp_path, EventInOtherClassEventFlow, 'EventInOtherClassEventFlow', call_count_and_call_send_signal, 1, 1,
                "finished")
 
 
@@ -273,7 +274,7 @@ class ExternalSignalEvent:
 
 
 def test_external_signal_send_signal(tmp_path):
-    event_test(tmp_path, ExternalSignalEvent, 'ExternalSignalEvent', call_signal_external, 1, 0, "finished")
+    event_test(tmp_path, ExternalSignalEvent, 'ExternalSignalEvent', call_count_and_call_send_signal, 1, 0, "finished")
 
 
 #################################################################################################################
@@ -294,4 +295,28 @@ class OtherClassSignalEvent:
 
 
 def test_other_class_signal_event_send_signal(tmp_path):
-    event_test(tmp_path, OtherClassSignalEvent, 'OtherClassSignalEvent', call_signal_external, 1, 0, "finished")
+    event_test(tmp_path, OtherClassSignalEvent, 'OtherClassSignalEvent', call_count_and_call_send_signal, 1, 0, "finished")
+
+
+#################################################################################################################
+
+
+class AsyncEventFlow:
+
+    @async_event
+    async def wait_for_count(self):
+        await asyncio.sleep(2)
+        global event_counter
+        event_counter += 1
+
+    @signal_event(STOP_EVENT_NAME)
+    def stop(self): ...
+
+    def __call__(self):
+        asyncio.run(self.wait_for_count())
+        self.stop()
+        return "finished"
+
+
+def test_async_event_(tmp_path):
+    event_test(tmp_path, AsyncEventFlow, 'AsyncEventFlow', call_count_and_stop, 1, 0, "finished")

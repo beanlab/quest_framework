@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from datetime import datetime
@@ -25,16 +26,24 @@ def find_frame():
         if outer_frame is None:
             raise WorkflowNotFoundException("Workflow object not found in event stack")
         try:
-            is_workflow = isinstance(outer_frame.f_locals['self'], Workflow)
+            is_workflow = isinstance(outer_frame.f_locals.get('self'), Workflow)
         except KeyError as e:
             logging.debug(str(e) + ": outer_frame not called from a class")
     return outer_frame
 
 
+def async_event(func):
+    @wraps(func)
+    async def new_func(*args, **kwargs):
+        return await find_frame().f_locals.get('self').run_async_event(func.__name__, func, *args, **kwargs)
+
+    return new_func
+
+
 def event(func):
     @wraps(func)
     def new_func(*args, **kwargs):
-        return find_frame().f_locals['self'].run_event(func.__name__, func, *args, **kwargs)
+        return find_frame().f_locals.get('self').run_event(func.__name__, func, *args, **kwargs)
 
     return new_func
 
@@ -45,14 +54,14 @@ def signal_event(func_or_name):
             func.__event_name = func_or_name
 
             def new_func(*args, **kwargs):
-                return find_frame().f_locals['self'].run_signal_event(func_or_name)
+                return find_frame().f_locals.get('self').run_signal_event(func_or_name)
 
             return new_func
 
         return decorator
     else:
         def new_func(*args, **kwargs):
-            return find_frame().f_locals['self'].run_signal_event(func_or_name.__name__)
+            return find_frame().f_locals.get('self').run_signal_event(func_or_name.__name__)
 
         return new_func
 
@@ -105,6 +114,22 @@ class Workflow:
 
     def _workflow_type(self) -> str:
         return self._func.__class__.__name__
+
+    async def run_async_event(self, event_name, func, *args, **kwargs):
+        prefixed_name = '.'.join(self.prefix) + '.' + event_name
+        if prefixed_name not in self.unique_events:
+            self.unique_events[prefixed_name] = UniqueEvent(prefixed_name)
+            self._replay_events.append(self.unique_events[prefixed_name])
+        _event_name = next(self.unique_events[prefixed_name])
+
+        if _event_name in self._events:
+            return self._events[_event_name]['payload']
+        else:
+            self.prefix.append(event_name)
+            payload = await func(*args, **kwargs)
+            self.prefix.pop(-1)
+            self._record_event(_event_name, payload)
+            return payload
 
     def run_event(self, event_name, func, *args, **kwargs):
         prefixed_name = '.'.join(self.prefix) + '.' + event_name
