@@ -99,7 +99,7 @@ class Workflow:
         self.workflow_id = workflow_id
         self._events: EventManager = event_manager
         self._replay_events: list[UniqueEvent] = []
-        self._func = self._decorate(func)
+        self._func = func
         self.prefix = []
         self.unique_events = {}
 
@@ -130,63 +130,6 @@ class Workflow:
             self._replay_events.append(self.unique_events[prefixed_name])
         _event_name = next(self.unique_events[prefixed_name])
         return self._await_event(_event_name)
-
-    def _decorate(self, func: WorkflowFunction):
-        for prop_name in dir(func):
-            prop = getattr(func, prop_name)
-            if callable(prop) and hasattr(prop, '__is_workflow_event'):
-                name = getattr(prop, '__event_name')
-                setattr(func, prop_name, self._as_event(name, prop))
-
-            elif callable(prop) and hasattr(prop, '__is_external_event'):
-                name = getattr(prop, '__event_name')
-                setattr(func, prop_name, self._as_external_event(name))
-
-        return func
-
-    def _as_event(self, event_name, func):
-        """
-        Decorator.
-        Turns the function into an event.
-        Events only happen once, and are replayed when the function is replayed.
-        """
-        logging.debug(f'Registering workflow event: {event_name}')
-
-        def new_func(*args, **kwargs):
-            prefixed_name = '.'.join(self.prefix) + '.' + event_name
-            if prefixed_name not in self.unique_events:
-                self.unique_events[prefixed_name] = UniqueEvent(prefixed_name)
-                self._replay_events.append(self.unique_events[prefixed_name])
-            _event_name = next(self.unique_events[prefixed_name])
-
-            if _event_name in self._events:
-                return self._events[_event_name]['payload']
-            else:
-                self.prefix.append(event_name)
-                payload = func(*args, **kwargs)
-                self.prefix.pop(-1)
-                self._record_event(_event_name, payload)
-                return payload
-
-        return new_func
-
-    def _as_external_event(self, event_name: str):
-        """
-        Decorator.
-        Indicates that `func` represents an external event.
-        The event name will be that of the function.
-        `func` should have a pass body.
-        """
-        logging.debug(f'Registering external event: {event_name}')
-
-        _unique_name = UniqueEvent(event_name)
-        self._replay_events.append(_unique_name)
-
-        def new_func(*args, **kwargs):
-            _event_name = next(_unique_name)
-            return self._await_event(_event_name)
-
-        return new_func
 
     def _reset(self):
         for ue in self._replay_events:
