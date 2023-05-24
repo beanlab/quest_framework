@@ -25,10 +25,7 @@ def find_workflow():
         outer_frame = outer_frame.f_back
         if outer_frame is None:
             raise WorkflowNotFoundException("Workflow object not found in event stack")
-        try:
-            is_workflow = isinstance(outer_frame.f_locals.get('self'), Workflow)
-        except KeyError as e:
-            logging.debug(str(e) + ": outer_frame not called from a class")
+        is_workflow = isinstance(outer_frame.f_locals.get('self'), Workflow)
     return outer_frame.f_locals.get('self')
 
 
