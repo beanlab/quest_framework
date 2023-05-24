@@ -4,9 +4,9 @@ import shutil
 import uuid
 from pathlib import Path
 
-from quest import event
+from quest import event, signal_event
 from quest.workflow import WorkflowManager, JsonEventSerializer, JsonMetadataSerializer, \
-    StatelessWorkflowSerializer, signal_event
+    StatelessWorkflowSerializer
 
 logging.basicConfig(level=logging.DEBUG)
 INPUT_EVENT_NAME = 'input'

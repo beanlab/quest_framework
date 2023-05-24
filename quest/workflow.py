@@ -18,7 +18,7 @@ class WorkflowNotFoundException(Exception):
     pass
 
 
-def find_frame():
+def find_workflow():
     outer_frame = inspect.currentframe()
     is_workflow = False
     while not is_workflow:
@@ -29,13 +29,13 @@ def find_frame():
             is_workflow = isinstance(outer_frame.f_locals.get('self'), Workflow)
         except KeyError as e:
             logging.debug(str(e) + ": outer_frame not called from a class")
-    return outer_frame
+    return outer_frame.f_locals.get('self')
 
 
 def async_event(func):
     @wraps(func)
     async def new_func(*args, **kwargs):
-        return await find_frame().f_locals.get('self').run_async_event(func.__name__, func, *args, **kwargs)
+        return await find_workflow().run_async_event(func.__name__, func, *args, **kwargs)
 
     return new_func
 
@@ -43,7 +43,7 @@ def async_event(func):
 def event(func):
     @wraps(func)
     def new_func(*args, **kwargs):
-        return find_frame().f_locals.get('self').run_event(func.__name__, func, *args, **kwargs)
+        return find_workflow().run_event(func.__name__, func, *args, **kwargs)
 
     return new_func
 
@@ -54,14 +54,14 @@ def signal_event(func_or_name):
             func.__event_name = func_or_name
 
             def new_func(*args, **kwargs):
-                return find_frame().f_locals.get('self').run_signal_event(func_or_name)
+                return find_workflow().run_signal_event(func_or_name)
 
             return new_func
 
         return decorator
     else:
         def new_func(*args, **kwargs):
-            return find_frame().f_locals.get('self').run_signal_event(func_or_name.__name__)
+            return find_workflow().run_signal_event(func_or_name.__name__)
 
         return new_func
 
@@ -115,12 +115,18 @@ class Workflow:
     def _workflow_type(self) -> str:
         return self._func.__class__.__name__
 
-    async def run_async_event(self, event_name, func, *args, **kwargs):
-        prefixed_name = '.'.join(self.prefix) + '.' + event_name
+    def __get_unique_event_name(self, event_name: str) -> str:
+        prefixed_name = self.__get_prefixed_name(event_name)
         if prefixed_name not in self.unique_events:
             self.unique_events[prefixed_name] = UniqueEvent(prefixed_name)
             self._replay_events.append(self.unique_events[prefixed_name])
-        _event_name = next(self.unique_events[prefixed_name])
+        return next(self.unique_events[prefixed_name])
+
+    def __get_prefixed_name(self, event_name: str) -> str:
+        return '.'.join(self.prefix) + '.' + event_name
+
+    async def run_async_event(self, event_name, func, *args, **kwargs):
+        _event_name = self.__get_unique_event_name(event_name)
 
         if _event_name in self._events:
             return self._events[_event_name]['payload']
@@ -132,11 +138,7 @@ class Workflow:
             return payload
 
     def run_event(self, event_name, func, *args, **kwargs):
-        prefixed_name = '.'.join(self.prefix) + '.' + event_name
-        if prefixed_name not in self.unique_events:
-            self.unique_events[prefixed_name] = UniqueEvent(prefixed_name)
-            self._replay_events.append(self.unique_events[prefixed_name])
-        _event_name = next(self.unique_events[prefixed_name])
+        _event_name = self.__get_unique_event_name(event_name)
 
         if _event_name in self._events:
             return self._events[_event_name]['payload']
@@ -148,13 +150,8 @@ class Workflow:
             return payload
 
     def run_signal_event(self, event_name: str):
-        logging.debug(f'Registering external event: {event_name}')
-        prefixed_name = '.'.join(self.prefix) + '.' + event_name
-        if prefixed_name not in self.unique_events:
-            self.unique_events[prefixed_name] = UniqueEvent(event_name)
-            self._replay_events.append(self.unique_events[prefixed_name])
-        _event_name = next(self.unique_events[prefixed_name])
-        return self._await_event(_event_name)
+        logging.debug(f'Registering signal event: {event_name}')
+        return self._await_event(self.__get_unique_event_name(event_name))
 
     def _reset(self):
         for ue in self._replay_events:
@@ -200,8 +197,9 @@ class Workflow:
         return self._run()
 
     def send_event(self, event_name: str, payload: Any) -> WorkflowResult:
+        prefixed_name = self.__get_prefixed_name(event_name)
         self._record_event(
-            next(self._events.counter(event_name)),
+            next(self._events.counter(prefixed_name)),
             payload
         )
         return self._run()
