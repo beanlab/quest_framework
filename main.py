@@ -6,6 +6,7 @@ import uuid
 from pathlib import Path
 from quest import async_event, async_signal, WorkflowManager
 from quest.default_seralizers import JsonMetadataSerializer, JsonEventSerializer, StatelessWorkflowSerializer
+from quest.workflow import Status
 
 logging.basicConfig(level=logging.DEBUG)
 INPUT_EVENT_NAME = 'input'
@@ -14,15 +15,19 @@ INPUT_EVENT_NAME = 'input'
 class RegisterUserFlow:
 
     @async_event
+    async def throw_error(self):
+        raise Exception("This is a test")
+
+    @async_event
     async def display(self, text: str):
         print(text)
 
     @async_signal(INPUT_EVENT_NAME)
-    async def get_input(self): ...
+    async def get_input(self, test): ...
 
     async def get_name(self):
         await self.display('Name: ')
-        return await self.get_input()
+        return await self.get_input("this works")
 
     async def get_student_id(self):
         await self.display('Student ID: ')
@@ -32,7 +37,7 @@ class RegisterUserFlow:
         await self.display(welcome_message)
         name = await self.get_name()
         sid = await self.get_student_id()
-        await self.display(f'Name: {name}, ID: {sid}')
+        return f'Name: {name}, ID: {sid}'
 
 
 async def main():
@@ -51,18 +56,20 @@ async def main():
 
     async with workflow_manager:
         result = await workflow_manager.start_async_workflow(workflow_id, RegisterUserFlow(), 'Howdy')
-        assert result is None
+        assert result is not None
+        assert result.status == Status.AWAITING_SIGNAL
 
         print('---')
         result = await workflow_manager.signal_async_workflow(workflow_id, INPUT_EVENT_NAME, "Foo")
-        assert result is None
+        assert result is not None
+        assert result.status == Status.AWAITING_SIGNAL
 
     async with workflow_manager:
         print('---')
         result = await workflow_manager.signal_async_workflow(workflow_id, INPUT_EVENT_NAME, '123')
         print('---')
         assert result is not None
-
+        assert result.status == Status.COMPLETED
         print(json.dumps(workflow_manager.workflows[workflow_id]._events._state, indent=2))
 
 

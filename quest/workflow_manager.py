@@ -1,7 +1,7 @@
 import logging
 from typing import Any, Protocol, TypeVar
 from .events import EventManager
-from .workflow import Workflow, WorkflowFunction, WorkflowResult
+from .workflow import Workflow, WorkflowFunction, WorkflowStatus
 
 EM = TypeVar('EM', bound=EventManager)
 
@@ -75,29 +75,6 @@ class WorkflowManager:
         self.workflows: dict[str, Workflow] = {}
         self.event_managers: dict[str, EventManager] = {}
 
-    async def signal_async_workflow(self, workflow_id: str, event_name: str, payload: Any) -> WorkflowResult:
-        """Sends the event to the indicated workflow asynchronously"""
-        workflow = self.workflows[workflow_id]
-        return await workflow.async_send_event(event_name, payload)
-
-    async def start_async_workflow(self, workflow_id: str, func: WorkflowFunction, *args, **kwargs) -> WorkflowResult:
-        if workflow_id in self.workflows:
-            logging.error(f'Workflow ID {workflow_id} already in use')
-            raise DuplicateWorkflowIDException(workflow_id)
-
-        event_manager = self.event_serializer.new_event_manager(workflow_id)
-        workflow = Workflow(
-            workflow_id,
-            func,
-            event_manager=event_manager
-        )
-        self.event_managers[workflow_id] = event_manager
-        self.workflows[workflow_id] = workflow
-        return await workflow.async_start(*args, **kwargs)
-
-    def has_workflow(self, wid: str):
-        return wid in self.workflows
-
     async def __aenter__(self):
         workflow_types = self.metadata_serializer.load()
         await self._load_workflows(workflow_types)
@@ -129,6 +106,32 @@ class WorkflowManager:
             self.workflows[wid] = (workflow := Workflow(wid, workflow_func, event_manager))
             self.event_managers[wid] = event_manager
             await workflow._async_run()
+
+    async def signal_async_workflow(self, workflow_id: str, event_name: str, payload: Any) -> WorkflowStatus:
+        """Sends the event to the indicated workflow asynchronously"""
+        workflow = self.workflows[workflow_id]
+        return await workflow.async_send_event(event_name, payload)
+
+    async def start_async_workflow(self, workflow_id: str, func: WorkflowFunction, *args, **kwargs) -> WorkflowStatus:
+        if workflow_id in self.workflows:
+            logging.error(f'Workflow ID {workflow_id} already in use')
+            raise DuplicateWorkflowIDException(workflow_id)
+
+        event_manager = self.event_serializer.new_event_manager(workflow_id)
+        workflow = Workflow(
+            workflow_id,
+            func,
+            event_manager=event_manager
+        )
+        self.event_managers[workflow_id] = event_manager
+        self.workflows[workflow_id] = workflow
+        return await workflow.async_start(*args, **kwargs)
+
+    def has_workflow(self, wid: str):
+        return wid in self.workflows
+
+    def get_current_workflow_status(self, wid: str):
+        return self.workflows.get(wid).get_current_status()
 
 
 if __name__ == '__main__':
