@@ -1,12 +1,11 @@
+import asyncio
 import json
 import logging
 import shutil
 import uuid
 from pathlib import Path
-
-from quest import event, signal_event
-from quest.workflow import WorkflowManager, JsonEventSerializer, JsonMetadataSerializer, \
-    StatelessWorkflowSerializer
+from quest import async_event, async_signal, WorkflowManager
+from quest.default_seralizers import JsonMetadataSerializer, JsonEventSerializer, StatelessWorkflowSerializer
 
 logging.basicConfig(level=logging.DEBUG)
 INPUT_EVENT_NAME = 'input'
@@ -14,33 +13,33 @@ INPUT_EVENT_NAME = 'input'
 
 class RegisterUserFlow:
 
-    @event
-    def display(self, text: str):
+    @async_event
+    async def display(self, text: str):
         print(text)
 
-    @signal_event(INPUT_EVENT_NAME)
-    def get_input(self): ...
+    @async_signal(INPUT_EVENT_NAME)
+    async def get_input(self): ...
 
-    def get_name(self):
-        self.display('Name: ')
-        return self.get_input()
+    async def get_name(self):
+        await self.display('Name: ')
+        return await self.get_input()
 
-    def get_student_id(self):
-        self.display('Student ID: ')
-        return self.get_input()
+    async def get_student_id(self):
+        await self.display('Student ID: ')
+        return await self.get_input()
 
-    def __call__(self, welcome_message):
-        self.display(welcome_message)
-        name = self.get_name()
-        sid = self.get_student_id()
-        self.display(f'Name: {name}, ID: {sid}')
+    async def __call__(self, welcome_message):
+        await self.display(welcome_message)
+        name = await self.get_name()
+        sid = await self.get_student_id()
+        await self.display(f'Name: {name}, ID: {sid}')
 
 
-if __name__ == '__main__':
+async def main():
     saved_state = Path('saved-state')
 
     # Remove data
-    # shutil.rmtree(saved_state, ignore_errors=True)
+    shutil.rmtree(saved_state, ignore_errors=True)
 
     workflow_manager = WorkflowManager(
         JsonMetadataSerializer(saved_state),
@@ -50,18 +49,22 @@ if __name__ == '__main__':
 
     workflow_id = str(uuid.uuid4())
 
-    with workflow_manager:
-        result = workflow_manager.start_workflow(workflow_id, RegisterUserFlow(), 'Howdy')
+    async with workflow_manager:
+        result = await workflow_manager.start_async_workflow(workflow_id, RegisterUserFlow(), 'Howdy')
         assert result is None
 
         print('---')
-        result = workflow_manager.signal_workflow(workflow_id, INPUT_EVENT_NAME, "Foo")
+        result = await workflow_manager.signal_async_workflow(workflow_id, INPUT_EVENT_NAME, "Foo")
         assert result is None
 
-    with workflow_manager:
+    async with workflow_manager:
         print('---')
-        result = workflow_manager.signal_workflow(workflow_id, INPUT_EVENT_NAME, '123')
+        result = await workflow_manager.signal_async_workflow(workflow_id, INPUT_EVENT_NAME, '123')
         print('---')
         assert result is not None
 
         print(json.dumps(workflow_manager.workflows[workflow_id]._events._state, indent=2))
+
+
+if __name__ == '__main__':
+    asyncio.run(main())

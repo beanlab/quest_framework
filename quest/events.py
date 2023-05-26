@@ -65,3 +65,7 @@ class InMemoryEventManager(EventManager):
         if event_name not in self._counters:
             self._counters[event_name] = UniqueEvent(event_name)
         return self._counters[event_name]
+
+
+if __name__ == '__main__':
+    pass
