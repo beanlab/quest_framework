@@ -3,8 +3,9 @@ import logging
 from datetime import datetime
 from enum import Enum
 from functools import wraps
-from typing import Any, Protocol
+from typing import Any, Protocol, Optional
 from .events import Event, UniqueEvent, EventManager
+from dataclasses import dataclass
 
 ARGUMENTS = "INITIAL_ARGUMENTS"
 KW_ARGUMENTS = "INITIAL_KW_ARGUMENTS"
@@ -27,11 +28,10 @@ class WorkflowFunction(Protocol):
 
 
 class Status(Enum):
-    NOT_STARTED = 1
-    RUNNING = 2
-    AWAITING_SIGNAL = 3
-    COMPLETED = 4
-    ERRORED = 5
+    RUNNING = 1
+    AWAITING_SIGNAL = 2
+    COMPLETED = 3
+    ERRORED = 4
 
 
 class Signal:
@@ -41,37 +41,30 @@ class Signal:
         self.kwargs: dict = kwargs
 
 
+@dataclass
 class WorkflowStatus:
-    payload: Any
+    status: Status
+    started: Optional[datetime]
+    ended: Optional[datetime]
+    result: Any
+    signal: Optional[Signal]
+    exception: Any
 
-    def __init__(self, status=Status.NOT_STARTED, started=None, ended=None, exception=None, result=None, signal=None):
-        self.started: str = started
-        self.ended: str = ended
-        self.exception: Any = exception
-        self.result: Any = result
-        self.signal: Signal = signal
-        self.status: Status = status
+    @staticmethod
+    def create_started(start_time: datetime):
+        return WorkflowStatus(Status.RUNNING, start_time, None, None, None, None)
 
-    def set_started(self):
-        self.started = datetime.utcnow().isoformat()
+    @staticmethod
+    def create_successfully_completed(start_time: datetime, result: Any):
+        return WorkflowStatus(Status.COMPLETED, start_time, get_current_timestamp(), result, None, None)
 
-    def set_ended(self):
-        self.ended = datetime.utcnow().isoformat()
+    @staticmethod
+    def create_signaled(start_time: datetime, signal: Signal):
+        return WorkflowStatus(Status.AWAITING_SIGNAL, start_time, None, None, signal, None)
 
-    def set_exception(self, exception: Any):
-        self.exception = exception
-
-    def set_result(self, result: Any):
-        self.result = result
-
-    def set_signal(self, signal: Any):
-        self.signal = signal
-
-    def set_status(self, status: Status):
-        self.status = status
-
-    def is_completed(self):
-        return self.status == Status.COMPLETED
+    @staticmethod
+    def create_errored(start_time: datetime, exception: Any):
+        return WorkflowStatus(Status.ERRORED, start_time, get_current_timestamp(), None, None, exception)
 
 
 def find_workflow():
@@ -85,28 +78,28 @@ def find_workflow():
     return outer_frame.f_locals.get('self')
 
 
-def async_event(func):
+def event(func):
     @wraps(func)
     async def new_func(*args, **kwargs):
-        return await find_workflow().run_async_event(func.__name__, func, *args, **kwargs)
+        return await find_workflow().async_handle_event(func.__name__, func, *args, **kwargs)
 
     return new_func
 
 
-def async_signal(func_or_name):
+def signal(func_or_name):
     if isinstance(func_or_name, str):
         def decorator(func):
             func.__event_name = func_or_name
 
             async def new_func(*args, **kwargs):
-                return await find_workflow().execute_signal(func_or_name, args, kwargs)
+                return await find_workflow().async_handle_signal(func_or_name, args, kwargs)
 
             return new_func
 
         return decorator
     else:
         async def new_func(*args, **kwargs):
-            return await find_workflow().execute_signal(func_or_name.__name__, args, kwargs)
+            return await find_workflow().async_handle_signal(func_or_name.__name__, args, kwargs)
 
         return new_func
 
@@ -120,6 +113,10 @@ def _make_event(payload) -> Event:
         "timestamp": datetime.utcnow().isoformat(),
         "payload": payload
     }
+
+
+def get_current_timestamp() -> datetime:
+    return datetime.utcnow()
 
 
 class Workflow:
@@ -138,7 +135,8 @@ class Workflow:
         self._func = func
         self.prefix = []
         self.unique_events = {}
-        self.status = WorkflowStatus()
+        self.started = get_current_timestamp()
+        self.status = WorkflowStatus.create_started(self.started)
 
     def _workflow_type(self) -> str:
         return self._func.__class__.__name__
@@ -184,38 +182,32 @@ class Workflow:
             args = self._events[ARGUMENTS]["payload"]
             kwargs = self._events[KW_ARGUMENTS]["payload"]
             logging.debug('Invoking workflow')
-            self.status.set_started()
-            self.status.set_status(Status.RUNNING)
             result = await self._func(*args, **kwargs)
-            self.status.set_ended()
             logging.debug('Workflow invocation complete')
-            self.status.set_status(Status.COMPLETED)
-            self.status.set_result(result)
-            self.status.set_signal(None)
 
             if WORKFLOW_RESULT not in self._events:
                 self._record_event(WORKFLOW_RESULT, result)
 
+            self.status = WorkflowStatus.create_successfully_completed(self.started, result)
             return self.status
 
         except WorkflowSuspended as ws:
             logging.debug(f'Workflow Suspended: awaiting event {ws.event_name}')
             name = next(self._events.counter("_await_event"))
             self._events[name] = _make_event(ws.event_name)
-            self.status.set_status(Status.AWAITING_SIGNAL)
-            self.status.set_signal(Signal(ws.event_name, ws.args, ws.kwargs))
+            self.status = WorkflowStatus.create_signaled(self.started, Signal(ws.event_name, ws.args, ws.kwargs))
             return self.status
+
         except Exception as e:
-            logging.debug(f'Workflow Errored: {str(e)}')
-            self.status.set_exception(e)
-            self.status.set_status(Status.ERRORED)
-            self.status.set_ended()
+            logging.debug(f'Workflow Errored: {e}')
+            self.status = WorkflowStatus.create_errored(self.started, e)
             return self.status
 
     def get_current_status(self):
         return self.status
 
-    async def run_async_event(self, event_name, func, *args, **kwargs):
+    async def async_handle_event(self, event_name, func, *args, **kwargs):
+        """This is called by the @event decorator"""
         _event_name = self._get_unique_event_name(event_name)
 
         if _event_name in self._events:
@@ -227,7 +219,9 @@ class Workflow:
             self._record_event(_event_name, payload)
             return payload
 
-    async def execute_signal(self, event_name: str, *args, **kwargs):
+    async def async_handle_signal(self, event_name: str, *args, **kwargs):
+        """This is called by the @signal decorator"""
+
         logging.debug(f'Registering signal event: {event_name}')
         return await self._await_signal_event(self._get_unique_signal_name(event_name), args, kwargs)
 
@@ -236,7 +230,7 @@ class Workflow:
         self._record_event(KW_ARGUMENTS, kwargs)
         return await self._async_run()
 
-    async def async_send_event(self, event_name: str, payload: Any) -> WorkflowStatus:
+    async def async_send_signal(self, event_name: str, payload: Any) -> WorkflowStatus:
         self._record_event(
             next(self._events.counter(event_name)),
             payload

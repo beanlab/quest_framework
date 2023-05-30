@@ -3,7 +3,7 @@ import pytest
 import asyncio
 from quest.workflow import *
 from quest.workflow_manager import *
-from quest.default_seralizers import *
+from quest.json_seralizers import *
 
 STOP_EVENT_NAME = 'stop'
 OTHER_EVENT_NAME = 'other_event'
@@ -26,20 +26,20 @@ def get_workflow_id() -> str:
 
 class NestedSignalFlow:
 
-    @async_event
+    @event
     async def outer_event(self):
         self.event_counter = await self.event_count()  # this proves that outer_event will be replayed when the stop signal is sent the first time
         await self.stop()  # this proves that you can nest signals in an event, and it will work as expected
         count = await self.event_count()  # this proves that execution will continue correctly after stop signal is returned
         return count
 
-    @async_event
+    @event
     async def event_count(self):
         await asyncio.sleep(2)  # this proves that the system still works when you call await inside an event
         self.event_counter += 1
         return self.event_counter
 
-    @async_signal(STOP_EVENT_NAME)
+    @signal(STOP_EVENT_NAME)
     async def stop(self): ...
 
     async def __call__(self):

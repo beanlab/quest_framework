@@ -3,7 +3,7 @@ import pytest
 import asyncio
 from quest.workflow_manager import *
 from quest.workflow import *
-from quest.default_seralizers import *
+from quest.json_seralizers import *
 
 STOP_EVENT_NAME = 'stop'
 OTHER_EVENT_NAME = 'other_event'
@@ -26,17 +26,17 @@ def get_workflow_id() -> str:
 
 class NestedEventFlow:
 
-    @async_event
+    @event
     async def outer_event(self):
         return await self.event_count()
 
-    @async_event
+    @event
     async def event_count(self):
         await asyncio.sleep(2)  # this is here as proof that the system still works when you await
         self.event_counter += 1
         return self.event_counter
 
-    @async_signal(STOP_EVENT_NAME)
+    @signal(STOP_EVENT_NAME)
     async def stop(self): ...
 
     async def __call__(self):

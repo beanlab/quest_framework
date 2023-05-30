@@ -76,13 +76,15 @@ class WorkflowManager:
         self.event_managers: dict[str, EventManager] = {}
 
     async def __aenter__(self):
-        workflow_types = self.metadata_serializer.load()
-        await self._load_workflows(workflow_types)
+        workflow_types = self._load_workflow_types()
+        await self._load_and_resume_workflows(workflow_types)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        self._save_workflows()
-        self.metadata_serializer.save(self._workflow_types())
+        self.save_workflows()
+
+    def _load_workflow_types(self) -> dict:
+        return self.metadata_serializer.load()
 
     def _workflow_types(self) -> dict[str, str]:
         return {wid: workflow._workflow_type() for wid, workflow in self.workflows.items()}
@@ -99,7 +101,7 @@ class WorkflowManager:
         for wid, workflow in self.workflows.items():
             self.workflow_serializers[workflow._workflow_type()].serialize_workflow(wid, workflow)
 
-    async def _load_workflows(self, workflow_types: dict[str, str]):
+    async def _load_and_resume_workflows(self, workflow_types: dict[str, str]):
         for wid, wtype in workflow_types.items():
             event_manager = self.event_serializer.load_events(wid)
             workflow_func = self.workflow_serializers[wtype].deserialize_workflow(wid)
@@ -107,10 +109,32 @@ class WorkflowManager:
             self.event_managers[wid] = event_manager
             await workflow._async_run()
 
+    def _load_workflows(self, workflow_types: dict[str, str]):
+        for wid, wtype in workflow_types.items():
+            event_manager = self.event_serializer.load_events(wid)
+            workflow_func = self.workflow_serializers[wtype].deserialize_workflow(wid)
+            self.workflows[wid] = Workflow(wid, workflow_func, event_manager)
+            self.event_managers[wid] = event_manager
+
+    async def _resume_workflows(self):
+        for workflow in self.workflows.values():
+            await workflow._async_run()
+
+    def save_workflows(self):
+        self._save_workflows()
+        self.metadata_serializer.save(self._workflow_types())
+
+    def load_workflows(self):
+        workflow_types = self._load_workflow_types()
+        self._load_workflows(workflow_types)
+
+    async def resume_workflows(self):
+        await self._resume_workflows()
+
     async def signal_async_workflow(self, workflow_id: str, event_name: str, payload: Any) -> WorkflowStatus:
         """Sends the event to the indicated workflow asynchronously"""
         workflow = self.workflows[workflow_id]
-        return await workflow.async_send_event(event_name, payload)
+        return await workflow.async_send_signal(event_name, payload)
 
     async def start_async_workflow(self, workflow_id: str, func: WorkflowFunction, *args, **kwargs) -> WorkflowStatus:
         if workflow_id in self.workflows:

@@ -4,8 +4,8 @@ import logging
 import shutil
 import uuid
 from pathlib import Path
-from quest import async_event, async_signal, WorkflowManager
-from quest.default_seralizers import JsonMetadataSerializer, JsonEventSerializer, StatelessWorkflowSerializer
+from quest import event, signal, WorkflowManager
+from quest.json_seralizers import JsonMetadataSerializer, JsonEventSerializer, StatelessWorkflowSerializer
 from quest.workflow import Status
 
 logging.basicConfig(level=logging.DEBUG)
@@ -14,15 +14,15 @@ INPUT_EVENT_NAME = 'input'
 
 class RegisterUserFlow:
 
-    @async_event
+    @event
     async def throw_error(self):
         raise Exception("This is a test")
 
-    @async_event
+    @event
     async def display(self, text: str):
         print(text)
 
-    @async_signal(INPUT_EVENT_NAME)
+    @signal(INPUT_EVENT_NAME)
     async def get_input(self, test): ...
 
     async def get_name(self):
