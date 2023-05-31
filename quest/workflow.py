@@ -92,14 +92,14 @@ def signal(func_or_name):
             func.__event_name = func_or_name
 
             async def new_func(*args, **kwargs):
-                return await find_workflow().async_handle_signal(func_or_name, args, kwargs)
+                return await find_workflow().async_handle_signal(func_or_name, *args, **kwargs)
 
             return new_func
 
         return decorator
     else:
         async def new_func(*args, **kwargs):
-            return await find_workflow().async_handle_signal(func_or_name.__name__, args, kwargs)
+            return await find_workflow().async_handle_signal(func_or_name.__name__, *args, **kwargs)
 
         return new_func
 
@@ -174,7 +174,7 @@ class Workflow:
             return payload
         else:
             self.prefix = []
-            raise WorkflowSuspended(event_name, args, kwargs)
+            raise WorkflowSuspended(event_name, *args, **kwargs)
 
     async def _async_run(self):
         self._reset()
@@ -223,7 +223,7 @@ class Workflow:
         """This is called by the @signal decorator"""
 
         logging.debug(f'Registering signal event: {event_name}')
-        return await self._await_signal_event(self._get_unique_signal_name(event_name), args, kwargs)
+        return await self._await_signal_event(self._get_unique_signal_name(event_name), *args, **kwargs)
 
     async def async_start(self, *args, **kwargs) -> WorkflowStatus:
         self._record_event(ARGUMENTS, args)
