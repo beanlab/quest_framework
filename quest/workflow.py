@@ -90,16 +90,23 @@ def signal(func_or_name):
     if isinstance(func_or_name, str):
         def decorator(func):
             func.__event_name = func_or_name
-
-            async def new_func(*args, **kwargs):
-                return await find_workflow().async_handle_signal(func_or_name, *args, **kwargs)
+            if inspect.getfullargspec(func).args[0] == 'self':
+                async def new_func(self, *args, **kwargs):
+                    return await find_workflow().async_handle_signal(func_or_name, *args, **kwargs)
+            else:
+                async def new_func(*args, **kwargs):
+                    return await find_workflow().async_handle_signal(func_or_name, *args, **kwargs)
 
             return new_func
 
         return decorator
     else:
-        async def new_func(*args, **kwargs):
-            return await find_workflow().async_handle_signal(func_or_name.__name__, *args, **kwargs)
+        if inspect.getfullargspec(func_or_name).args[0] == 'self':
+            async def new_func(self, *args, **kwargs):
+                return await find_workflow().async_handle_signal(func_or_name.__name__, *args, **kwargs)
+        else:
+            async def new_func(*args, **kwargs):
+                return await find_workflow().async_handle_signal(func_or_name.__name__, *args, **kwargs)
 
         return new_func
 
@@ -167,10 +174,10 @@ class Workflow:
         logging.debug(f'Event recorded: {event_name}, {payload}')
         self._events[event_name] = _make_event(payload)
 
-    async def _await_signal_event(self, event_name: str, *args, **kwargs) -> Any:
-        if event_name in self._events:
-            payload = self._events[event_name]["payload"]
-            logging.debug(f'Retrieving event {event_name}: {payload}')
+    async def _await_signal_event(self, unique_event_name: str, event_name: str, *args, **kwargs) -> Any:
+        if unique_event_name in self._events:
+            payload = self._events[unique_event_name]["payload"]
+            logging.debug(f'Retrieving event {unique_event_name}: {payload}')
             return payload
         else:
             self.prefix = []
@@ -195,7 +202,7 @@ class Workflow:
             logging.debug(f'Workflow Suspended: awaiting event {ws.event_name}')
             name = next(self._events.counter("_await_event"))
             self._events[name] = _make_event(ws.event_name)
-            self.status = WorkflowStatus.create_signaled(self.started, Signal(ws.event_name, ws.args, ws.kwargs))
+            self.status = WorkflowStatus.create_signaled(self.started, Signal(ws.event_name, *ws.args, **ws.kwargs))
             return self.status
 
         except Exception as e:
@@ -223,7 +230,7 @@ class Workflow:
         """This is called by the @signal decorator"""
 
         logging.debug(f'Registering signal event: {event_name}')
-        return await self._await_signal_event(self._get_unique_signal_name(event_name), *args, **kwargs)
+        return await self._await_signal_event(self._get_unique_signal_name(event_name), event_name, *args, **kwargs)
 
     async def async_start(self, *args, **kwargs) -> WorkflowStatus:
         self._record_event(ARGUMENTS, args)
