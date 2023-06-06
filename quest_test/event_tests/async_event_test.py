@@ -26,6 +26,9 @@ def get_workflow_id() -> str:
 
 class AsyncEventFlow:
 
+    def __init__(self, workflow_manager):
+        ...
+
     @event
     async def event_count(self):
         await asyncio.sleep(2)  # this is here as proof that the system still works when you await
@@ -49,9 +52,8 @@ async def test_async_event_(tmp_path):
     """
     workflow_manager = create_workflow_manager(AsyncEventFlow, "AsyncEventFlow", tmp_path)
     workflow_id = get_workflow_id()
-    workflow_func = AsyncEventFlow()
     async with workflow_manager:
-        result = await workflow_manager.start_async_workflow(workflow_id, workflow_func)  # start workflow
+        result = await workflow_manager.start_async_workflow(workflow_id, "AsyncEventFlow")  # start workflow
         assert result is not None  # workflow calls stop signal, should return awaiting result
         assert result.status == Status.AWAITING_SIGNAL
         result = await workflow_manager.signal_async_workflow(workflow_id, STOP_EVENT_NAME, None)  # return stop signal to workflow

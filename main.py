@@ -14,6 +14,9 @@ INPUT_EVENT_NAME = 'input'
 
 class RegisterUserFlow:
 
+    def __init__(self, workflow_manager: WorkflowManager):
+        self.workflow_manager = workflow_manager
+
     @event
     async def throw_error(self):
         raise Exception("This is a test")
@@ -55,7 +58,7 @@ async def main():
     workflow_id = str(uuid.uuid4())
 
     async with workflow_manager:
-        result = await workflow_manager.start_async_workflow(workflow_id, RegisterUserFlow(), 'Howdy')
+        result = await workflow_manager.start_async_workflow(workflow_id, 'RegisterUserFlow', 'Howdy')
         assert result is not None
         assert result.status == Status.AWAITING_SIGNAL
 
