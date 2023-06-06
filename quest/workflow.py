@@ -67,7 +67,7 @@ class WorkflowStatus:
         return WorkflowStatus(Status.ERRORED, start_time, get_current_timestamp(), None, None, exception)
 
 
-def find_workflow():
+def find_workflow() -> 'Workflow':
     outer_frame = inspect.currentframe()
     is_workflow = False
     while not is_workflow:
@@ -225,6 +225,10 @@ class Workflow:
             self.prefix.pop(-1)
             self._record_event(_event_name, payload)
             return payload
+
+    async def async_start_signal(self,  event_name: str, *args, **kwargs) -> Promise:
+        # Add signal to self.status.signals
+        ...
 
     async def async_handle_signal(self, event_name: str, *args, **kwargs):
         """This is called by the @signal decorator"""
