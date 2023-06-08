@@ -60,12 +60,12 @@ async def main():
     async with workflow_manager:
         result = await workflow_manager.start_async_workflow(workflow_id, 'RegisterUserFlow', 'Howdy')
         assert result is not None
-        assert result.status == Status.AWAITING_SIGNAL
+        assert result.status == Status.AWAITING_SIGNALS
 
         print('---')
         result = await workflow_manager.signal_async_workflow(workflow_id, INPUT_EVENT_NAME, "Foo")
         assert result is not None
-        assert result.status == Status.AWAITING_SIGNAL
+        assert result.status == Status.AWAITING_SIGNALS
 
     async with workflow_manager:
         print('---')

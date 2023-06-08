@@ -24,14 +24,17 @@ def get_workflow_id() -> str:
     return str(uuid.uuid4())
 
 
-class AsyncEventFlow:
+class EndLoopException(Exception):
+    ...
 
-    def __init__(self, workflow_manager):
+
+class ExceptionSignalFlow:
+
+    def __init__(self, workflow_manager):  # a workflow will always recieve a workflow_manager as first parameter
         ...
 
     @event
     async def event_count(self):
-        await asyncio.sleep(2)  # this is here as proof that the system still works when you await
         self.event_counter += 1
         return self.event_counter
 
@@ -41,25 +44,34 @@ class AsyncEventFlow:
     async def __call__(self):
         self.event_counter = 0
         event_count = await self.event_count()
-        await self.stop()
-        return {"event_count": event_count, "self_event_counter": self.event_counter}
+        try:
+            while True:
+                await self.stop()  # because signal is implemented as a promised signal that is joined, it will work both ways
+        except SignalException as e:
+            caught_exception = e.name
+        return {"event_count": event_count, "self_event_counter": self.event_counter, "caught_exception": caught_exception}
 
 
 @pytest.mark.asyncio
-async def test_async_event(tmp_path):
+async def test_exception_signal(tmp_path):
     """
     This is a simple test showing the expected behavior of an event and a signal
     """
-    workflow_manager = create_workflow_manager(AsyncEventFlow, "AsyncEventFlow", tmp_path)
+    workflow_manager = create_workflow_manager(ExceptionSignalFlow, "ExceptionSignalFlow", tmp_path)
     workflow_id = get_workflow_id()
     async with workflow_manager:
-        result = await workflow_manager.start_async_workflow(workflow_id, "AsyncEventFlow")  # start workflow
-        assert result is not None  # workflow calls stop signal, should return awaiting result
+        result = await workflow_manager.start_async_workflow(workflow_id, "ExceptionSignalFlow")  # start workflow
+        assert result is not None  # workflow calls stop signal, should return awaiting signal result
         assert result.status == Status.AWAITING_SIGNALS
         result = await workflow_manager.signal_async_workflow(workflow_id, STOP_EVENT_NAME, None)  # return stop signal to workflow
+        assert result is not None  # workflow calls stop signal again, should be awaiting single signal
+        assert result.status == Status.AWAITING_SIGNALS
+        assert len(result.signals) == 1
+        result = await workflow_manager.exception_signal_async_workflow(workflow_id, STOP_EVENT_NAME, EndLoopException())  # call with exception to break out of loop and finish workflow
         assert result is not None  # workflow should now be complete and return the correct result
         assert 1 == result.result["event_count"]  # event should only be called once
         assert 0 == result.result['self_event_counter']  # event should be cached, and self_event_counter should not increment
+        assert "EndLoopException" == result.result['caught_exception']
         assert result.status == Status.COMPLETED
 
     # going out of context deserializes the workflow
@@ -68,4 +80,5 @@ async def test_async_event(tmp_path):
         result = await workflow_manager.signal_async_workflow(workflow_id, OTHER_EVENT_NAME, None) # signal the workflow to rerun it
         assert 1 == result.result["event_count"]  # result should be the same as the last signal call, as it should all have been cached even through serialization
         assert 0 == result.result['self_event_counter']
+        assert "EndLoopException" == result.result['caught_exception']
         assert result.status == Status.COMPLETED

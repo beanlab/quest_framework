@@ -35,7 +35,6 @@ class NestedEventFlow:
 
     @event
     async def event_count(self):
-        await asyncio.sleep(2)  # this is here as proof that the system still works when you await
         self.event_counter += 1
         return self.event_counter
 
@@ -62,7 +61,7 @@ async def test_nested_event(tmp_path):
     async with workflow_manager:
         result = await workflow_manager.start_async_workflow(workflow_id, "NestedEventFlow")
         assert result is not None  # should be stopped by stop signal call, be status awaiting signal
-        assert Status.AWAITING_SIGNAL == result.status
+        assert Status.AWAITING_SIGNALS == result.status
         result = await workflow_manager.signal_async_workflow(workflow_id, STOP_EVENT_NAME,
                                                               None)  # signal the workflow to return stop signal
         assert result is not None  # now the workflow should be done, and we should have a result

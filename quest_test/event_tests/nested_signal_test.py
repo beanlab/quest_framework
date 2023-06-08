@@ -38,7 +38,6 @@ class NestedSignalFlow:
 
     @event
     async def event_count(self):
-        await asyncio.sleep(2)  # this proves that the system still works when you call await inside an event
         self.event_counter += 1
         return self.event_counter
 
@@ -66,10 +65,10 @@ async def test_nested_signal(tmp_path):
     async with workflow_manager:
         result = await workflow_manager.start_async_workflow(workflow_id, workflow_func)  # start the workflow
         assert result is not None  # code should be stopped with a signal, return with status awaiting signal
-        assert Status.AWAITING_SIGNAL == result.status
+        assert Status.AWAITING_SIGNALS == result.status
         result = await workflow_manager.signal_async_workflow(workflow_id, STOP_EVENT_NAME, None)  # signal the workflow for the first stop
         assert result is not None  # code should be stopped with a signal, return with status awaiting signal
-        assert Status.AWAITING_SIGNAL == result.status
+        assert Status.AWAITING_SIGNALS == result.status
         result = await workflow_manager.signal_async_workflow(workflow_id, STOP_EVENT_NAME, None)  # signal the workflow for the second stop
         assert result is not None  # now the workflow should be done, and we should have a result
         assert 2 == result.result["outer_event_count"]  # outer_event calls event_count twice, should return 2
