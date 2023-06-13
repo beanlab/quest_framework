@@ -165,6 +165,7 @@ class Workflow:
         return '.'.join(self.prefix) + '.' + event_name
 
     def _reset(self):
+        self.prefix = []
         for ue in self._replay_events:
             ue.reset()
 
@@ -174,14 +175,14 @@ class Workflow:
         logging.debug(f'Event recorded: {event_name}, {payload}')
         self._events[event_name] = _make_event(payload)
 
-    async def _await_signal_event(self, unique_event_name: str, event_name: str, *args, **kwargs) -> Any:
+    async def _await_signal_event(self, unique_event_name: str) -> Any:
         if unique_event_name in self._events:
             payload = self._events[unique_event_name]["payload"]
             logging.debug(f'Retrieving event {unique_event_name}: {payload}')
             return payload
         else:
-            self.prefix = []
-            raise WorkflowSuspended(event_name, *args, **kwargs)
+            return Workflow.NO_RESULT
+            # raise WorkflowSuspended(event_name, *args, **kwargs)
 
     async def _async_run(self):
         self._reset()
@@ -230,11 +231,27 @@ class Workflow:
         # Add signal to self.status.signals
         ...
 
+    NO_RESULT = object()
+
     async def async_handle_signal(self, event_name: str, *args, **kwargs):
         """This is called by the @signal decorator"""
 
         logging.debug(f'Registering signal event: {event_name}')
-        return await self._await_signal_event(self._get_unique_signal_name(event_name), event_name, *args, **kwargs)
+        result = await self._await_signal_event(self._get_unique_signal_name(event_name))
+        if result is Workflow.NO_RESULT:
+            raise WorkflowSuspended(event_name, *args, **kwargs)
+        return result
+
+    @event
+    async def any_promise(self, *promises: Promise):
+        results = [
+            await self._await_signal_event(self._get_unique_signal_name(promise.signal_name))
+            for promise in promises
+        ]
+        result = next((result for result in results if result is not Workflow.NO_RESULT), Workflow.NO_RESULT)
+        if result is Workflow.NO_RESULT:
+            raise WorkflowSuspended(*signals)
+        return result
 
     async def async_start(self, *args, **kwargs) -> WorkflowStatus:
         self._record_event(ARGUMENTS, args)
