@@ -50,12 +50,24 @@ class WorkflowSerializer(Protocol):
         :param workflow: The workflow object to be saved.
         """
 
-    def deserialize_workflow(self, workflow_id: str) -> WorkflowFunction:
+    def deserialize_workflow(self, workflow_id: str, workflow_manager) -> WorkflowFunction:
         """
-        Recreate the workflow object that was associated with the workflow ID.
+        Recreate the workflow object that was associated with the workflow ID with a workflow_manager
+        as a parameter.
 
         :param workflow_id: Unique string identifying the workflow to be recreated
+        :param workflow_manager: The workflow manager object that is managing the workflow
         :return: The WorkflowFunction associated with the workflow ID
+        """
+
+    def create_new_instance(self, workflow_id: str, workflow_manager) -> WorkflowFunction:
+        """
+        Create a new instance of the workflow object that was associated with the workflow_id with
+        a workflow manager as a parameter.
+
+        :param workflow_id: Unique string identifying the workflow to be created
+        :param workflow_manager: The workflow manager object that is managing the workflow
+        :return: a new instance of the WorkflowFunction
         """
 
 
@@ -104,7 +116,7 @@ class WorkflowManager:
     async def _load_and_resume_workflows(self, workflow_types: dict[str, str]):
         for wid, wtype in workflow_types.items():
             event_manager = self.event_serializer.load_events(wid)
-            workflow_func = self.workflow_serializers[wtype].deserialize_workflow(wid)
+            workflow_func = self.workflow_serializers[wtype].deserialize_workflow(wid, self)
             self.workflows[wid] = (workflow := Workflow(wid, workflow_func, event_manager))
             self.event_managers[wid] = event_manager
             await workflow._async_run()
@@ -112,7 +124,7 @@ class WorkflowManager:
     def _load_workflows(self, workflow_types: dict[str, str]):
         for wid, wtype in workflow_types.items():
             event_manager = self.event_serializer.load_events(wid)
-            workflow_func = self.workflow_serializers[wtype].deserialize_workflow(wid)
+            workflow_func = self.workflow_serializers[wtype].deserialize_workflow(wid, self)
             self.workflows[wid] = Workflow(wid, workflow_func, event_manager)
             self.event_managers[wid] = event_manager
 
@@ -136,7 +148,7 @@ class WorkflowManager:
         workflow = self.workflows[workflow_id]
         return await workflow.async_send_signal(event_name, payload)
 
-    async def start_async_workflow(self, workflow_id: str, func: WorkflowFunction, *args, **kwargs) -> WorkflowStatus:
+    async def start_async_workflow(self, workflow_id: str, workflow_type: str, *args, **kwargs) -> WorkflowStatus:
         if workflow_id in self.workflows:
             logging.error(f'Workflow ID {workflow_id} already in use')
             raise DuplicateWorkflowIDException(workflow_id)
@@ -144,7 +156,7 @@ class WorkflowManager:
         event_manager = self.event_serializer.new_event_manager(workflow_id)
         workflow = Workflow(
             workflow_id,
-            func,
+            self.workflow_serializers[workflow_type].create_new_instance(workflow_id, self),
             event_manager=event_manager
         )
         self.event_managers[workflow_id] = event_manager

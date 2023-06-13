@@ -24,6 +24,8 @@ class WorkflowSuspended(BaseException):
 
 
 class WorkflowFunction(Protocol):
+    def __init__(self, workflow_manager, *args, **kwargs): ...
+
     def __call__(self, *args, **kwargs) -> Any: ...
 
 

@@ -26,6 +26,9 @@ def get_workflow_id() -> str:
 
 class NestedSignalFlow:
 
+    def __init__(self, workflow_manager):
+        ...
+
     @event
     async def outer_event(self):
         self.event_counter = await self.event_count()  # this proves that outer_event will be replayed when the stop signal is sent the first time
@@ -59,7 +62,7 @@ async def test_nested_signal(tmp_path):
     """
     workflow_manager = create_workflow_manager(NestedSignalFlow, "NestedSignalFlow", tmp_path)
     workflow_id = get_workflow_id()
-    workflow_func = NestedSignalFlow()
+    workflow_func = "NestedSignalFlow"
     async with workflow_manager:
         result = await workflow_manager.start_async_workflow(workflow_id, workflow_func)  # start the workflow
         assert result is not None  # code should be stopped with a signal, return with status awaiting signal
