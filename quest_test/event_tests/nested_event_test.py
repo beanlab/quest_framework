@@ -1,7 +1,5 @@
 import uuid
 import pytest
-import asyncio
-from quest.workflow_manager import *
 from quest.workflow import *
 from quest.json_seralizers import *
 
@@ -35,7 +33,6 @@ class NestedEventFlow:
 
     @event
     async def event_count(self):
-        await asyncio.sleep(2)  # this is here as proof that the system still works when you await
         self.event_counter += 1
         return self.event_counter
 
@@ -62,15 +59,17 @@ async def test_nested_event(tmp_path):
     async with workflow_manager:
         result = await workflow_manager.start_async_workflow(workflow_id, "NestedEventFlow")
         assert result is not None  # should be stopped by stop signal call, be status awaiting signal
-        assert Status.AWAITING_SIGNAL == result.status
-        result = await workflow_manager.signal_async_workflow(workflow_id, STOP_EVENT_NAME,
+        assert Status.AWAITING_SIGNALS == result.status
+        assert 1 == len(result.signals)
+        result = await workflow_manager.signal_async_workflow(workflow_id, next(iter(result.signals)).unique_name,
                                                               None)  # signal the workflow to return stop signal
         assert result is not None  # now the workflow should be done, and we should have a result
+        assert Status.COMPLETED == result.status
         assert 1 == result.result["outer_event_count"]  # outer_event calls event_count once, should return 1
         assert 2 == result.result["event_count"]  # event_count called two times, should return 2
         assert 0 == result.result[
             'self_event_counter']  # because it was replayed, self_event_count should be zero as all event_count calls should have been cached on the stop signals
-        assert Status.COMPLETED == result.status
+
 
     # going out of context deserializes the workflow
     # going back into context should serialize the workflow and run it once

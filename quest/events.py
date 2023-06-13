@@ -1,4 +1,4 @@
-from typing import Protocol, Union, TypedDict
+from typing import Protocol, Union, TypedDict, Optional
 
 
 class ToJson(Protocol):
@@ -27,9 +27,16 @@ class UniqueEvent:
         }
 
 
+class EventException(TypedDict):
+    name: str
+    args: tuple
+    kwargs: dict
+
+
 class Event(TypedDict):
     timestamp: str
-    payload: Serializable
+    payload: Optional[Serializable]
+    exception: Optional[EventException]
 
 
 class EventManager(Protocol):
