@@ -23,12 +23,33 @@ class SignalException(Exception):
         self.kwargs = kwargs
 
 
+RT = TypeVar('RT')
+CRT = TypeVar('CRT')
+
+class Promise:
+    def __init__(
+            self,
+            unique_signal_name: str,
+            signal_name: str,
+            callback: Optional[Callable[[RT], CRT]],
+            *args, **kwargs):
+        self.unique_signal_name: str = unique_signal_name
+        self.signal_name: str = signal_name
+        self.callback: Optional[Callable[[RT], CRT]] = callback
+        self.args: tuple[Any] = args
+        self.kwargs: dict[str, Any] = kwargs
+
+    async def join(self) -> CRT:
+        return await find_workflow().async_wait_on_promise(self)
+
+
+def any_promise(*promises: Promise):
+    return await find_workflow().async_wait_on_any_promise(*promises)
+
+
 class WorkflowSuspended(BaseException):
-    def __init__(self, unique_event_name, event_name, *args, **kwargs):
-        self.unique_event_name = unique_event_name
-        self.event_name = event_name
-        self.args = args
-        self.kwargs = kwargs
+    def __init__(self, promise: Promise):
+        self.promise = promise
 
 
 class WorkflowFunction(Protocol):
@@ -50,24 +71,6 @@ class Signal:
         self.name: str = name
         self.args: tuple = args
         self.kwargs: dict = kwargs
-
-
-RT = TypeVar('RT')
-CRT = TypeVar('CRT')
-
-
-class Promise:
-    def __init__(self, unique_signal_name: str, signal_name: str, callback: Optional[Callable[[RT], CRT]], *args,
-                 **kwargs):
-        self.unique_signal_name: str = unique_signal_name
-        self.signal_name: str = signal_name
-        self.args: tuple[Any] = args
-        self.kwargs: dict[str, Any] = kwargs
-        self.callback: Optional[Callable[[RT], CRT]] = callback
-
-    async def join(self) -> CRT:
-        return await find_workflow().async_handle_signal(self.unique_signal_name, self.signal_name, *self.args,
-                                                         **self.kwargs)
 
 
 @dataclass
@@ -313,24 +316,23 @@ class Workflow:
 
     NO_RESULT = object()
 
-    async def async_handle_signal(self, unique_signal_name: str, signal_name: str, *args, **kwargs):
+    async def async_wait_on_promise(self, promise: Promise):
         """This is called by the @signal decorator"""
-
-        logging.debug(f'Registering signal event: {event_name}')
-        result = await self._await_signal_event(self._get_unique_signal_name(event_name))
+        logging.debug(f'Registering signal event: {promise.signal_name}')
+        result = await self._await_signal_event(promise.unique_signal_name)
         if result is Workflow.NO_RESULT:
-            raise WorkflowSuspended(event_name, *args, **kwargs)
+            raise WorkflowSuspended(promise)
         return result
 
     @event
-    async def any_promise(self, *promises: Promise):
+    async def async_wait_on_any_promise(self, *promises: Promise):
         results = [
-            await self._await_signal_event(self._get_unique_signal_name(promise.signal_name))
+            await self._await_signal_event(promise.unique_signal_name)
             for promise in promises
         ]
         result = next((result for result in results if result is not Workflow.NO_RESULT), Workflow.NO_RESULT)
         if result is Workflow.NO_RESULT:
-            raise WorkflowSuspended(*signals)
+            raise WorkflowSuspended(*promises)
         return result
 
     async def async_start(self, *args, **kwargs) -> WorkflowStatus:
@@ -349,7 +351,8 @@ class Workflow:
         self._remove_from_promised_signals(unique_signal_name)
         return await self._async_run()
 
-    async def async_send_signal_exception(self, signal_name: str, exception: Exception, *args, **kwargs) -> WorkflowStatus:
+    async def async_send_signal_exception(self, signal_name: str, exception: Exception, *args,
+                                          **kwargs) -> WorkflowStatus:
         unique_signal_name = signal_name
         if signal_name not in self.promised_signals.keys():
             unique_signal_name = next(self._events.counter(signal_name))
