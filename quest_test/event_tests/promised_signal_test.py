@@ -57,8 +57,8 @@ async def test_promised_signal(tmp_path):
         assert result is not None  # workflow promises stop signal twice, should return awaiting result with two signals
         assert result.status == Status.AWAITING_SIGNALS
         assert 2 == len(result.signals)
-        result = await workflow_manager.signal_async_workflow(workflow_id, STOP_EVENT_NAME,
-                                                              None)  # return stop signal to workflow once
+        result = await workflow_manager.signal_async_workflow(workflow_id, next(iter(result.signals)).unique_name,
+                                                              None)  # send one of the stop signals back to workflow
         assert result is not None  # should still have an awaiting signal result with one signal left
         assert result.status == Status.AWAITING_SIGNALS
         assert 1 == len(result.signals)
@@ -69,7 +69,7 @@ async def test_promised_signal(tmp_path):
         assert status is not None  # should still have an awaiting signal result with one signal left
         assert result.status == Status.AWAITING_SIGNALS
         assert 1 == len(result.signals)
-        result = await workflow_manager.signal_async_workflow(workflow_id, STOP_EVENT_NAME,
+        result = await workflow_manager.signal_async_workflow(workflow_id, next(iter(result.signals)).unique_name,
                                                               None)  # return stop signal to workflow a second time
         assert result is not None  # workflow should now be complete and return the correct result
         assert 1 == result.result["event_count"]  # event should only be called once

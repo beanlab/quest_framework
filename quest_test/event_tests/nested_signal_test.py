@@ -66,10 +66,12 @@ async def test_nested_signal(tmp_path):
         result = await workflow_manager.start_async_workflow(workflow_id, workflow_func)  # start the workflow
         assert result is not None  # code should be stopped with a signal, return with status awaiting signal
         assert Status.AWAITING_SIGNALS == result.status
-        result = await workflow_manager.signal_async_workflow(workflow_id, STOP_EVENT_NAME, None)  # signal the workflow for the first stop
+        assert 1 == len(result.signals)
+        result = await workflow_manager.signal_async_workflow(workflow_id, next(iter(result.signals)).unique_name, None)  # signal the workflow for the first stop
         assert result is not None  # code should be stopped with a signal, return with status awaiting signal
         assert Status.AWAITING_SIGNALS == result.status
-        result = await workflow_manager.signal_async_workflow(workflow_id, STOP_EVENT_NAME, None)  # signal the workflow for the second stop
+        assert 1 == len(result.signals)
+        result = await workflow_manager.signal_async_workflow(workflow_id, next(iter(result.signals)).unique_name, None)  # signal the workflow for the second stop
         assert result is not None  # now the workflow should be done, and we should have a result
         assert 2 == result.result["outer_event_count"]  # outer_event calls event_count twice, should return 2
         assert 3 == result.result["event_count"]  # event_count called three times, should return 3

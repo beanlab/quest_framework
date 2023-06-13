@@ -54,13 +54,15 @@ async def test_async_event(tmp_path):
     workflow_id = get_workflow_id()
     async with workflow_manager:
         result = await workflow_manager.start_async_workflow(workflow_id, "AsyncEventFlow")  # start workflow
-        assert result is not None  # workflow calls stop signal, should return awaiting result
+        assert result is not None  # workflow calls stop signal, should return awaiting result. There should be one signal waiting
         assert result.status == Status.AWAITING_SIGNALS
-        result = await workflow_manager.signal_async_workflow(workflow_id, STOP_EVENT_NAME, None)  # return stop signal to workflow
+        assert len(result.signals) == 1
+        result = await workflow_manager.signal_async_workflow(workflow_id, next(iter(result.signals)).unique_name, None)  # return stop signal to workflow
         assert result is not None  # workflow should now be complete and return the correct result
+        assert result.status == Status.COMPLETED
         assert 1 == result.result["event_count"]  # event should only be called once
         assert 0 == result.result['self_event_counter']  # event should be cached, and self_event_counter should not increment
-        assert result.status == Status.COMPLETED
+
 
     # going out of context deserializes the workflow
     # going back into context should serialize the workflow and run it once

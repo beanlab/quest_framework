@@ -63,11 +63,12 @@ async def test_exception_signal(tmp_path):
         result = await workflow_manager.start_async_workflow(workflow_id, "ExceptionSignalFlow")  # start workflow
         assert result is not None  # workflow calls stop signal, should return awaiting signal result
         assert result.status == Status.AWAITING_SIGNALS
-        result = await workflow_manager.signal_async_workflow(workflow_id, STOP_EVENT_NAME, None)  # return stop signal to workflow
+        assert len(result.signals) == 1
+        result = await workflow_manager.signal_async_workflow(workflow_id, next(iter(result.signals)).unique_name, None)  # return stop signal to workflow
         assert result is not None  # workflow calls stop signal again, should be awaiting single signal
         assert result.status == Status.AWAITING_SIGNALS
         assert len(result.signals) == 1
-        result = await workflow_manager.exception_signal_async_workflow(workflow_id, STOP_EVENT_NAME, EndLoopException())  # call with exception to break out of loop and finish workflow
+        result = await workflow_manager.exception_signal_async_workflow(workflow_id, next(iter(result.signals)).unique_name, EndLoopException())  # call with exception to break out of loop and finish workflow
         assert result is not None  # workflow should now be complete and return the correct result
         assert 1 == result.result["event_count"]  # event should only be called once
         assert 0 == result.result['self_event_counter']  # event should be cached, and self_event_counter should not increment

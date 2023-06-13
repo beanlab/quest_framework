@@ -24,7 +24,8 @@ class SignalException(Exception):
 
 
 class WorkflowSuspended(BaseException):
-    def __init__(self, event_name, *args, **kwargs):
+    def __init__(self, unique_event_name, event_name, *args, **kwargs):
+        self.unique_event_name = unique_event_name
         self.event_name = event_name
         self.args = args
         self.kwargs = kwargs
@@ -44,7 +45,8 @@ class Status(Enum):
 
 
 class Signal:
-    def __init__(self, name: str, *args, **kwargs):
+    def __init__(self, unique_name: str, name: str, *args, **kwargs):
+        self.unique_name: str = unique_name
         self.name: str = name
         self.args: tuple = args
         self.kwargs: dict = kwargs
@@ -55,10 +57,10 @@ CRT = TypeVar('CRT')
 
 
 class Promise:
-    def __init__(self, signal_name: str, unique_signal_name: str, callback: Optional[Callable[[RT], CRT]], *args,
+    def __init__(self, unique_signal_name: str, signal_name: str, callback: Optional[Callable[[RT], CRT]], *args,
                  **kwargs):
-        self.signal_name: str = signal_name
         self.unique_signal_name: str = unique_signal_name
+        self.signal_name: str = signal_name
         self.args: tuple[Any] = args
         self.kwargs: dict[str, Any] = kwargs
         self.callback: Optional[Callable[[RT], CRT]] = callback
@@ -74,7 +76,7 @@ class WorkflowStatus:
     started: Optional[datetime]
     ended: Optional[datetime]
     result: Any
-    signals: Optional[list[Signal]]
+    signals: Optional[set[Signal]]
     exception: Any
 
     @staticmethod
@@ -86,7 +88,7 @@ class WorkflowStatus:
         return WorkflowStatus(Status.COMPLETED, start_time, get_current_timestamp(), result, None, None)
 
     @staticmethod
-    def create_signaled(start_time: datetime, signals: list[Signal]):
+    def create_signaled(start_time: datetime, signals: set[Signal]):
         return WorkflowStatus(Status.AWAITING_SIGNALS, start_time, None, None, signals, None)
 
     @staticmethod
@@ -204,8 +206,7 @@ class Workflow:
         self.prefix = []
         self.unique_events = {}
         self.started = get_current_timestamp()
-        self.promised_signals = []
-        self.unique_promised_signal_names = set()
+        self.promised_signals = {}
         self.status = WorkflowStatus.create_started(self.started)
 
     def _workflow_type(self) -> str:
@@ -228,6 +229,7 @@ class Workflow:
         return '.'.join(self.prefix) + '.' + event_name
 
     def _reset(self):
+        self.prefix = []
         for ue in self._replay_events:
             ue.reset()
 
@@ -254,14 +256,11 @@ class Workflow:
                 logging.debug(f'Retrieving event {unique_event_name}: {payload}')
                 return payload
         else:
-            self.prefix = []
-            raise WorkflowSuspended(event_name, *args, **kwargs)
+            raise WorkflowSuspended(unique_event_name, event_name, *args, **kwargs)
 
-    def _remove_from_promised_signals(self, signal_name: str):
-        for sig in self.promised_signals:
-            if sig.name == signal_name:
-                self.promised_signals.remove(sig)
-                break
+    def _remove_from_promised_signals(self, unique_signal_name: str):
+        if unique_signal_name in self.promised_signals.keys():
+            self.promised_signals.pop(unique_signal_name)
 
     async def _async_run(self):
         self._reset()
@@ -282,7 +281,7 @@ class Workflow:
             logging.debug(f'Workflow Suspended: awaiting event {ws.event_name}')
             name = next(self._events.counter("_await_event"))
             self._events[name] = _make_payload_event(ws.event_name)
-            self.status = WorkflowStatus.create_signaled(self.started, self.promised_signals)
+            self.status = WorkflowStatus.create_signaled(self.started, set(self.promised_signals.values()))
             return self.status
 
         except Exception as e:
@@ -308,10 +307,9 @@ class Workflow:
 
     async def async_start_signal(self, signal_name: str, *args, **kwargs) -> Promise:
         unique_signal_name = self._get_unique_signal_name(signal_name)
-        if unique_signal_name not in self.unique_promised_signal_names and unique_signal_name not in self._events:
-            self.unique_promised_signal_names.add(unique_signal_name)
-            self.promised_signals.append(Signal(signal_name, *args, **kwargs))
-        return Promise(signal_name, unique_signal_name, None, *args, **kwargs)
+        if unique_signal_name not in self.promised_signals.keys() and unique_signal_name not in self._events:
+            self.promised_signals[unique_signal_name] = Signal(unique_signal_name, signal_name, *args, **kwargs)
+        return Promise(unique_signal_name, signal_name, None, *args, **kwargs)
 
     async def async_handle_signal(self, unique_signal_name: str, signal_name: str, *args, **kwargs):
         """This is called by the @signal decorator"""
@@ -324,22 +322,28 @@ class Workflow:
         self._record_event(KW_ARGUMENTS, kwargs)
         return await self._async_run()
 
-    async def async_send_signal(self, event_name: str, payload: Any) -> WorkflowStatus:
+    async def async_send_signal(self, signal_name: str, payload: Any) -> WorkflowStatus:
+        unique_signal_name = signal_name
+        if signal_name not in self.promised_signals.keys():
+            unique_signal_name = next(self._events.counter(signal_name))
         self._record_event(
-            next(self._events.counter(event_name)),
+            unique_signal_name,
             payload
         )
-        self._remove_from_promised_signals(event_name)
+        self._remove_from_promised_signals(unique_signal_name)
         return await self._async_run()
 
-    async def async_send_signal_exception(self, event_name: str, exception: Exception, *args, **kwargs) -> WorkflowStatus:
+    async def async_send_signal_exception(self, signal_name: str, exception: Exception, *args, **kwargs) -> WorkflowStatus:
+        unique_signal_name = signal_name
+        if signal_name not in self.promised_signals.keys():
+            unique_signal_name = next(self._events.counter(signal_name))
         self._record_exception_event(
-            next(self._events.counter(event_name)),
+            unique_signal_name,
             exception,
             *args,
             **kwargs
         )
-        self._remove_from_promised_signals(event_name)
+        self._remove_from_promised_signals(unique_signal_name)
         return await self._async_run()
 
 
