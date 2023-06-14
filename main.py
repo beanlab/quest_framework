@@ -63,13 +63,13 @@ async def main():
         assert result.status == Status.AWAITING_SIGNALS
 
         print('---')
-        result = await workflow_manager.signal_async_workflow(workflow_id, INPUT_EVENT_NAME, "Foo")
+        result = await workflow_manager.promised_signal_async_workflow(workflow_id, INPUT_EVENT_NAME, "Foo")
         assert result is not None
         assert result.status == Status.AWAITING_SIGNALS
 
     async with workflow_manager:
         print('---')
-        result = await workflow_manager.signal_async_workflow(workflow_id, INPUT_EVENT_NAME, '123')
+        result = await workflow_manager.promised_signal_async_workflow(workflow_id, INPUT_EVENT_NAME, '123')
         print('---')
         assert result is not None
         assert result.status == Status.COMPLETED

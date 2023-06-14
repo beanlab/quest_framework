@@ -64,11 +64,11 @@ async def test_exception_signal(tmp_path):
         assert result is not None  # workflow calls stop signal, should return awaiting signal result
         assert result.status == Status.AWAITING_SIGNALS
         assert len(result.signals) == 1
-        result = await workflow_manager.signal_async_workflow(workflow_id, next(iter(result.signals)).unique_name, None)  # return stop signal to workflow
+        result = await workflow_manager.signal_async_workflow(workflow_id, result.signals[0].unique_signal_name, None)  # return stop signal to workflow
         assert result is not None  # workflow calls stop signal again, should be awaiting single signal
         assert result.status == Status.AWAITING_SIGNALS
         assert len(result.signals) == 1
-        result = await workflow_manager.exception_signal_async_workflow(workflow_id, next(iter(result.signals)).unique_name, EndLoopException())  # call with exception to break out of loop and finish workflow
+        result = await workflow_manager.exception_signal_async_workflow(workflow_id, result.signals[0].unique_signal_name, EndLoopException())  # call with exception to break out of loop and finish workflow
         assert result is not None  # workflow should now be complete and return the correct result
         assert 1 == result.result["event_count"]  # event should only be called once
         assert 0 == result.result['self_event_counter']  # event should be cached, and self_event_counter should not increment
@@ -78,7 +78,7 @@ async def test_exception_signal(tmp_path):
     # going out of context deserializes the workflow
     # going back into context should serialize the workflow and run it once
     async with workflow_manager:
-        result = await workflow_manager.signal_async_workflow(workflow_id, OTHER_EVENT_NAME, None) # signal the workflow to rerun it
+        result = workflow_manager.get_current_workflow_status(workflow_id) # signal the workflow to rerun it
         assert 1 == result.result["event_count"]  # result should be the same as the last signal call, as it should all have been cached even through serialization
         assert 0 == result.result['self_event_counter']
         assert "EndLoopException" == result.result['caught_exception']
