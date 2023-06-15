@@ -57,17 +57,19 @@ async def test_async_event(tmp_path):
         assert result is not None  # workflow calls stop signal, should return awaiting result. There should be one signal waiting
         assert result.status == Status.AWAITING_SIGNALS
         assert len(result.signals) == 1
-        result = await workflow_manager.signal_async_workflow(workflow_id, next(iter(result.signals)).unique_name, None)  # return stop signal to workflow
+        result = await workflow_manager.signal_async_workflow(workflow_id, result.signals[0].unique_signal_name,
+                                                              None)  # return stop signal to workflow
         assert result is not None  # workflow should now be complete and return the correct result
         assert result.status == Status.COMPLETED
         assert 1 == result.result["event_count"]  # event should only be called once
-        assert 0 == result.result['self_event_counter']  # event should be cached, and self_event_counter should not increment
-
+        assert 0 == result.result[
+            'self_event_counter']  # event should be cached, and self_event_counter should not increment
 
     # going out of context deserializes the workflow
     # going back into context should serialize the workflow and run it once
     async with workflow_manager:
-        result = await workflow_manager.signal_async_workflow(workflow_id, OTHER_EVENT_NAME, None) # signal the workflow to rerun it
-        assert 1 == result.result["event_count"]  # result should be the same as the last signal call, as it should all have been cached even through serialization
+        result = workflow_manager.get_current_workflow_status(workflow_id)
+        assert 1 == result.result[
+            "event_count"]  # result should be the same as the last signal call, as it should all have been cached even through serialization
         assert 0 == result.result['self_event_counter']
         assert result.status == Status.COMPLETED

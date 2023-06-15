@@ -61,7 +61,7 @@ async def test_nested_event(tmp_path):
         assert result is not None  # should be stopped by stop signal call, be status awaiting signal
         assert Status.AWAITING_SIGNALS == result.status
         assert 1 == len(result.signals)
-        result = await workflow_manager.signal_async_workflow(workflow_id, next(iter(result.signals)).unique_name,
+        result = await workflow_manager.signal_async_workflow(workflow_id, result.signals[0].unique_signal_name,
                                                               None)  # signal the workflow to return stop signal
         assert result is not None  # now the workflow should be done, and we should have a result
         assert Status.COMPLETED == result.status
@@ -70,12 +70,11 @@ async def test_nested_event(tmp_path):
         assert 0 == result.result[
             'self_event_counter']  # because it was replayed, self_event_count should be zero as all event_count calls should have been cached on the stop signals
 
-
     # going out of context deserializes the workflow
     # going back into context should serialize the workflow and run it once
     async with workflow_manager:
-        result = await workflow_manager.signal_async_workflow(workflow_id, OTHER_EVENT_NAME,
-                                                              None)  # call a signal to rerun workflow, every event and signal should be cached and return a payload
+        result = workflow_manager.get_current_workflow_status(
+            workflow_id)  # call a signal to rerun workflow, every event and signal should be cached and return a payload
         assert 1 == result.result[
             "outer_event_count"]  # these three values should be the same as before we deserialized and reserialized
         assert 2 == result.result["event_count"]

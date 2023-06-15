@@ -41,7 +41,9 @@ class PromisedSignalEventFlow:
         self.event_counter = 0
         event_count = await self.event_count()
         promises = [await self.stop() for i in range(0, 2)]
-        [await promise.join() for promise in promises]
+        await all_promises(*promises)
+        new_promises = [await self.stop() for i in range(0, 2)]
+        await any_promise(*new_promises)
         return {"event_count": event_count, "self_event_counter": self.event_counter}
 
 
@@ -57,7 +59,7 @@ async def test_promised_signal(tmp_path):
         assert result is not None  # workflow promises stop signal twice, should return awaiting result with two signals
         assert result.status == Status.AWAITING_SIGNALS
         assert 2 == len(result.signals)
-        result = await workflow_manager.signal_async_workflow(workflow_id, next(iter(result.signals)).unique_name,
+        result = await workflow_manager.signal_async_workflow(workflow_id, result.signals[0].unique_signal_name,
                                                               None)  # send one of the stop signals back to workflow
         assert result is not None  # should still have an awaiting signal result with one signal left
         assert result.status == Status.AWAITING_SIGNALS
@@ -69,8 +71,14 @@ async def test_promised_signal(tmp_path):
         assert status is not None  # should still have an awaiting signal result with one signal left
         assert result.status == Status.AWAITING_SIGNALS
         assert 1 == len(result.signals)
-        result = await workflow_manager.signal_async_workflow(workflow_id, next(iter(result.signals)).unique_name,
+        result = await workflow_manager.signal_async_workflow(workflow_id, result.signals[0].unique_signal_name,
                                                               None)  # return stop signal to workflow a second time
+        # now the workflow should be waiting on any signal, so we will send the second one in the waiting signals
+        assert status is not None  # should still have an awaiting signal result with one signal left
+        assert result.status == Status.AWAITING_SIGNALS
+        assert 2 == len(result.signals)
+        # return second signal back, it should now complete because it got one of them back
+        result = await workflow_manager.signal_async_workflow(workflow_id, result.signals[1].unique_signal_name, None)
         assert result is not None  # workflow should now be complete and return the correct result
         assert 1 == result.result["event_count"]  # event should only be called once
         assert 0 == result.result[
@@ -80,9 +88,8 @@ async def test_promised_signal(tmp_path):
     # going out of context deserializes the workflow
     # going back into context should serialize the workflow and run it once
     async with workflow_manager:
-        result = await workflow_manager.signal_async_workflow(workflow_id, OTHER_EVENT_NAME,
-                                                              None)  # signal the workflow to rerun it
-        assert 1 == result.result[
-            "event_count"]  # result should be the same as the last signal call, as it should all have been cached even through serialization
+        result = workflow_manager.get_current_workflow_status(workflow_id)  # signal the workflow to rerun it
+        # result should be the same as the last signal call, as it should all have been cached even through serialization
+        assert 1 == result.result["event_count"]
         assert 0 == result.result['self_event_counter']
         assert result.status == Status.COMPLETED

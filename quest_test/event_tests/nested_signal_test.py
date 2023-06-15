@@ -67,11 +67,11 @@ async def test_nested_signal(tmp_path):
         assert result is not None  # code should be stopped with a signal, return with status awaiting signal
         assert Status.AWAITING_SIGNALS == result.status
         assert 1 == len(result.signals)
-        result = await workflow_manager.signal_async_workflow(workflow_id, next(iter(result.signals)).unique_name, None)  # signal the workflow for the first stop
+        result = await workflow_manager.signal_async_workflow(workflow_id, result.signals[0].unique_signal_name, None)  # signal the workflow for the first stop
         assert result is not None  # code should be stopped with a signal, return with status awaiting signal
         assert Status.AWAITING_SIGNALS == result.status
         assert 1 == len(result.signals)
-        result = await workflow_manager.signal_async_workflow(workflow_id, next(iter(result.signals)).unique_name, None)  # signal the workflow for the second stop
+        result = await workflow_manager.signal_async_workflow(workflow_id, result.signals[0].unique_signal_name, None)  # signal the workflow for the second stop
         assert result is not None  # now the workflow should be done, and we should have a result
         assert 2 == result.result["outer_event_count"]  # outer_event calls event_count twice, should return 2
         assert 3 == result.result["event_count"]  # event_count called three times, should return 3
@@ -81,7 +81,7 @@ async def test_nested_signal(tmp_path):
     # going out of context deserializes the workflow
     # going back into context should serialize the workflow and run it once
     async with workflow_manager:
-        result = await workflow_manager.signal_async_workflow(workflow_id, OTHER_EVENT_NAME, None)  # call a signal to rerun workflow, every event and signal should be cached and return a payload
+        result = workflow_manager.get_current_workflow_status(workflow_id)  # call a signal to rerun workflow, every event and signal should be cached and return a payload
         assert 2 == result.result["outer_event_count"]  # result should be the same as before we deserialized and reserialized
         assert 3 == result.result["event_count"]
         assert 0 == result.result['self_event_counter']

@@ -143,14 +143,17 @@ class WorkflowManager:
     async def resume_workflows(self):
         await self._resume_workflows()
 
+    def get_workflow(self, workflow_id):
+        return self.workflows[workflow_id]
+
     async def signal_async_workflow(self, workflow_id: str, signal_name: str, payload: Any) -> WorkflowStatus:
-        """Sends the event to the indicated workflow asynchronously"""
-        workflow = self.workflows[workflow_id]
+        """Sends a promised signal to the indicated workflow asynchronously"""
+        workflow = self.get_workflow(workflow_id)
         return await workflow.async_send_signal(signal_name, payload)
 
     async def exception_signal_async_workflow(self, workflow_id: str, signal_name: str, exception: Exception, *args, **kwargs) -> WorkflowStatus:
-        """Sends the event to the indicated workflow asynchronously"""
-        workflow = self.workflows[workflow_id]
+        """Sends a not promised signal to the indicated workflow asynchronously"""
+        workflow = self.get_workflow(workflow_id)
         return await workflow.async_send_signal_exception(signal_name, exception, *args, **kwargs)
 
     async def start_async_workflow(self, workflow_id: str, workflow_type: str, *args, **kwargs) -> WorkflowStatus:
