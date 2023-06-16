@@ -111,7 +111,7 @@ class WorkflowManager:
             self.event_serializer.save_events(wid, event_manager)
 
         for wid, workflow in self.workflows.items():
-            self.workflow_serializers[workflow._workflow_type()].serialize_workflow(wid, workflow)
+            self.workflow_serializers[workflow._workflow_type()].serialize_workflow(wid, workflow._func)
 
     async def _load_and_resume_workflows(self, workflow_types: dict[str, str]):
         for wid, wtype in workflow_types.items():
