@@ -120,7 +120,7 @@ async def get_feedback(game_id, player_id, guess):
 @thing
 async def submit_guess(game_id, player_id, feedback):
     guess = await get_player_guess(feedback)
-    feedback = await get_feedback(game_id, player_id, guess)
+    feedback = await get_feedback(game_id, player_id, guess) # API will timeout if you wait for this, you have to return to UI
     return feedback
 
 async def regular_player():
@@ -157,5 +157,66 @@ async def wait_for_turn(guess):
     while status.waiting:
         provide_status_update(status)  # this updates the signal
         status = await get_status()    # this calls the parent
+        # Again, this will cause the API to timeout, you can't poll and wait for something in a WF
+        # You would need to get the status then return to the UI, which will poll back in
 
     return status.instructions
+
+
+# Another idea:
+
+@many_promised_signal(num_expected_values)
+async def player_join(num_expected_values): ...
+
+@many_promised_signal(num_expected_values) # I know this is not exactly how you would do this but you get the idea
+async def get_all_guesses(feedback): ...
+
+@signal
+async def host_start(): ...
+
+
+def game():
+    players_promise: ManyPromise = await player_join(num_expected_values=any_number)
+    await host_start()
+    # would return dict of player_id to player_id or names or something, doesn't really matter
+    players: dict[str, str] = players_promise.accept_payloads()
+    secret = await get_secret()
+    while True:
+        # guesses will be a dict from player_id to guess
+        guesses: dict[str, int] = await get_all_guesses(num_expected_values=len(players), feedback) # this signal will count or reset every time it loops
+        if secret in guesses.items():
+            break
+        feedback = await calc_closest()
+    return "you win!"
+
+@event
+async def join_game(game_id, player_id):
+    signal_name = "player_join"
+    workflow_manager.send_to_many_signal(game_id, signal_name, key=player_id, payload=player_id)
+
+@not_replayed_signal
+async def wait():
+    """This function will not store a payload and will not be counted, it just raises WorkflowSuspended to return"""
+    ...
+
+async def play_game(game_id, player_id):
+    status = get_curr_game_status(game_id)
+    if status.COMPLETED:
+        return status.result
+    elif status.AWAITING_SIGNALS \
+            and status.signals[0] == 'get_all_guesses' \
+            and status.signals[0].submitted.get(player_id) is None: # when a many signal returns in a status, it will include the dict of what has been submitted already
+        await get_guess(status.signals[0].args[0])
+    await wait()
+def regular_player(game_id, player_id):
+    # could have an event to get player_id here, doesn't matter
+    await join_game()
+    await play_game(game_id, player_id)
+
+def host_player(game_id, player_id):
+    # could have an event to get player_id here, doesn't matter
+    await join_game()
+    await start_scene()
+    await workflow_manger.send_signal(game_id, "start_game", None)
+    await play_game(game_id, player_id)
+
