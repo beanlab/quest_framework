@@ -45,7 +45,7 @@ class Promise:
         self.kwargs: dict[str, Any] = kwargs
 
     async def join(self) -> CRT:
-        return await find_workflow().async_wait_on_all_promises(self)
+        return (await find_workflow().async_wait_on_all_promises(self))[0]
 
 
 async def any_promise(*promises: Promise):
