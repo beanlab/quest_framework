@@ -131,3 +131,31 @@ async def regular_player():
         if feedback is None:
             break
     return await get_final_info(game_id)
+
+
+# Another approach
+async def player_worklow():
+    """Responsible for defining the sequence of scenes the player encounters"""
+    name = await get_name()
+    instructions = await wait_for_first_turn(name)
+    try:
+        while True:
+            guess = await provide_guess()
+            instructions = await wait_for_turn(guess)
+    except SignalException as se:
+        if se.name == 'GameComplete':
+            return se.game_stats
+        else:
+            raise
+
+
+@event
+async def wait_for_turn(guess):
+    """Provides scene updates to UI while querying parent for info"""
+    status = provide_guess(guess)  # this calls the parent
+
+    while status.waiting:
+        provide_status_update(status)  # this updates the signal
+        status = await get_status()    # this calls the parent
+
+    return status.instructions
