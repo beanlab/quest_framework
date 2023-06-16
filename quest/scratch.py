@@ -137,11 +137,11 @@ async def regular_player():
 async def player_worklow():
     """Responsible for defining the sequence of scenes the player encounters"""
     name = await get_name()
-    instructions = await wait_for_first_turn(name)
+    instructions = await wait_for_turn(name, None)
     try:
         while True:
-            guess = await provide_guess()
-            instructions = await wait_for_turn(guess)
+            guess = await get_player_guess(instructions)
+            instructions = await wait_for_turn(name, guess)
     except SignalException as se:
         if se.name == 'GameComplete':
             return se.game_stats
@@ -150,12 +150,62 @@ async def player_worklow():
 
 
 @event
-async def wait_for_turn(guess):
+async def wait_for_turn(name, guess):
     """Provides scene updates to UI while querying parent for info"""
-    status = provide_guess(guess)  # this calls the parent
+    if guess:
+        status = provide_guess(name, guess)  # this calls the parent
+    else:
+        status = get_status()
 
     while status.waiting:
-        provide_status_update(status)  # this updates the signal
+        provide_status_update(status)  # this updates the signal for 'wait_for_turn'
         status = await get_status()    # this calls the parent
 
     return status.instructions
+
+
+async def game_workflow():
+    players = get_players()
+    secret = get_number()
+    feedback = None
+    while True:
+        guesses_promised = [get_guess(player, feedback) for player in players]
+        guesses = [promise.join() for promise in guesses_promised]
+        closest = calc_closest(guesses, secret)
+        if closest == secret:
+            break
+        feedback = closest
+
+    return secret  # game complete
+
+
+
+class PlayerWorkflow:
+    player_id: str
+    @signal(route=['player_id'])
+    async def get_name(self): ...
+
+class Game:
+    players: list[PlayerWorkflow]
+    ready: bool
+
+    @scene
+    class WaitingForPlayersScene:
+        async def waiting(self, ):
+    async def __acall__(self):
+
+        while True:
+            for player in players:
+                await self.waiting(player, players)  # notify each player of who has joined
+            await self.ready()
+
+
+    @signal
+    async def ready(self): ...
+
+    @notice  # the first have of a promised signal, but doesn't return anything
+    async def waiting(self, player, players): ...
+
+
+@scene
+class WaitingForPlayers:
