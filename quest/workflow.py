@@ -16,49 +16,8 @@ class WorkflowNotFoundException(Exception):
     pass
 
 
-class SignalNotFoundException(Exception):
-    pass
-
-
-class SignalException(Exception):
-    def __init__(self, name: str, *args, **kwargs):
-        self.name = name
-        self.args = args
-        self.kwargs = kwargs
-
-
-RT = TypeVar('RT')
-CRT = TypeVar('CRT')
-
-
-class Promise:
-    def __init__(
-            self,
-            unique_signal_name: str,
-            signal_name: str,
-            callback: Optional[Callable[[RT], CRT]],
-            *args, **kwargs):
-        self.unique_signal_name: str = unique_signal_name
-        self.signal_name: str = signal_name
-        self.callback: Optional[Callable[[RT], CRT]] = callback
-        self.args: tuple[Any] = args
-        self.kwargs: dict[str, Any] = kwargs
-
-    async def join(self) -> CRT:
-        return (await find_workflow().async_wait_on_all_promises(self))[0]
-
-
-async def any_promise(*promises: Promise):
-    return await find_workflow().async_wait_on_any_promise(*promises)
-
-
-async def all_promises(*promises: Promise):
-    return await find_workflow().async_wait_on_all_promises(*promises)
-
-
 class WorkflowSuspended(BaseException):
-    def __init__(self, *promises: Promise):
-        self.promises = promises
+    pass
 
 
 class WorkflowFunction(Protocol):
@@ -80,7 +39,7 @@ class WorkflowStatus:
     started: Optional[datetime]
     ended: Optional[datetime]
     result: Any
-    signals: Optional[tuple[Promise]]
+    state: dict[str, 'State']
     exception: Any
 
     @staticmethod
@@ -92,12 +51,85 @@ class WorkflowStatus:
         return WorkflowStatus(Status.COMPLETED, start_time, get_current_timestamp(), result, None, None)
 
     @staticmethod
-    def create_signaled(start_time: datetime, signals: tuple[Promise]):
-        return WorkflowStatus(Status.AWAITING_SIGNALS, start_time, None, None, signals, None)
+    def create_suspended(start_time: datetime, state: dict[str, 'State']):
+        return WorkflowStatus(Status.AWAITING_SIGNALS, start_time, None, None, state, None)
 
     @staticmethod
     def create_errored(start_time: datetime, exception: Any):
         return WorkflowStatus(Status.ERRORED, start_time, get_current_timestamp(), None, None, exception)
+
+
+class NoValue:
+    ...
+
+
+class IncorrectAssignIdError(Exception):
+    pass
+
+
+def state(name: str, **kwargs):
+    new_state = State(name, **kwargs)
+    find_workflow().add_to_state(name, new_state)
+    return new_state
+
+
+def assigned_id_decorator(func):
+    def wrapper(self, *args, **kwargs):
+        if 'assign_id' not in kwargs:
+            raise TypeError("my_argument is a required keyword argument.")
+        if kwargs['assign_id'] != self.assign_id:
+            raise IncorrectAssignIdError("assign_id for state is incorrect")
+        result = func(*args)
+        return kwargs['assign_id'], result
+
+    return wrapper
+
+
+class State:
+    def __init__(self, name: str, **kwargs):
+        # State declaration
+        self.value = NoValue
+        self.name = name
+        # Other variables
+        self.replayed = False
+        self.default = True
+        self.writeable = False
+        self.namespace = "global"
+        self.assign_id = None
+        # This takes care of the kw options
+        self.options = {"default", "writeable", "assign_id", "namespace"}
+        for kw_name, kw_value in kwargs.items():
+            if kw_name in self.options:
+                setattr(self, kw_name, kw_value)
+        # handle kw option changes
+        if self.default:
+            self.value = None
+        if self.assign_id is not None:
+            self.__call__ = assigned_id_decorator(self.__call__)
+
+    def __enter__(self):
+        if not self.replayed:
+            # find workflow and add self
+            find_workflow().add_to_state(self.name, self)
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if not isinstance(exc_type, WorkflowSuspended):
+            # remove from state, so it isn't "visible"
+            find_workflow().remove_from_state(self.name)
+
+    def __call__(self, *args):
+        if len(args) >= 1:
+            self.set_state(*args)
+        return self.get_state()
+
+    def set_state(self, value):
+        self.value = value
+        find_workflow().add_to_state(self.name, self.value)
+
+    def get_state(self):
+        if self.value is NoValue:
+            raise WorkflowSuspended()
+        return self.value
 
 
 def find_workflow() -> 'Workflow':
@@ -117,56 +149,6 @@ def event(func):
         return await find_workflow().async_handle_event(func.__name__, func, *args, **kwargs)
 
     return new_func
-
-
-def signal(func_or_name) -> Callable:
-    if isinstance(func_or_name, str):
-        def decorator(func):
-            func.__event_name = func_or_name
-            if inspect.getfullargspec(func).args[0] == 'self':
-                async def new_func(self, *args, **kwargs):
-                    return await (await find_workflow().async_start_signal(func_or_name, *args, **kwargs)).join()
-            else:
-                async def new_func(*args, **kwargs):
-                    return await (await find_workflow().async_start_signal(func_or_name, *args, **kwargs)).join()
-
-            return new_func
-
-        return decorator
-    else:
-        if inspect.getfullargspec(func_or_name).args[0] == 'self':
-            async def new_func(self, *args, **kwargs):
-                return await (await find_workflow().async_start_signal(func_or_name.__name__, *args, **kwargs)).join()
-        else:
-            async def new_func(*args, **kwargs):
-                return await (await find_workflow().async_start_signal(func_or_name.__name__, *args, **kwargs)).join()
-
-        return new_func
-
-
-def promised_signal(func_or_name) -> Callable:
-    if isinstance(func_or_name, str):
-        def decorator(func):
-            func.__event_name = func_or_name
-            if inspect.getfullargspec(func).args[0] == 'self':
-                async def new_func(self, *args, **kwargs):
-                    return await find_workflow().async_start_signal(func_or_name, *args, **kwargs)
-            else:
-                async def new_func(*args, **kwargs):
-                    return await find_workflow().async_start_signal(func_or_name, *args, **kwargs)
-
-            return new_func
-
-        return decorator
-    else:
-        if inspect.getfullargspec(func_or_name).args[0] == 'self':
-            async def new_func(self, *args, **kwargs):
-                return await find_workflow().async_start_signal(func_or_name.__name__, *args, **kwargs)
-        else:
-            async def new_func(*args, **kwargs):
-                return await find_workflow().async_start_signal(func_or_name.__name__, *args, **kwargs)
-
-        return new_func
 
 
 def is_async(func):
@@ -209,9 +191,22 @@ class Workflow:
         self._func = func
         self.prefix = []
         self.unique_events = {}
-        self.promised_signals = set()
         self.started = get_current_timestamp()
         self.status = WorkflowStatus.create_started(self.started)
+        # TODO: STATE OBJECT
+        self.state: dict[str, dict] = {}
+
+    def add_to_state(self, name: str, state_obj: State):
+        self.state[name] = state_obj
+
+    def remove_from_state(self, name: str):
+        self.state.pop(name)
+
+    async def change_state(self, name: str, value: Any):
+        state_obj = self.state[name]
+        if state_obj.writeable:
+            state_obj.set_state(value)
+            await self._async_run()
 
     def _workflow_type(self) -> str:
         return self._func.__class__.__name__
@@ -222,12 +217,6 @@ class Workflow:
             self.unique_events[prefixed_name] = UniqueEvent(prefixed_name)
             self._replay_events.append(self.unique_events[prefixed_name])
         return next(self.unique_events[prefixed_name])
-
-    def _get_unique_signal_name(self, signal_name: str) -> str:
-        if signal_name not in self.unique_events:
-            self.unique_events[signal_name] = UniqueEvent(signal_name)
-            self._replay_events.append(self.unique_events[signal_name])
-        return next(self.unique_events[signal_name])
 
     def _get_prefixed_name(self, event_name: str) -> str:
         return '.'.join(self.prefix) + '.' + event_name
@@ -242,28 +231,6 @@ class Workflow:
             raise Exception(f"Duplicate event: {event_name}")
         logging.debug(f'Event recorded: {event_name}, {payload}')
         self._events[event_name] = _make_payload_event(payload)
-
-    def _record_exception_event(self, event_name: str, exception: Exception, *args, **kwargs):
-        if event_name in self._events:
-            raise Exception(f"Duplicate event: {event_name}")
-        logging.debug(f'Exception event recorded: {event_name}, {exception}')
-        self._events[event_name] = _make_exception_event(exception, *args, **kwargs)
-
-    async def _await_signal_event(self, unique_event_name: str) -> Any:
-        if unique_event_name in self._events:
-            exception = self._events[unique_event_name]["exception"]
-            if exception is not None:
-                logging.debug(f'Retrieving exception event {unique_event_name}: {exception}')
-                raise SignalException(exception["name"], *exception["args"], **exception["kwargs"])
-            else:
-                payload = self._events[unique_event_name]["payload"]
-                logging.debug(f'Retrieving event {unique_event_name}: {payload}')
-                return payload
-        else:
-            return Workflow.NO_RESULT
-
-    def _remove_from_promised_signals(self, unique_signal_name: str):
-        self.promised_signals.remove(unique_signal_name)
 
     async def _async_run(self):
         self._reset()
@@ -281,8 +248,7 @@ class Workflow:
             return self.status
 
         except WorkflowSuspended as ws:
-            logging.debug(f'Workflow Suspended: awaiting signals')
-            self.status = WorkflowStatus.create_signaled(self.started, ws.promises)
+            self.status = WorkflowStatus.create_suspended(self.started, self.state)
             return self.status
 
         except Exception as e:
@@ -306,61 +272,9 @@ class Workflow:
             self._record_event(_event_name, payload)
             return payload
 
-    async def async_start_signal(self, signal_name: str, *args, **kwargs) -> Promise:
-        unique_signal_name = self._get_unique_signal_name(signal_name)
-        if unique_signal_name not in self.promised_signals and unique_signal_name not in self._events:
-            self.promised_signals.add(unique_signal_name)
-        return Promise(unique_signal_name, signal_name, None, *args, **kwargs)
-
-    NO_RESULT = object()
-
-    async def _get_results_of_promises(self, *promises: Promise):
-        return [
-            (promise, await self._await_signal_event(promise.unique_signal_name))
-            for promise in promises
-        ]
-
-    async def async_wait_on_all_promises(self, *promises: Promise):
-        results = await self._get_results_of_promises(*promises)
-        unresolved_promises = [result[0] for result in results if result[1] is Workflow.NO_RESULT]
-        if len(unresolved_promises) > 0:
-            raise WorkflowSuspended(*unresolved_promises)
-        return results
-
-    @event
-    async def async_wait_on_any_promise(self, *promises: Promise):
-        results = await self._get_results_of_promises(*promises)
-        result = next((result[1] for result in results if result[1] is not Workflow.NO_RESULT), Workflow.NO_RESULT)
-        if result is Workflow.NO_RESULT:
-            raise WorkflowSuspended(*promises)
-        return result
-
     async def async_start(self, *args, **kwargs) -> WorkflowStatus:
         self._record_event(ARGUMENTS, args)
         self._record_event(KW_ARGUMENTS, kwargs)
-        return await self._async_run()
-
-    async def async_send_signal(self, unique_signal_name: str, payload: Any) -> WorkflowStatus:
-        if unique_signal_name not in self.promised_signals:
-            raise SignalNotFoundException("The requested signal was not found in the list of awaiting signals")
-        self._remove_from_promised_signals(unique_signal_name)
-        self._record_event(
-            unique_signal_name,
-            payload
-        )
-        return await self._async_run()
-
-    async def async_send_signal_exception(self, unique_signal_name: str, exception: Exception, *args,
-                                          **kwargs) -> WorkflowStatus:
-        if unique_signal_name not in self.promised_signals:
-            raise SignalNotFoundException("The requested signal was not found in the list of awaiting signals")
-        self._remove_from_promised_signals(unique_signal_name)
-        self._record_exception_event(
-            unique_signal_name,
-            exception,
-            *args,
-            **kwargs
-        )
         return await self._async_run()
 
 
