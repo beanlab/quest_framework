@@ -1,6 +1,6 @@
 import pytest
 
-from quest import state, step
+from quest import state, step, WorkflowManager
 from quest.workflow import *
 from quest.json_seralizers import *
 
@@ -40,13 +40,6 @@ class StateFlow:
         await state(VISIBLE_BY_ID, VISIBLE_BY_ID, ID)
 
 
-def find_state_value(result: WorkflowStatus, value: str) -> dict | None:
-    for state_entry in result.state.values():
-        if state_entry['name'] == value:
-            return state_entry['value']
-    return None
-
-
 @pytest.mark.asyncio
 async def test_state(tmp_path):
     """
@@ -60,13 +53,13 @@ async def test_state(tmp_path):
         assert result is not None
         assert result.status == Status.COMPLETED
         # should only have visible state
-        assert find_state_value(result, VISIBLE) == VISIBLE
-        assert find_state_value(result, NOT_VISIBLE) is None
-        assert find_state_value(result, VISIBLE_BY_ID) is None
+        assert result.state[VISIBLE]['value'] == VISIBLE
+        assert result.state.get(NOT_VISIBLE) is None
+        assert result.state.get(f'{VISIBLE_BY_ID}.{ID}') is None
         # get status with identification
         status = workflow_manager.get_status(workflow_id, ID)
-        assert find_state_value(status, VISIBLE_BY_ID) == VISIBLE_BY_ID
-        
+        assert status.state[f'{VISIBLE_BY_ID}.{ID}']['value'] == VISIBLE_BY_ID
+
     # going out of context deserializes the workflow
     async with workflow_manager:
         # get status of rehydrated workflow
@@ -75,6 +68,6 @@ async def test_state(tmp_path):
         assert result is not None
         assert result.status == Status.COMPLETED
         # should only have visible state
-        assert find_state_value(result, VISIBLE) == VISIBLE
-        assert find_state_value(result, NOT_VISIBLE) is None
-        assert find_state_value(result, VISIBLE_BY_ID) is None
+        assert result.state[VISIBLE]['value'] == VISIBLE
+        assert result.state.get(NOT_VISIBLE) is None
+        assert result.state.get(f'{VISIBLE_BY_ID}.{ID}') is None

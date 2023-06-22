@@ -1,6 +1,6 @@
 import pytest
 
-from quest import step
+from quest import step, WorkflowManager
 from quest.workflow import *
 from quest.json_seralizers import *
 

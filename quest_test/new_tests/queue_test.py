@@ -1,6 +1,6 @@
 import pytest
 
-from quest import queue
+from quest import queue, WorkflowManager
 from quest.workflow import *
 from quest.json_seralizers import *
 
@@ -40,18 +40,8 @@ class QueueFlow:
         return {'identity': identity, 'value': value}
 
 
-def find_queue_id(result: WorkflowStatus, value: str) -> str | None:
-    for queue_entry in result.queues.values():
-        if queue_entry['name'] == value:
-            return queue_entry['queue_id']
-    return None
-
-
-def find_state_value(result: WorkflowStatus, value: str) -> dict | None:
-    for state_entry in result.state.values():
-        if state_entry['name'] == value:
-            return state_entry['value']
-    return None
+def create_id(name: str, identity: str | None) -> str:
+    return f'{name}.{identity}' if identity is not None else name
 
 
 @pytest.mark.asyncio
@@ -59,29 +49,29 @@ async def test_state(tmp_path):
     """
     This test shows that state works as intended
     """
-    workflow_manager = create_workflow_manager(QueueFlow, "StateFlow", tmp_path)
+    workflow_manager = create_workflow_manager(QueueFlow, "QueueFlow", tmp_path)
     workflow_id = get_workflow_id()
     async with workflow_manager:
-        result = await workflow_manager.start_workflow(workflow_id, "StateFlow")
+        result = await workflow_manager.start_workflow(workflow_id, "QueueFlow")
         # the workflow should be suspended
         assert result is not None
         assert result.status == Status.SUSPENDED
         # queue1 should be waiting, push to value to queue1
-        assert find_queue_id(result, 'queue1') is not None
-        await workflow_manager.push_queue(workflow_id, find_queue_id(result, 'queue1'), "push_to_queue")
+        assert result.queues[create_id("queue1", None)] is not None
+        await workflow_manager.push_queue(workflow_id, "queue1", "push_to_queue")
         # get status. Should have another waiting queue only for identity "ID", and shouldn't have queue1 because of context
         status = workflow_manager.get_status(workflow_id, None)
-        assert find_queue_id(status, 'queue2') is None
-        assert find_queue_id(status, 'queue1') is None
+        assert status.queues.get(create_id("queue1", None)) is None
+        assert status.queues.get(create_id("queue2", ID)) is None
         status = workflow_manager.get_status(workflow_id, ID)
-        assert find_queue_id(status, 'queue2') is not None
+        assert status.queues[create_id("queue2", ID)] is not None
         # push to queue2, workflow should now be complete
-        await workflow_manager.push_queue(workflow_id, find_queue_id(status, 'queue2'), "push_to_queue", ID)
+        await workflow_manager.push_queue(workflow_id, "queue2", "push_to_queue", ID)
         status = workflow_manager.get_status(workflow_id, ID)
         assert status.status == Status.COMPLETED
-        assert find_queue_id(status, 'queue2') is not None
-        assert find_state_value(result, 'result')['identity'] == ID
-        assert find_state_value(result, 'result')['value'] == 'push_to_queue'
+        assert status.queues[create_id("queue2", ID)] is not None
+        assert status.state['result']['value']['identity'] == ID
+        assert status.state['result']['value']['value'] == 'push_to_queue'
 
     # going out of context deserializes the workflow
     async with workflow_manager:
@@ -90,5 +80,5 @@ async def test_state(tmp_path):
         # the workflow should be done, and we should have a result
         assert result is not None
         assert result.status == Status.COMPLETED
-        assert find_state_value(result, 'result')['identity'] == ID
-        assert find_state_value(result, 'result')['value'] == 'push_to_queue'
+        assert status.state['result']['value']['identity'] == ID
+        assert status.state['result']['value']['value'] == 'push_to_queue'

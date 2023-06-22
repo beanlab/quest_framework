@@ -219,6 +219,7 @@ class Workflow:
         if self.queues[queue_id]['values']:
             return self.queues[queue_id]['values'].pop(0)
         else:
+            self._prefix = []
             raise WorkflowSuspended()
 
     @_step
@@ -238,7 +239,8 @@ class Workflow:
     def _reset(self):
         self._prefix = []
         for ue in self._replay_events:
-            ue.reset()
+            if ue.name != ".push_queue":  # IS THIS RIGHT??
+                ue.reset()
 
     async def start(self, *args, **kwargs) -> WorkflowStatus:
         self._reset()

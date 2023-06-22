@@ -12,11 +12,11 @@ class StatelessWorkflowSerializer(WorkflowSerializer):
     def serialize_workflow(self, workflow_id: str, workflow: WorkflowFunction):
         """Nothing needed"""
 
-    def deserialize_workflow(self, workflow_id: str) -> WorkflowFunction:
-        return self.create_workflow()
+    def deserialize_workflow(self, workflow_id: str, workflow_manager) -> WorkflowFunction:
+        return self.create_workflow(workflow_manager)
 
-    def create_new_instance(self, workflow_id: str) -> WorkflowFunction:
-        return self.create_workflow()
+    def create_new_instance(self, workflow_id: str, workflow_manager) -> WorkflowFunction:
+        return self.create_workflow(workflow_manager)
 
 
 class JsonEventSerializer(EventSerializer[InMemoryEventManager]):
