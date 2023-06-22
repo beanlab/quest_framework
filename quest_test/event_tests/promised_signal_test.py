@@ -55,7 +55,7 @@ async def test_promised_signal(tmp_path):
     workflow_manager = create_workflow_manager(PromisedSignalEventFlow, "PromisedSignalEventFlow", tmp_path)
     workflow_id = get_workflow_id()
     async with workflow_manager:
-        result = await workflow_manager.start_async_workflow(workflow_id, "PromisedSignalEventFlow")  # start workflow
+        result = await workflow_manager.start_workflow(workflow_id, "PromisedSignalEventFlow")  # start workflow
         assert result is not None  # workflow promises stop signal twice, should return awaiting result with two signals
         assert result.status == Status.SUSPENDED
         assert 2 == len(result.signals)

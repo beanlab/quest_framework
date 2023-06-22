@@ -1,7 +1,6 @@
 import inspect
 import logging
 import uuid
-from copy import deepcopy
 from datetime import datetime
 from enum import Enum
 from functools import wraps
@@ -42,27 +41,15 @@ class WorkflowStatus:
     status: Status
     started: Optional[datetime]
     ended: Optional[datetime]
-    result: Any
-    state: dict[str, 'StateEntry']
-    queues: dict[str, 'QueueEntry']
-    steps: dict[str, 'StepEntry']
-    exception: Any
+    steps: dict[str, StepEntry]
+    state: dict[str, StateEntry]
+    queues: dict[str, QueueEntry]
 
-    @staticmethod
-    def create_started(start_time: datetime):
-        return WorkflowStatus(Status.RUNNING, start_time, None, None, None, None, None, None)
+    def get_result(self):
+        return self.state['result']
 
-    @staticmethod
-    def create_successfully_completed(start_time: datetime, result: Any, state: EventManager, queues: EventManager, steps: EventManager):
-        return WorkflowStatus(Status.COMPLETED, start_time, get_current_timestamp(), result, state, queues, steps, None)
-
-    @staticmethod
-    def create_suspended(start_time: datetime, state: EventManager, queues: EventManager, steps: EventManager):
-        return WorkflowStatus(Status.SUSPENDED, start_time, None, None, state, queues, steps, None)
-
-    @staticmethod
-    def create_errored(start_time: datetime, exception: Any):
-        return WorkflowStatus(Status.ERRORED, start_time, get_current_timestamp(), None, None, None, None, exception)
+    def get_error(self):
+        return self.state['error']
 
 
 def find_workflow() -> 'Workflow':
@@ -143,25 +130,31 @@ def _step(func):
     return new_func
 
 
+def alambda(value):
+    async def run():
+        return value
+
+    return run
+
+
 class StepEntry(TypedDict):
     step_id: str
     name: str
     value: Any
-    identity: Optional[str]
 
 
 class StateEntry(TypedDict):
     state_id: str
     name: str
     value: Any
-    identity: Optional[str]
+    identity: str
 
 
 class QueueEntry(TypedDict):
     queue_id: str
     name: str
     values: list
-    identity: Optional[str]
+    identity: str
 
 
 def get_current_timestamp() -> datetime:
@@ -181,20 +174,33 @@ class Workflow:
             self,
             workflow_id: str,
             func: WorkflowFunction,
-            step_manager: EventManager,
-            state_manager: EventManager,
-            queue_manager: EventManager
+            step_manager: EventManager[StepEntry],
+            state_manager: EventManager[StateEntry],
+            queue_manager: EventManager[QueueEntry]
     ):
         self.workflow_id = workflow_id
         self._replay_events: list[UniqueEvent] = []
         self._func = func
         self._prefix = []
         self.started = get_current_timestamp()
-        self.status = Status.RUNNING
-        self.state: EventManager[StateEntry] = state_manager  # dict[str, StateEntry]
-        self.queues: EventManager[QueueEntry] = step_manager  # dict[str, QueueEntry]
-        self.steps: EventManager[StepEntry] = queue_manager  # dict[str, EventEntry]
+        self.status = WorkflowStatus.create_started(self.started)
+        self.steps: EventManager[StepEntry] = step_manager
+        self.state: EventManager[StateEntry] = state_manager
+        self.queues: EventManager[QueueEntry] = queue_manager
         self.unique_ids: dict[str, UniqueEvent] = {}
+
+    def get_status(self, identity, include_steps, include_state, include_queues):
+        steps = filter_identity(identity, self.steps) if include_steps else None
+        state = filter_identity(identity, self.state) if include_state else None
+        queues = filter_identity(identity, self.queues) if include_queues else None
+        return WorkflowStatus(
+            self.status,
+            self.started,
+            self.ended,
+            steps,
+            state,
+            queues
+        )
 
     def _get_unique_id(self, event_name: str) -> str:
         prefixed_name = self._get_prefixed_name(event_name)
@@ -204,7 +210,7 @@ class Workflow:
         return next(self.unique_ids[prefixed_name])
 
     async def handle_step(self, step_name: str, func: Callable, *args, **kwargs):
-        """This is called by the @event decorator"""
+        """This is called by the @step decorator"""
         step_id = self._get_unique_id(step_name)
 
         if step_id in self.steps:
@@ -216,8 +222,7 @@ class Workflow:
             self.steps[step_id] = StepEntry(
                 step_id=step_id,
                 name=step_name,
-                value=payload,
-                identity=kwargs['identity'] if 'identity' in kwargs else None
+                value=payload
             )
             return payload
 
@@ -236,8 +241,11 @@ class Workflow:
     async def remove_state(self, state_id):
         del self.state[state_id]
 
-    async def get_state(self, state_id):
-        # Called by workflow manager, doesn't need to be a step
+    async def get_state(self, state_id, identity):
+        # Called by workflow manager, readonly: doesn't need to be a step
+        if (state_identity := self.state[state_id]['identity']) is not None and state_identity != identity:
+            raise Exception('Boo')  # TODO: real InvalidIdentity exception, pull out method?
+
         return self.state[state_id]['value']
 
     @_step
@@ -256,10 +264,14 @@ class Workflow:
         return queue_id
 
     @_step
-    async def push_queue(self, queue_id, value) -> None | str:
+    async def push_queue(self, queue_id, value, identity) -> None | str:
         # Called by Workflow Manager
-        identity = self.queues[queue_id]['identity'] or assign_identity()
+        if (queue_identity := self.queues[queue_id]['identity']) is not None and queue_identity != identity:
+            raise Exception('Boo')  # TODO: real InvalidIdentity exception
+
+        identity = queue_identity or assign_identity()
         self.queues[queue_id]['values'].append((identity, value))
+        await self.start()
         return identity
 
     @_step
@@ -288,50 +300,31 @@ class Workflow:
         for ue in self._replay_events:
             ue.reset()
 
-    async def _async_run(self):
+    async def start(self, *args, **kwargs) -> WorkflowStatus:
         self._reset()
         try:
-            args = self.steps[PREFIXED_ARGUMENTS]["value"]
-            kwargs = self.steps[PREFIXED_KW_ARGUMENTS]["value"]
             logging.debug('Invoking workflow')
+
+            args = await self.handle_step(ARGUMENTS, alambda(args))
+            kwargs = await self.handle_step(KW_ARGUMENTS, alambda(kwargs))
             result = await self._func(*args, **kwargs)
+
             logging.debug('Workflow invocation complete')
-
-            if WORKFLOW_RESULT not in self.steps:
-                async def result_func():
-                    return result
-
-                await self.handle_step(WORKFLOW_RESULT, result_func)
-
-            self.status = WorkflowStatus.create_successfully_completed(self.started, result, self.state, self.queues, self.steps)
-            return self.status
+            self.status = Status.COMPLETED
+            await self.create_state('return', result.result, None)
 
         except WorkflowSuspended as ws:
-            self.status = WorkflowStatus.create_suspended(self.started, self.state, self.queues, self.steps)
-            return self.status
+            self.status = Status.SUSPENDED
 
         except Exception as e:
             logging.debug(f'Workflow Errored: {e}')
-            self.status = WorkflowStatus.create_errored(self.started, e)
-            return self.status
+            self.status = Status.ERRORED
+            await self.create_state('error', {'name': str(e), 'details': e.args}, None)
 
-    async def async_start(self, *args, **kwargs) -> WorkflowStatus:
-        async def args_func():
-            return args
+        return self.get_status()
 
-        async def kwargs_func():
-            return kwargs
 
-        args = await self.handle_step(ARGUMENTS, args_func)
-        kwargs = await self.handle_step(KW_ARGUMENTS, kwargs_func)
-        result = await self._async_run()
-        await self.create_state('return', result.result, None)
-        return result
-
-    def get_status(self, identity: str | None) -> WorkflowStatus:
-        return self.status.filter(identity)
-
-    def get_full_status(self) -> WorkflowStatus:
+    def get_current_status(self):
         return self.status
 
 

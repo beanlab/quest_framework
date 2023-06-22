@@ -53,7 +53,7 @@ async def test_async_event(tmp_path):
     workflow_manager = create_workflow_manager(AsyncEventFlow, "AsyncEventFlow", tmp_path)
     workflow_id = get_workflow_id()
     async with workflow_manager:
-        result = await workflow_manager.start_async_workflow(workflow_id, "AsyncEventFlow")  # start workflow
+        result = await workflow_manager.start_workflow(workflow_id, "AsyncEventFlow")  # start workflow
         assert result is not None  # workflow calls stop signal, should return awaiting result. There should be one signal waiting
         assert result.status == Status.SUSPENDED
         assert len(result.signals) == 1

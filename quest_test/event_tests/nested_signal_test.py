@@ -63,7 +63,7 @@ async def test_nested_signal(tmp_path):
     workflow_id = get_workflow_id()
     workflow_func = "NestedSignalFlow"
     async with workflow_manager:
-        result = await workflow_manager.start_async_workflow(workflow_id, workflow_func)  # start the workflow
+        result = await workflow_manager.start_workflow(workflow_id, workflow_func)  # start the workflow
         assert result is not None  # code should be stopped with a signal, return with status awaiting signal
         assert Status.SUSPENDED == result.status
         assert 1 == len(result.signals)

@@ -1,9 +1,10 @@
 import logging
-from typing import Any, Protocol, TypeVar, Optional
+from typing import Any, Protocol, TypeVar, Union
 from .events import EventManager
 from .workflow import Workflow, WorkflowFunction, WorkflowStatus
 
 EM = TypeVar('EM', bound=EventManager)
+ID = Union[str, None]
 
 
 class DuplicateWorkflowIDException(Exception):
@@ -92,6 +93,9 @@ class WorkflowManager:
         self.state_managers: dict[str, EventManager] = {}
         self.queue_managers: dict[str, EventManager] = {}
 
+    #
+    # State Management
+    #
     async def __aenter__(self):
         workflow_types = self._load_workflow_types()
         await self._load_and_resume_workflows(workflow_types)
@@ -122,30 +126,26 @@ class WorkflowManager:
             self.queue_serializer.save_events(wid, queue_manager)
 
         for wid, workflow in self.workflows.items():
-            self.workflow_serializers[workflow._workflow_type()].serialize_workflow(wid, workflow)
+            self.workflow_serializers[workflow._workflow_type()].serialize_workflow(wid, workflow._func)
 
     async def _load_and_resume_workflows(self, workflow_types: dict[str, str]):
+        self._load_workflows(workflow_types)
+        await self._resume_workflows()
+
+    def _load_workflows(self, workflow_types: dict[str, str]):
         for wid, wtype in workflow_types.items():
             step_manager = self.step_serializer.load_events(wid)
             state_manager = self.state_serializer.load_events(wid)
             queue_manager = self.queue_serializer.load_events(wid)
             workflow_func = self.workflow_serializers[wtype].deserialize_workflow(wid, self)
-            self.workflows[wid] = (workflow := Workflow(wid, workflow_func, step_manager, state_manager, queue_manager))
+            self.workflows[wid] = Workflow(wid, workflow_func, step_manager, state_manager, queue_manager)
             self.step_managers[wid] = step_manager
             self.state_managers[wid] = state_manager
             self.queue_managers[wid] = queue_manager
-            await workflow._async_run()
-
-    def _load_workflows(self, workflow_types: dict[str, str]):
-        for wid, wtype in workflow_types.items():
-            event_manager = self.step_serializer.load_events(wid)
-            workflow_func = self.workflow_serializers[wtype].deserialize_workflow(wid, self)
-            self.workflows[wid] = Workflow(wid, workflow_func, event_manager)
-            self.step_managers[wid] = event_manager
 
     async def _resume_workflows(self):
         for workflow in self.workflows.values():
-            await workflow._async_run()
+            await workflow.start()
 
     def save_workflows(self):
         self._save_workflows()
@@ -158,16 +158,13 @@ class WorkflowManager:
     async def resume_workflows(self):
         await self._resume_workflows()
 
-    def get_workflow(self, workflow_id):
-        return self.workflows[workflow_id]
+    #
+    # Workflow Interaction Methods
+    #
+    def has_workflow(self, wid: str):
+        return wid in self.workflows
 
-    async def push_to_queue(self, workflow_id: str, queue_id: str, value: Any) -> str:  # Returns an identity
-        return await self.workflows[workflow_id].push_queue(queue_id, value)
-
-    async def get_state(self, workflow_id: str, state_id: str) -> Any:
-        return await self.workflows[workflow_id].get_state(state_id)
-
-    async def start_async_workflow(self, workflow_id: str, workflow_type: str, *args, **kwargs) -> WorkflowStatus:
+    async def start_workflow(self, workflow_id: str, workflow_type: str, *args, **kwargs) -> WorkflowStatus:
         if workflow_id in self.workflows:
             logging.error(f'Workflow ID {workflow_id} already in use')
             raise DuplicateWorkflowIDException(workflow_id)
@@ -186,16 +183,20 @@ class WorkflowManager:
         self.state_managers[workflow_id] = state_manager
         self.queue_managers[workflow_id] = queue_manager
         self.workflows[workflow_id] = workflow
-        return await workflow.async_start(*args, **kwargs)
+        return await workflow.start(*args, **kwargs)
 
-    def has_workflow(self, wid: str):
-        return wid in self.workflows
+    async def get_status(self,
+                         workflow_id: str,
+                         identity: ID = None,
+                         include_steps=True,
+                         include_state=True,
+                         include_queues=True
+                         ) -> WorkflowStatus:
+        return await self.workflows[workflow_id].get_status(identity, include_steps, include_state, include_queues)
 
-    def get_workflow_status(self, wid: str, identity: Optional[str]):
-        return self.workflows.get(wid).get_status(identity)
-
-    def get_full_workflow_status(self, wid: str):
-        return self.workflows.get(wid).get_full_status()
+    async def push_queue(self, workflow_id: str, queue_id: str, value: Any, identity: ID = None) -> str:
+        """Returns the identity assigned to this transaction"""
+        return await self.workflows[workflow_id].push_queue(queue_id, value, identity)
 
 
 if __name__ == '__main__':
