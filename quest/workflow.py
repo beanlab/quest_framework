@@ -4,8 +4,8 @@ import uuid
 from datetime import datetime
 from enum import Enum
 from functools import wraps
-from typing import Any, Protocol, Optional, TypeVar, Callable, TypedDict
-from .events import Event, UniqueEvent, EventManager
+from typing import Any, Protocol, Optional, Callable, TypedDict
+from .events import UniqueEvent, EventManager
 from dataclasses import dataclass
 
 ARGUMENTS = "INITIAL_ARGUMENTS"
@@ -41,9 +41,9 @@ class WorkflowStatus:
     status: Status
     started: Optional[datetime]
     ended: Optional[datetime]
-    steps: dict[str, StepEntry]
-    state: dict[str, StateEntry]
-    queues: dict[str, QueueEntry]
+    steps: dict[str, 'StepEntry']
+    state: dict[str, 'StateEntry']
+    queues: dict[str, 'QueueEntry']
 
     def get_result(self):
         return self.state['result']
@@ -141,20 +141,21 @@ class StepEntry(TypedDict):
     step_id: str
     name: str
     value: Any
+    identity: Optional[str]
 
 
 class StateEntry(TypedDict):
     state_id: str
     name: str
     value: Any
-    identity: str
+    identity: Optional[str]
 
 
 class QueueEntry(TypedDict):
     queue_id: str
     name: str
     values: list
-    identity: str
+    identity: Optional[str]
 
 
 def get_current_timestamp() -> datetime:
@@ -163,6 +164,14 @@ def get_current_timestamp() -> datetime:
 
 def assign_identity():
     return str(uuid.uuid4())
+
+
+def filter_identity(identity, dict_to_filter: EventManager) -> dict:
+    ret_dict = {}
+    for key, value in dict_to_filter.items():
+        if value['identity'] is None or value['identity'] == identity:
+            ret_dict[key] = value
+    return ret_dict
 
 
 class Workflow:
@@ -174,16 +183,17 @@ class Workflow:
             self,
             workflow_id: str,
             func: WorkflowFunction,
-            step_manager: EventManager[StepEntry],
-            state_manager: EventManager[StateEntry],
-            queue_manager: EventManager[QueueEntry]
+            step_manager: EventManager,
+            state_manager: EventManager,
+            queue_manager: EventManager
     ):
         self.workflow_id = workflow_id
         self._replay_events: list[UniqueEvent] = []
         self._func = func
         self._prefix = []
         self.started = get_current_timestamp()
-        self.status = WorkflowStatus.create_started(self.started)
+        self.ended = None
+        self.status = Status.RUNNING
         self.steps: EventManager[StepEntry] = step_manager
         self.state: EventManager[StateEntry] = state_manager
         self.queues: EventManager[QueueEntry] = queue_manager
@@ -222,7 +232,8 @@ class Workflow:
             self.steps[step_id] = StepEntry(
                 step_id=step_id,
                 name=step_name,
-                value=payload
+                value=payload,
+                identity=kwargs.get('identity')
             )
             return payload
 
@@ -308,10 +319,10 @@ class Workflow:
             args = await self.handle_step(ARGUMENTS, alambda(args))
             kwargs = await self.handle_step(KW_ARGUMENTS, alambda(kwargs))
             result = await self._func(*args, **kwargs)
-
+            self.ended = get_current_timestamp()
             logging.debug('Workflow invocation complete')
             self.status = Status.COMPLETED
-            await self.create_state('return', result.result, None)
+            await self.create_state('result', result, None)
 
         except WorkflowSuspended as ws:
             self.status = Status.SUSPENDED
@@ -320,12 +331,9 @@ class Workflow:
             logging.debug(f'Workflow Errored: {e}')
             self.status = Status.ERRORED
             await self.create_state('error', {'name': str(e), 'details': e.args}, None)
+            self.ended = get_current_timestamp()
 
-        return self.get_status()
-
-
-    def get_current_status(self):
-        return self.status
+        return self.get_status(None, True, True, True)
 
 
 if __name__ == '__main__':
