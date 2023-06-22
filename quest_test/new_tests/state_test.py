@@ -40,7 +40,7 @@ class StateFlow:
         await state(VISIBLE_BY_ID, VISIBLE_BY_ID, ID)
 
 
-def find_in_workflow_result(result: WorkflowStatus, value: str) -> dict | None:
+def find_state_value(result: WorkflowStatus, value: str) -> dict | None:
     for state_entry in result.state.values():
         if state_entry['name'] == value:
             return state_entry['value']
@@ -60,12 +60,12 @@ async def test_state(tmp_path):
         assert result is not None
         assert result.status == Status.COMPLETED
         # should only have visible state
-        assert find_in_workflow_result(result, VISIBLE) == VISIBLE
-        assert find_in_workflow_result(result, NOT_VISIBLE) is None
-        assert find_in_workflow_result(result, VISIBLE_BY_ID) is None
+        assert find_state_value(result, VISIBLE) == VISIBLE
+        assert find_state_value(result, NOT_VISIBLE) is None
+        assert find_state_value(result, VISIBLE_BY_ID) is None
         # get status with identification
         status = workflow_manager.get_status(workflow_id, ID)
-        assert find_in_workflow_result(status, VISIBLE_BY_ID) == VISIBLE_BY_ID
+        assert find_state_value(status, VISIBLE_BY_ID) == VISIBLE_BY_ID
         
     # going out of context deserializes the workflow
     async with workflow_manager:
@@ -75,6 +75,6 @@ async def test_state(tmp_path):
         assert result is not None
         assert result.status == Status.COMPLETED
         # should only have visible state
-        assert find_in_workflow_result(result, VISIBLE) == VISIBLE
-        assert find_in_workflow_result(result, NOT_VISIBLE) is None
-        assert find_in_workflow_result(result, VISIBLE_BY_ID) is None
+        assert find_state_value(result, VISIBLE) == VISIBLE
+        assert find_state_value(result, NOT_VISIBLE) is None
+        assert find_state_value(result, VISIBLE_BY_ID) is None

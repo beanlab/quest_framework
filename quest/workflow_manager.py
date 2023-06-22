@@ -193,9 +193,11 @@ class WorkflowManager:
                    include_queues=True) -> WorkflowStatus:
         return self.workflows[workflow_id].get_status(identity, include_steps, include_state, include_queues)
 
-    async def push_queue(self, workflow_id: str, queue_id: str, value: Any, identity: ID = None) -> str:
+    async def push_queue(self, workflow_id: str, name: str, value: Any, identity: ID = None) -> str:
         """Returns the identity assigned to this transaction"""
-        return await self.workflows[workflow_id].push_queue(queue_id, value, identity)
+        result = await self.workflows[workflow_id].push_queue(name, value, identity)
+        await self.workflows[workflow_id].start()
+        return result
 
 
 if __name__ == '__main__':

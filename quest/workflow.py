@@ -15,6 +15,10 @@ class WorkflowSuspended(BaseException):
     pass
 
 
+class InvalidIdentityError(BaseException):
+    pass
+
+
 class WorkflowFunction(Protocol):
     def __init__(self, workflow_manager, *args, **kwargs): ...
 
@@ -68,14 +72,12 @@ class StepEntry(TypedDict):
 
 
 class StateEntry(TypedDict):
-    state_id: str
     name: str
     value: Any
     identity: Optional[str]
 
 
 class QueueEntry(TypedDict):
-    queue_id: str
     name: str
     values: list
     identity: Optional[str]
@@ -95,6 +97,10 @@ def filter_identity(identity, dict_to_filter: EventManager) -> dict:
         if value['identity'] is None or value['identity'] == identity:
             ret_dict[key] = value
     return ret_dict
+
+
+def create_id(name: str, identity: str) -> str:
+    return f'{name}.{identity}' if identity is not None else name
 
 
 class Workflow:
@@ -162,66 +168,66 @@ class Workflow:
 
     @_step
     async def create_state(self, name, initial_value, identity):
-        state_id = self._get_unique_id(name)
+        state_id = create_id(name, identity)
         self.state[state_id] = StateEntry(
-            state_id=state_id,
             name=name,
             value=initial_value,
             identity=identity
         )
-        return state_id
+        return name, identity
 
     @_step
-    async def remove_state(self, state_id):
-        del self.state[state_id]
+    async def remove_state(self, name, identity):
+        del self.state[create_id(name, identity)]
 
-    async def get_state(self, state_id, identity):
+    async def get_state(self, name, identity):
         # Called by workflow manager, readonly: doesn't need to be a step
+        state_id = create_id(name, identity)
         if (state_identity := self.state[state_id]['identity']) is not None and state_identity != identity:
-            raise Exception('Boo')  # TODO: real InvalidIdentity exception, pull out method?
+            raise InvalidIdentityError()
 
         return self.state[state_id]['value']
 
     @_step
-    async def set_state(self, state_id, value):
-        self.state[state_id]['value'] = value
+    async def set_state(self, name, identity, value):
+        self.state[create_id(name, identity)]['value'] = value
 
     @_step
     async def create_queue(self, name, identity):
-        queue_id = self._get_unique_id(name)
+        queue_id = create_id(name, identity)
         self.queues[queue_id] = QueueEntry(
-            queue_id=queue_id,
             name=name,
             values=[],
             identity=identity,
         )
-        return queue_id
+        return name, identity
 
     @_step
-    async def push_queue(self, queue_id, value, identity) -> None | str:
+    async def push_queue(self, name, value, identity) -> None | str:
         # Called by Workflow Manager
+        queue_id = create_id(name, identity)
         if (queue_identity := self.queues[queue_id]['identity']) is not None and queue_identity != identity:
-            raise Exception('Boo')  # TODO: real InvalidIdentity exception
+            raise InvalidIdentityError()
 
         identity = queue_identity or assign_identity()
         self.queues[queue_id]['values'].append((identity, value))
-        await self.start()
         return identity
 
     @_step
-    async def pop_queue(self, queue_id):
+    async def pop_queue(self, name, identity):
+        queue_id = create_id(name, identity)
         if self.queues[queue_id]['values']:
             return self.queues[queue_id]['values'].pop(0)
         else:
             raise WorkflowSuspended()
 
     @_step
-    async def check_queue(self, queue_id) -> bool:
-        return bool(self.queues[queue_id]['values'])
+    async def check_queue(self, name, identity) -> bool:
+        return bool(self.queues[create_id(name, identity)]['values'])
 
     @_step
-    async def remove_queue(self, queue_id):
-        del self.queues[queue_id]
+    async def remove_queue(self, name, identity):
+        del self.queues[create_id(name, identity)]
 
     def _workflow_type(self) -> str:
         return self._func.__class__.__name__
