@@ -177,9 +177,9 @@ class Workflow:
             self,
             workflow_id: str,
             func: WorkflowFunction,
-            step_manager: EventManager,
-            state_manager: EventManager,
-            queue_manager: EventManager
+            step_manager: EventManager[StepEntry],
+            state_manager: EventManager[StateEntry],
+            queue_manager: EventManager[QueueEntry]
     ):
         self.workflow_id = workflow_id
         self._replay_events: list[UniqueEvent] = []
@@ -187,9 +187,9 @@ class Workflow:
         self._prefix = []
         self.started = get_current_timestamp()
         self.status = WorkflowStatus.create_started(self.started)
-        self.state: EventManager[StateEntry] = state_manager  # dict[str, StateEntry]
-        self.queues: EventManager[QueueEntry] = step_manager  # dict[str, QueueEntry]
-        self.steps: EventManager[StepEntry] = queue_manager  # dict[str, EventEntry]
+        self.steps: EventManager[StepEntry] = step_manager
+        self.state: EventManager[StateEntry] = state_manager
+        self.queues: EventManager[QueueEntry] = queue_manager
         self.unique_ids: dict[str, UniqueEvent] = {}
 
     def _get_unique_id(self, event_name: str) -> str:
@@ -200,7 +200,7 @@ class Workflow:
         return next(self.unique_ids[prefixed_name])
 
     async def handle_step(self, step_name: str, func: Callable, *args, **kwargs):
-        """This is called by the @event decorator"""
+        """This is called by the @step decorator"""
         step_id = self._get_unique_id(step_name)
 
         if step_id in self.steps:
@@ -232,7 +232,7 @@ class Workflow:
         del self.state[state_id]
 
     async def get_state(self, state_id):
-        # Called by workflow manager, doesn't need to be a step
+        # Called by workflow manager, readonly: doesn't need to be a step
         return self.state[state_id]['value']
 
     @_step
