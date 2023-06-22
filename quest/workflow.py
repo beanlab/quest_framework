@@ -1,6 +1,7 @@
 import inspect
 import logging
 import uuid
+from copy import deepcopy
 from datetime import datetime
 from enum import Enum
 from functools import wraps
@@ -42,24 +43,40 @@ class WorkflowStatus:
     started: Optional[datetime]
     ended: Optional[datetime]
     result: Any
-    state: EventManager | None
+    state: Optional[EventManager]
+    queues: Optional[EventManager]
+    steps: Optional[EventManager]
     exception: Any
 
     @staticmethod
     def create_started(start_time: datetime):
-        return WorkflowStatus(Status.RUNNING, start_time, None, None, None, None)
+        return WorkflowStatus(Status.RUNNING, start_time, None, None, None, None, None, None)
 
     @staticmethod
-    def create_successfully_completed(start_time: datetime, result: Any, state: EventManager | None):
-        return WorkflowStatus(Status.COMPLETED, start_time, get_current_timestamp(), result, state, None)
+    def create_successfully_completed(start_time: datetime, result: Any, state: EventManager, steps: EventManager):
+        return WorkflowStatus(Status.COMPLETED, start_time, get_current_timestamp(), result, state, None, steps, None)
 
     @staticmethod
-    def create_suspended(start_time: datetime, state: EventManager):
-        return WorkflowStatus(Status.SUSPENDED, start_time, None, None, state, None)
+    def create_suspended(start_time: datetime, state: EventManager, queues: EventManager, steps: EventManager):
+        return WorkflowStatus(Status.SUSPENDED, start_time, None, None, state, queues, steps, None)
 
     @staticmethod
     def create_errored(start_time: datetime, exception: Any):
-        return WorkflowStatus(Status.ERRORED, start_time, get_current_timestamp(), None, None, exception)
+        return WorkflowStatus(Status.ERRORED, start_time, get_current_timestamp(), None, None, None, None, exception)
+
+    def filter(self, identity) -> 'WorkflowStatus':
+        new_status = deepcopy(self)
+        for key, value in self.state.items():
+            if value['identity'] is not None and value['identity'] != identity:
+                del new_status.state['identity']
+        for key, value in self.queues.items():
+            if value['identity'] is not None and value['identity'] != identity:
+                del new_status.queues['identity']
+        for key, value in self.steps.items():
+            if value['identity'] is not None and value['identity'] != identity:
+                del new_status.steps['identity']
+        return new_status
+
 
 
 def find_workflow() -> 'Workflow':
@@ -144,20 +161,21 @@ class StepEntry(TypedDict):
     step_id: str
     name: str
     value: Any
+    identity: Optional[str]
 
 
 class StateEntry(TypedDict):
     state_id: str
     name: str
     value: Any
-    identity: str
+    identity: Optional[str]
 
 
 class QueueEntry(TypedDict):
     queue_id: str
     name: str
     values: list
-    identity: str
+    identity: Optional[str]
 
 
 def get_current_timestamp() -> datetime:
@@ -212,7 +230,8 @@ class Workflow:
             self.steps[step_id] = StepEntry(
                 step_id=step_id,
                 name=step_name,
-                value=payload
+                value=payload,
+                identity=kwargs['identity'] if 'identity' in kwargs else None
             )
             return payload
 
@@ -298,11 +317,11 @@ class Workflow:
 
                 await self.handle_step(WORKFLOW_RESULT, result_func)
 
-            self.status = WorkflowStatus.create_successfully_completed(self.started, result, self.state)
+            self.status = WorkflowStatus.create_successfully_completed(self.started, result, self.state, self.steps)
             return self.status
 
         except WorkflowSuspended as ws:
-            self.status = WorkflowStatus.create_suspended(self.started, self.state)
+            self.status = WorkflowStatus.create_suspended(self.started, self.state, self.queues, self.steps)
             return self.status
 
         except Exception as e:
@@ -323,7 +342,10 @@ class Workflow:
         await self.create_state('return', result.result, None)
         return result
 
-    def get_current_status(self):
+    def get_status(self, identity: str | None) -> WorkflowStatus:
+        return self.status.filter(identity)
+
+    def get_full_status(self) -> WorkflowStatus:
         return self.status
 
 

@@ -1,4 +1,4 @@
-from typing import Protocol, Union, TypedDict, Optional, TypeVar
+from typing import Protocol, Union, TypedDict, Optional, TypeVar, Generator
 
 
 class ToJson(Protocol):
@@ -51,6 +51,10 @@ class EventManager(Protocol):
 
     def __contains__(self, key: str) -> bool: ...
 
+    def items(self) -> Generator: ...
+
+    def all_items(self) -> dict: ...
+
 
 class InMemoryEventManager(EventManager):
     def __init__(self,
@@ -73,6 +77,9 @@ class InMemoryEventManager(EventManager):
 
     def __contains__(self, key: str) -> bool:
         return key in self._state
+
+    def items(self):
+        yield from self._state.items()
 
 
 if __name__ == '__main__':

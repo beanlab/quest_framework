@@ -73,7 +73,7 @@ async def test_nested_event(tmp_path):
     # going out of context deserializes the workflow
     # going back into context should serialize the workflow and run it once
     async with workflow_manager:
-        result = workflow_manager.get_current_workflow_status(
+        result = workflow_manager.get_workflow_status(
             workflow_id)  # call a signal to rerun workflow, every event and signal should be cached and return a payload
         assert 1 == result.result[
             "outer_event_count"]  # these three values should be the same as before we deserialized and reserialized

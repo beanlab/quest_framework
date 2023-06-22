@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Protocol, TypeVar
+from typing import Any, Protocol, TypeVar, Optional
 from .events import EventManager
 from .workflow import Workflow, WorkflowFunction, WorkflowStatus
 
@@ -191,8 +191,11 @@ class WorkflowManager:
     def has_workflow(self, wid: str):
         return wid in self.workflows
 
-    def get_current_workflow_status(self, wid: str):
-        return self.workflows.get(wid).get_current_status()
+    def get_workflow_status(self, wid: str, identity: Optional[str]):
+        return self.workflows.get(wid).get_status(identity)
+
+    def get_full_workflow_status(self, wid: str):
+        return self.workflows.get(wid).get_full_status()
 
 
 if __name__ == '__main__':

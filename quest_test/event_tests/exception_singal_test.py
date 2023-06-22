@@ -78,7 +78,7 @@ async def test_exception_signal(tmp_path):
     # going out of context deserializes the workflow
     # going back into context should serialize the workflow and run it once
     async with workflow_manager:
-        result = workflow_manager.get_current_workflow_status(workflow_id) # signal the workflow to rerun it
+        result = workflow_manager.get_workflow_status(workflow_id) # signal the workflow to rerun it
         assert 1 == result.result["event_count"]  # result should be the same as the last signal call, as it should all have been cached even through serialization
         assert 0 == result.result['self_event_counter']
         assert "EndLoopException" == result.result['caught_exception']

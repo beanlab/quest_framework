@@ -67,7 +67,7 @@ async def test_promised_signal(tmp_path):
 
     # now we will force a rehydrate by going out of context. There should still be one waiting signal that we will send
     async with workflow_manager:
-        status = workflow_manager.get_current_workflow_status(workflow_id)
+        status = workflow_manager.get_workflow_status(workflow_id)
         assert status is not None  # should still have an awaiting signal result with one signal left
         assert result.status == Status.SUSPENDED
         assert 1 == len(result.signals)
@@ -88,7 +88,7 @@ async def test_promised_signal(tmp_path):
     # going out of context deserializes the workflow
     # going back into context should serialize the workflow and run it once
     async with workflow_manager:
-        result = workflow_manager.get_current_workflow_status(workflow_id)  # signal the workflow to rerun it
+        result = workflow_manager.get_workflow_status(workflow_id)  # signal the workflow to rerun it
         # result should be the same as the last signal call, as it should all have been cached even through serialization
         assert 1 == result.result["event_count"]
         assert 0 == result.result['self_event_counter']
