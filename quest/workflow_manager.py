@@ -108,7 +108,7 @@ class WorkflowManager:
         return self.metadata_serializer.load()
 
     def _workflow_types(self) -> dict[str, str]:
-        return {wid: workflow._workflow_type() for wid, workflow in self.workflows.items()}
+        return {wid: workflow.get_workflow_type() for wid, workflow in self.workflows.items()}
 
     def _save_workflows(self):
         """
@@ -126,7 +126,7 @@ class WorkflowManager:
             self.queue_serializer.save_events(wid, queue_manager)
 
         for wid, workflow in self.workflows.items():
-            self.workflow_serializers[workflow._workflow_type()].serialize_workflow(wid, workflow._func)
+            self.workflow_serializers[workflow.get_workflow_type()].serialize_workflow(wid, workflow._func)
 
     async def _load_and_resume_workflows(self, workflow_types: dict[str, str]):
         self._load_workflows(workflow_types)

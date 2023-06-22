@@ -16,8 +16,6 @@ class WorkflowSuspended(BaseException):
 
 
 class WorkflowFunction(Protocol):
-    def __init__(self, workflow_manager, *args, **kwargs): ...
-
     def __call__(self, *args, **kwargs) -> Any: ...
 
 
@@ -47,12 +45,12 @@ class WorkflowStatus:
 def _step(func):
     @wraps(func)
     async def new_func(self, *args, **kwargs):
-        args = (self,) + args
-        return await self.handle_step(func.__name__, func, *args, **kwargs)
+        return await self.handle_step(func.__name__, func, self, *args, **kwargs)
 
     return new_func
 
 
+# noinspection SpellCheckingInspection
 def alambda(value):
     async def run():
         return value
@@ -90,11 +88,11 @@ def assign_identity():
 
 
 def filter_identity(identity, dict_to_filter: EventManager) -> dict:
-    ret_dict = {}
-    for key, value in dict_to_filter.items():
-        if value['identity'] is None or value['identity'] == identity:
-            ret_dict[key] = value
-    return ret_dict
+    return {
+        key: value
+        for key, value in dict_to_filter.items()
+        if value['identity'] is None or value['identity'] == identity
+    }
 
 
 class Workflow:
@@ -111,21 +109,27 @@ class Workflow:
             queue_manager: EventManager
     ):
         self.workflow_id = workflow_id
-        self._replay_events: list[UniqueEvent] = []
+        self.started: datetime = get_current_timestamp()
+        self.ended: datetime | None = None
+        self.status: Status = Status.RUNNING
+
         self._func = func
-        self._prefix = []
-        self.started = get_current_timestamp()
-        self.ended = None
-        self.status = Status.RUNNING
-        self.steps: EventManager[StepEntry] = step_manager
-        self.state: EventManager[StateEntry] = state_manager
-        self.queues: EventManager[QueueEntry] = queue_manager
-        self.unique_ids: dict[str, UniqueEvent] = {}
+        self._unique_ids: dict[str, UniqueEvent] = {}
+        self._replay_events: list[UniqueEvent] = []
+        self._prefix: list[str] = []
+
+        self._steps: EventManager[StepEntry] = step_manager
+        self._state: EventManager[StateEntry] = state_manager
+        self._queues: EventManager[QueueEntry] = queue_manager
+
+    def get_workflow_type(self) -> str:
+        """Used by Workflow Manager"""
+        return self._func.__class__.__name__
 
     def get_status(self, identity, include_steps, include_state, include_queues):
-        steps = filter_identity(identity, self.steps) if include_steps else None
-        state = filter_identity(identity, self.state) if include_state else None
-        queues = filter_identity(identity, self.queues) if include_queues else None
+        steps = filter_identity(identity, self._steps) if include_steps else None
+        state = filter_identity(identity, self._state) if include_state else None
+        queues = filter_identity(identity, self._queues) if include_queues else None
         return WorkflowStatus(
             self.status,
             self.started,
@@ -137,22 +141,22 @@ class Workflow:
 
     def _get_unique_id(self, event_name: str) -> str:
         prefixed_name = self._get_prefixed_name(event_name)
-        if prefixed_name not in self.unique_ids.keys():
-            self.unique_ids[prefixed_name] = UniqueEvent(prefixed_name)
-            self._replay_events.append(self.unique_ids[prefixed_name])
-        return next(self.unique_ids[prefixed_name])
+        if prefixed_name not in self._unique_ids.keys():
+            self._unique_ids[prefixed_name] = UniqueEvent(prefixed_name)
+            self._replay_events.append(self._unique_ids[prefixed_name])
+        return next(self._unique_ids[prefixed_name])
 
     async def handle_step(self, step_name: str, func: Callable, *args, **kwargs):
         """This is called by the @step decorator"""
         step_id = self._get_unique_id(step_name)
 
-        if step_id in self.steps:
-            return self.steps[step_id]['value']
+        if step_id in self._steps:
+            return self._steps[step_id]['value']
         else:
             self._prefix.append(step_name)
             payload = await func(*args, **kwargs)
             self._prefix.pop(-1)
-            self.steps[step_id] = StepEntry(
+            self._steps[step_id] = StepEntry(
                 step_id=step_id,
                 name=step_name,
                 value=payload,
@@ -163,7 +167,7 @@ class Workflow:
     @_step
     async def create_state(self, name, initial_value, identity):
         state_id = self._get_unique_id(name)
-        self.state[state_id] = StateEntry(
+        self._state[state_id] = StateEntry(
             state_id=state_id,
             name=name,
             value=initial_value,
@@ -173,23 +177,24 @@ class Workflow:
 
     @_step
     async def remove_state(self, state_id):
-        del self.state[state_id]
+        del self._state[state_id]
 
     async def get_state(self, state_id, identity):
-        # Called by workflow manager, readonly: doesn't need to be a step
-        if (state_identity := self.state[state_id]['identity']) is not None and state_identity != identity:
+        """Called by Workflow Manager"""
+        # Because this is a readonly operation, it doesn't need to be a step
+        if (state_identity := self._state[state_id]['identity']) is not None and state_identity != identity:
             raise Exception('Boo')  # TODO: real InvalidIdentity exception, pull out method?
 
-        return self.state[state_id]['value']
+        return self._state[state_id]['value']
 
     @_step
     async def set_state(self, state_id, value):
-        self.state[state_id]['value'] = value
+        self._state[state_id]['value'] = value
 
     @_step
     async def create_queue(self, name, identity):
         queue_id = self._get_unique_id(name)
-        self.queues[queue_id] = QueueEntry(
+        self._queues[queue_id] = QueueEntry(
             queue_id=queue_id,
             name=name,
             values=[],
@@ -199,32 +204,29 @@ class Workflow:
 
     @_step
     async def push_queue(self, queue_id, value, identity) -> None | str:
-        # Called by Workflow Manager
-        if (queue_identity := self.queues[queue_id]['identity']) is not None and queue_identity != identity:
+        """Called by Workflow Manager"""
+        if (queue_identity := self._queues[queue_id]['identity']) is not None and queue_identity != identity:
             raise Exception('Boo')  # TODO: real InvalidIdentity exception
 
         identity = queue_identity or assign_identity()
-        self.queues[queue_id]['values'].append((identity, value))
+        self._queues[queue_id]['values'].append((identity, value))
         await self.start()
         return identity
 
     @_step
     async def pop_queue(self, queue_id):
-        if self.queues[queue_id]['values']:
-            return self.queues[queue_id]['values'].pop(0)
+        if self._queues[queue_id]['values']:
+            return self._queues[queue_id]['values'].pop(0)
         else:
             raise WorkflowSuspended()
 
     @_step
     async def check_queue(self, queue_id) -> bool:
-        return bool(self.queues[queue_id]['values'])
+        return bool(self._queues[queue_id]['values'])
 
     @_step
     async def remove_queue(self, queue_id):
-        del self.queues[queue_id]
-
-    def _workflow_type(self) -> str:
-        return self._func.__class__.__name__
+        del self._queues[queue_id]
 
     def _get_prefixed_name(self, event_name: str) -> str:
         return '.'.join(self._prefix) + '.' + event_name
@@ -245,14 +247,16 @@ class Workflow:
             self.ended = get_current_timestamp()
             logging.debug('Workflow invocation complete')
             self.status = Status.COMPLETED
+            # noinspection PyTypeChecker
             await self.create_state('result', result, None)
 
-        except WorkflowSuspended as ws:
+        except WorkflowSuspended as _:
             self.status = Status.SUSPENDED
 
         except Exception as e:
             logging.debug(f'Workflow Errored: {e}')
             self.status = Status.ERRORED
+            # noinspection PyTypeChecker
             await self.create_state('error', {'name': str(e), 'details': e.args}, None)
             self.ended = get_current_timestamp()
 
