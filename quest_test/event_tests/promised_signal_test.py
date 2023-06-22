@@ -29,7 +29,7 @@ class PromisedSignalEventFlow:
     def __init__(self, workflow_manager):
         ...
 
-    @event
+    @step
     async def event_count(self):
         self.event_counter += 1
         return self.event_counter
@@ -57,25 +57,25 @@ async def test_promised_signal(tmp_path):
     async with workflow_manager:
         result = await workflow_manager.start_async_workflow(workflow_id, "PromisedSignalEventFlow")  # start workflow
         assert result is not None  # workflow promises stop signal twice, should return awaiting result with two signals
-        assert result.status == Status.AWAITING_SIGNALS
+        assert result.status == Status.SUSPENDED
         assert 2 == len(result.signals)
         result = await workflow_manager.signal_async_workflow(workflow_id, result.signals[0].unique_signal_name,
                                                               None)  # send one of the stop signals back to workflow
         assert result is not None  # should still have an awaiting signal result with one signal left
-        assert result.status == Status.AWAITING_SIGNALS
+        assert result.status == Status.SUSPENDED
         assert 1 == len(result.signals)
 
     # now we will force a rehydrate by going out of context. There should still be one waiting signal that we will send
     async with workflow_manager:
         status = workflow_manager.get_current_workflow_status(workflow_id)
         assert status is not None  # should still have an awaiting signal result with one signal left
-        assert result.status == Status.AWAITING_SIGNALS
+        assert result.status == Status.SUSPENDED
         assert 1 == len(result.signals)
         result = await workflow_manager.signal_async_workflow(workflow_id, result.signals[0].unique_signal_name,
                                                               None)  # return stop signal to workflow a second time
         # now the workflow should be waiting on any signal, so we will send the second one in the waiting signals
         assert status is not None  # should still have an awaiting signal result with one signal left
-        assert result.status == Status.AWAITING_SIGNALS
+        assert result.status == Status.SUSPENDED
         assert 2 == len(result.signals)
         # return second signal back, it should now complete because it got one of them back
         result = await workflow_manager.signal_async_workflow(workflow_id, result.signals[1].unique_signal_name, None)

@@ -33,7 +33,7 @@ class ExceptionSignalFlow:
     def __init__(self, workflow_manager):  # a workflow will always recieve a workflow_manager as first parameter
         ...
 
-    @event
+    @step
     async def event_count(self):
         self.event_counter += 1
         return self.event_counter
@@ -62,11 +62,11 @@ async def test_exception_signal(tmp_path):
     async with workflow_manager:
         result = await workflow_manager.start_async_workflow(workflow_id, "ExceptionSignalFlow")  # start workflow
         assert result is not None  # workflow calls stop signal, should return awaiting signal result
-        assert result.status == Status.AWAITING_SIGNALS
+        assert result.status == Status.SUSPENDED
         assert len(result.signals) == 1
         result = await workflow_manager.signal_async_workflow(workflow_id, result.signals[0].unique_signal_name, None)  # return stop signal to workflow
         assert result is not None  # workflow calls stop signal again, should be awaiting single signal
-        assert result.status == Status.AWAITING_SIGNALS
+        assert result.status == Status.SUSPENDED
         assert len(result.signals) == 1
         result = await workflow_manager.exception_signal_async_workflow(workflow_id, result.signals[0].unique_signal_name, EndLoopException())  # call with exception to break out of loop and finish workflow
         assert result is not None  # workflow should now be complete and return the correct result

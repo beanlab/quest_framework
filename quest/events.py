@@ -1,4 +1,4 @@
-from typing import Protocol, Union, TypedDict, Optional
+from typing import Protocol, Union, TypedDict, Optional, TypeVar
 
 
 class ToJson(Protocol):
@@ -39,14 +39,17 @@ class Event(TypedDict):
     exception: Optional[EventException]
 
 
-class EventManager(Protocol):
-    def __getitem__(self, key: str) -> Event: ...
+ET = TypeVar('ET')
 
-    def __setitem__(self, key: str, value: Event): ...
+
+class EventManager(Protocol):
+    def __getitem__(self, key: str) -> ET: ...
+
+    def __setitem__(self, key: str, value: ET): ...
+
+    def __delitem__(self, key): ...
 
     def __contains__(self, key: str) -> bool: ...
-
-    def counter(self, event_name) -> UniqueEvent: ...
 
 
 class InMemoryEventManager(EventManager):
@@ -65,13 +68,11 @@ class InMemoryEventManager(EventManager):
     def __setitem__(self, key: str, value: Event):
         self._state[key] = value
 
+    def __delitem__(self, key):
+        del self._state[key]
+
     def __contains__(self, key: str) -> bool:
         return key in self._state
-
-    def counter(self, event_name) -> UniqueEvent:
-        if event_name not in self._counters:
-            self._counters[event_name] = UniqueEvent(event_name)
-        return self._counters[event_name]
 
 
 if __name__ == '__main__':

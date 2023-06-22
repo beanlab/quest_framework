@@ -4,7 +4,7 @@ import logging
 import shutil
 import uuid
 from pathlib import Path
-from quest import event, signal, WorkflowManager
+from quest import step, signal, WorkflowManager
 from quest.json_seralizers import JsonMetadataSerializer, JsonEventSerializer, StatelessWorkflowSerializer
 from quest.workflow import Status
 

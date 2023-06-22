@@ -77,15 +77,20 @@ class WorkflowManager:
     def __init__(
             self,
             metadata_serializer: WorkflowMetadataSerializer,
-            event_serializer: EventSerializer[EM],
+            step_serializer: EventSerializer[EM],
+            state_serializer: EventSerializer[EM],
+            queue_serializer: EventSerializer[EM],
             workflow_serializers: dict[str, WorkflowSerializer],
     ):
         self.metadata_serializer = metadata_serializer
-        self.event_serializer = event_serializer
+        self.step_serializer = step_serializer
+        self.state_serializer = state_serializer
+        self.queue_serializer = queue_serializer
         self.workflow_serializers = workflow_serializers
-
         self.workflows: dict[str, Workflow] = {}
-        self.event_managers: dict[str, EventManager] = {}
+        self.step_managers: dict[str, EventManager] = {}
+        self.state_managers: dict[str, EventManager] = {}
+        self.queue_managers: dict[str, EventManager] = {}
 
     async def __aenter__(self):
         workflow_types = self._load_workflow_types()
@@ -107,26 +112,36 @@ class WorkflowManager:
 
         Returns a dict of the workflow IDs to workflow types
         """
-        for wid, event_manager in self.event_managers.items():
-            self.event_serializer.save_events(wid, event_manager)
+        for wid, step_manager in self.step_managers.items():
+            self.step_serializer.save_events(wid, step_manager)
+
+        for wid, state_manager in self.state_managers.items():
+            self.state_serializer.save_events(wid, state_manager)
+
+        for wid, queue_manager in self.queue_managers.items():
+            self.queue_serializer.save_events(wid, queue_manager)
 
         for wid, workflow in self.workflows.items():
             self.workflow_serializers[workflow._workflow_type()].serialize_workflow(wid, workflow)
 
     async def _load_and_resume_workflows(self, workflow_types: dict[str, str]):
         for wid, wtype in workflow_types.items():
-            event_manager = self.event_serializer.load_events(wid)
+            step_manager = self.step_serializer.load_events(wid)
+            state_manager = self.state_serializer.load_events(wid)
+            queue_manager = self.queue_serializer.load_events(wid)
             workflow_func = self.workflow_serializers[wtype].deserialize_workflow(wid, self)
-            self.workflows[wid] = (workflow := Workflow(wid, workflow_func, event_manager))
-            self.event_managers[wid] = event_manager
+            self.workflows[wid] = (workflow := Workflow(wid, workflow_func, step_manager, state_manager, queue_manager))
+            self.step_managers[wid] = step_manager
+            self.state_managers[wid] = state_manager
+            self.queue_managers[wid] = queue_manager
             await workflow._async_run()
 
     def _load_workflows(self, workflow_types: dict[str, str]):
         for wid, wtype in workflow_types.items():
-            event_manager = self.event_serializer.load_events(wid)
+            event_manager = self.step_serializer.load_events(wid)
             workflow_func = self.workflow_serializers[wtype].deserialize_workflow(wid, self)
             self.workflows[wid] = Workflow(wid, workflow_func, event_manager)
-            self.event_managers[wid] = event_manager
+            self.step_managers[wid] = event_manager
 
     async def _resume_workflows(self):
         for workflow in self.workflows.values():
@@ -146,28 +161,30 @@ class WorkflowManager:
     def get_workflow(self, workflow_id):
         return self.workflows[workflow_id]
 
-    async def signal_async_workflow(self, workflow_id: str, signal_name: str, payload: Any) -> WorkflowStatus:
-        """Sends a promised signal to the indicated workflow asynchronously"""
-        workflow = self.get_workflow(workflow_id)
-        return await workflow.async_send_signal(signal_name, payload)
+    async def push_to_queue(self, workflow_id: str, queue_id: str, value: Any) -> str:  # Returns an identity
+        return await self.workflows[workflow_id].push_queue(queue_id, value)
 
-    async def exception_signal_async_workflow(self, workflow_id: str, signal_name: str, exception: Exception, *args, **kwargs) -> WorkflowStatus:
-        """Sends a not promised signal to the indicated workflow asynchronously"""
-        workflow = self.get_workflow(workflow_id)
-        return await workflow.async_send_signal_exception(signal_name, exception, *args, **kwargs)
+    async def get_state(self, workflow_id: str, state_id: str) -> Any:
+        return await self.workflows[workflow_id].get_state(state_id)
 
     async def start_async_workflow(self, workflow_id: str, workflow_type: str, *args, **kwargs) -> WorkflowStatus:
         if workflow_id in self.workflows:
             logging.error(f'Workflow ID {workflow_id} already in use')
             raise DuplicateWorkflowIDException(workflow_id)
 
-        event_manager = self.event_serializer.new_event_manager(workflow_id)
+        step_manager = self.step_serializer.new_event_manager(workflow_id)
+        state_manager = self.state_serializer.new_event_manager(workflow_id)
+        queue_manager = self.queue_serializer.new_event_manager(workflow_id)
         workflow = Workflow(
             workflow_id,
             self.workflow_serializers[workflow_type].create_new_instance(workflow_id, self),
-            event_manager=event_manager
+            step_manager=step_manager,
+            state_manager=state_manager,
+            queue_manager=queue_manager
         )
-        self.event_managers[workflow_id] = event_manager
+        self.step_managers[workflow_id] = step_manager
+        self.state_managers[workflow_id] = state_manager
+        self.queue_managers[workflow_id] = queue_manager
         self.workflows[workflow_id] = workflow
         return await workflow.async_start(*args, **kwargs)
 

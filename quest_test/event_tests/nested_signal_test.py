@@ -29,14 +29,14 @@ class NestedSignalFlow:
     def __init__(self, workflow_manager):
         ...
 
-    @event
+    @step
     async def outer_event(self):
         self.event_counter = await self.event_count()  # this proves that outer_event will be replayed when the stop signal is sent the first time
         await self.stop()  # this proves that you can nest signals in an event, and it will work as expected
         count = await self.event_count()  # this proves that execution will continue correctly after stop signal is returned
         return count
 
-    @event
+    @step
     async def event_count(self):
         self.event_counter += 1
         return self.event_counter
@@ -65,11 +65,11 @@ async def test_nested_signal(tmp_path):
     async with workflow_manager:
         result = await workflow_manager.start_async_workflow(workflow_id, workflow_func)  # start the workflow
         assert result is not None  # code should be stopped with a signal, return with status awaiting signal
-        assert Status.AWAITING_SIGNALS == result.status
+        assert Status.SUSPENDED == result.status
         assert 1 == len(result.signals)
         result = await workflow_manager.signal_async_workflow(workflow_id, result.signals[0].unique_signal_name, None)  # signal the workflow for the first stop
         assert result is not None  # code should be stopped with a signal, return with status awaiting signal
-        assert Status.AWAITING_SIGNALS == result.status
+        assert Status.SUSPENDED == result.status
         assert 1 == len(result.signals)
         result = await workflow_manager.signal_async_workflow(workflow_id, result.signals[0].unique_signal_name, None)  # signal the workflow for the second stop
         assert result is not None  # now the workflow should be done, and we should have a result

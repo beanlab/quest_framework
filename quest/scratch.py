@@ -1,7 +1,7 @@
 import asyncio
 from typing import Optional, Any, Callable, TypeVar
 
-from .workflow import event, signal, promised_signal, any_promise
+from .workflow import step, signal, promised_signal, any_promise
 
 
 @promised_signal
@@ -13,7 +13,7 @@ async def get_next_player() -> dict:
     """Returns the player {id: <>, name: <>}"""
 
 
-@event
+@step
 def get_players() -> dict[str, dict]:
     host_id = gen_player_id()
     players = {host_id: await get_next_player(host_id)}
@@ -33,7 +33,7 @@ async def get_next_player(player_id: str) -> dict:
 @promised_signal(ids=['player_id'])
 async def notify_player(player_id: str, name: str): ...
 
-@event
+@step
 async def get_players_host_adds() -> tuple[str, str, dict[str, dict]]:
     host_id = gen_player_id()
     host_name = await get_host_player()
@@ -149,7 +149,7 @@ async def player_worklow():
             raise
 
 
-@event
+@step
 async def wait_for_turn(guess):
     """Provides scene updates to UI while querying parent for info"""
     status = provide_guess(guess)  # this calls the parent
@@ -189,7 +189,7 @@ def game():
         feedback = await calc_closest()
     return "you win!"
 
-@event
+@step
 async def join_game(game_id, player_id):
     signal_name = "player_join"
     workflow_manager.send_to_many_signal(game_id, signal_name, key=player_id, payload=player_id)
@@ -203,7 +203,7 @@ async def play_game(game_id, player_id):
     status = get_curr_game_status(game_id)
     if status.COMPLETED:
         return status.result
-    elif status.AWAITING_SIGNALS \
+    elif status.SUSPENDED \
             and status.signals[0] == 'get_all_guesses' \
             and status.signals[0].submitted.get(player_id) is None: # when a many signal returns in a status, it will include the dict of what has been submitted already
         await get_guess(status.signals[0].args[0])

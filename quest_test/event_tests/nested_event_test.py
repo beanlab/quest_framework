@@ -27,11 +27,11 @@ class NestedEventFlow:
     def __init__(self, workflow_manager):
         ...
 
-    @event
+    @step
     async def outer_event(self):
         return await self.event_count()
 
-    @event
+    @step
     async def event_count(self):
         self.event_counter += 1
         return self.event_counter
@@ -59,7 +59,7 @@ async def test_nested_event(tmp_path):
     async with workflow_manager:
         result = await workflow_manager.start_async_workflow(workflow_id, "NestedEventFlow")
         assert result is not None  # should be stopped by stop signal call, be status awaiting signal
-        assert Status.AWAITING_SIGNALS == result.status
+        assert Status.SUSPENDED == result.status
         assert 1 == len(result.signals)
         result = await workflow_manager.signal_async_workflow(workflow_id, result.signals[0].unique_signal_name,
                                                               None)  # signal the workflow to return stop signal
