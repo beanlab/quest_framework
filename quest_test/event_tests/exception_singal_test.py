@@ -60,7 +60,7 @@ async def test_exception_signal(tmp_path):
     workflow_manager = create_workflow_manager(ExceptionSignalFlow, "ExceptionSignalFlow", tmp_path)
     workflow_id = get_workflow_id()
     async with workflow_manager:
-        result = await workflow_manager.start_async_workflow(workflow_id, "ExceptionSignalFlow")  # start workflow
+        result = await workflow_manager.start_workflow(workflow_id, "ExceptionSignalFlow")  # start workflow
         assert result is not None  # workflow calls stop signal, should return awaiting signal result
         assert result.status == Status.SUSPENDED
         assert len(result.signals) == 1

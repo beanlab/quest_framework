@@ -55,7 +55,7 @@ async def test_nested_event(tmp_path):
     workflow_manager = create_workflow_manager(NestedStepFlow, "NestedStepFlow", tmp_path)
     workflow_id = get_workflow_id()
     async with workflow_manager:
-        result = await workflow_manager.start_async_workflow(workflow_id, "NestedStepFlow")
+        result = await workflow_manager.start_workflow(workflow_id, "NestedStepFlow")
         # the workflow should be done, and we should have a result
         assert result is not None
         assert Status.COMPLETED == result.status
