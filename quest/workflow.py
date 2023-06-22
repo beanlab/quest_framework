@@ -66,14 +66,12 @@ class StepEntry(TypedDict):
 
 
 class StateEntry(TypedDict):
-    state_id: str
     name: str
     value: Any
     identity: Optional[str]
 
 
 class QueueEntry(TypedDict):
-    queue_id: str
     name: str
     values: list
     identity: Optional[str]
@@ -93,6 +91,10 @@ def filter_identity(identity, dict_to_filter: EventManager) -> dict:
         for key, value in dict_to_filter.items()
         if value['identity'] is None or value['identity'] == identity
     }
+
+
+def _make_id(name, identity):
+    return f'{identity}.{name}' if identity else name
 
 
 class Workflow:
@@ -166,21 +168,19 @@ class Workflow:
 
     @_step
     async def create_state(self, name, initial_value, identity):
-        state_id = self._get_unique_id(name)
-        self._state[state_id] = StateEntry(
-            state_id=state_id,
+        self._state[_make_id(name, identity)] = StateEntry(
             name=name,
             value=initial_value,
             identity=identity
         )
-        return state_id
 
     @_step
-    async def remove_state(self, state_id):
-        del self._state[state_id]
+    async def remove_state(self, name, identity):
+        del self._state[_make_id(name, identity)]
 
-    async def get_state(self, state_id, identity):
+    async def get_state(self, name, identity):
         """Called by Workflow Manager"""
+        state_id = _make_id(name, identity)
         # Because this is a readonly operation, it doesn't need to be a step
         if (state_identity := self._state[state_id]['identity']) is not None and state_identity != identity:
             raise Exception('Boo')  # TODO: real InvalidIdentity exception, pull out method?
@@ -188,44 +188,50 @@ class Workflow:
         return self._state[state_id]['value']
 
     @_step
-    async def set_state(self, state_id, value):
+    async def set_state(self, name, value, identity):
+        state_id = _make_id(name, identity)
         self._state[state_id]['value'] = value
 
     @_step
     async def create_queue(self, name, identity):
-        queue_id = self._get_unique_id(name)
-        self._queues[queue_id] = QueueEntry(
-            queue_id=queue_id,
+        self._queues[_make_id(name, identity)] = QueueEntry(
             name=name,
             values=[],
             identity=identity,
         )
-        return queue_id
 
     @_step
-    async def push_queue(self, queue_id, value, identity) -> None | str:
-        """Called by Workflow Manager"""
+    async def _push_queue(self, name, value, identity) -> None | str:
+        queue_id = _make_id(name, identity)
         if (queue_identity := self._queues[queue_id]['identity']) is not None and queue_identity != identity:
             raise Exception('Boo')  # TODO: real InvalidIdentity exception
 
         identity = queue_identity or assign_identity()
         self._queues[queue_id]['values'].append((identity, value))
+        return identity
+
+    async def push_queue(self, name, value, identity) -> None | str:
+        """Called by Workflow Manager"""
+        identity = await self._push_queue(name, value, identity)
         await self.start()
         return identity
 
     @_step
-    async def pop_queue(self, queue_id):
+    async def pop_queue(self, name, identity):
+        queue_id = _make_id(name, identity)
         if self._queues[queue_id]['values']:
             return self._queues[queue_id]['values'].pop(0)
         else:
             raise WorkflowSuspended()
 
     @_step
-    async def check_queue(self, queue_id) -> bool:
+    async def check_queue(self, name, identity) -> bool:
+        queue_id = _make_id(name, identity)
         return bool(self._queues[queue_id]['values'])
 
     @_step
-    async def remove_queue(self, queue_id):
+    async def remove_queue(self, name, identity):
+        queue_id = _make_id(name, identity)
         del self._queues[queue_id]
 
     def _get_prefixed_name(self, event_name: str) -> str:

@@ -51,23 +51,21 @@ class WorkflowSerializer(Protocol):
         :param workflow: The workflow object to be saved.
         """
 
-    def deserialize_workflow(self, workflow_id: str, workflow_manager) -> WorkflowFunction:
+    def deserialize_workflow(self, workflow_id: str) -> WorkflowFunction:
         """
         Recreate the workflow object that was associated with the workflow ID with a workflow_manager
         as a parameter.
 
         :param workflow_id: Unique string identifying the workflow to be recreated
-        :param workflow_manager: The workflow manager object that is managing the workflow
         :return: The WorkflowFunction associated with the workflow ID
         """
 
-    def create_new_instance(self, workflow_id: str, workflow_manager) -> WorkflowFunction:
+    def create_new_instance(self, workflow_id: str) -> WorkflowFunction:
         """
         Create a new instance of the workflow object that was associated with the workflow_id with
         a workflow manager as a parameter.
 
         :param workflow_id: Unique string identifying the workflow to be created
-        :param workflow_manager: The workflow manager object that is managing the workflow
         :return: a new instance of the WorkflowFunction
         """
 
@@ -193,9 +191,9 @@ class WorkflowManager:
                    include_queues=True) -> WorkflowStatus:
         return self.workflows[workflow_id].get_status(identity, include_steps, include_state, include_queues)
 
-    async def push_queue(self, workflow_id: str, queue_id: str, value: Any, identity: ID = None) -> str:
+    async def push_queue(self, workflow_id: str, name: str, value: Any, identity: ID = None) -> str:
         """Returns the identity assigned to this transaction"""
-        return await self.workflows[workflow_id].push_queue(queue_id, value, identity)
+        return await self.workflows[workflow_id].push_queue(name, value, identity)
 
 
 if __name__ == '__main__':
