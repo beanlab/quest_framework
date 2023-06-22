@@ -1,4 +1,6 @@
 import pytest
+
+from quest import state, step
 from quest.workflow import *
 from quest.json_seralizers import *
 
