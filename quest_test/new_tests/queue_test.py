@@ -2,11 +2,6 @@ import pytest
 from quest.workflow import *
 from quest.json_seralizers import *
 
-VISIBLE = 'VISIBLE'
-NOT_VISIBLE = 'NOT_VISIBLE'
-VISIBLE_BY_ID = 'VISIBLE_BY_ID'
-ID = "ID"
-
 
 def create_workflow_manager(flow_function, flow_function_name, path) -> WorkflowManager:
     saved_state = path / "saved-state"
@@ -25,17 +20,18 @@ def get_workflow_id() -> str:
     return str(uuid.uuid4())
 
 
-class StateFlow:
+class QueueFlow:
 
     def __init__(self, workflow_manager):
         ...
 
     async def __call__(self):
         self.event_counter = 0
-        async with await state(NOT_VISIBLE, NOT_VISIBLE) as not_visible:
-            print("Testing that the state NOT_VISIBLE is not able to be read out of context")
-        await state(VISIBLE, VISIBLE)
-        await state(VISIBLE_BY_ID, VISIBLE_BY_ID, ID)
+        async with await queue('queue1') as queue1:
+            # pop should suspend until we have a value
+            identity, value = queue1.pop()
+        # now we shouldn't be able to push to queue1
+
 
 
 def find_in_workflow_result(result: WorkflowStatus, value: str) -> dict | None:
@@ -50,7 +46,7 @@ async def test_state(tmp_path):
     """
     This test shows that state works as intended
     """
-    workflow_manager = create_workflow_manager(StateFlow, "StateFlow", tmp_path)
+    workflow_manager = create_workflow_manager(QueueFlow, "StateFlow", tmp_path)
     workflow_id = get_workflow_id()
     async with workflow_manager:
         result = await workflow_manager.start_workflow(workflow_id, "StateFlow")
@@ -64,7 +60,7 @@ async def test_state(tmp_path):
         # get status with identification
         status = workflow_manager.get_status(workflow_id, ID)
         assert find_in_workflow_result(status, VISIBLE_BY_ID) == VISIBLE_BY_ID
-        
+
     # going out of context deserializes the workflow
     async with workflow_manager:
         # get status of rehydrated workflow
