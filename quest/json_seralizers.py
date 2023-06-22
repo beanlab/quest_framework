@@ -1,23 +1,22 @@
 import json
 from pathlib import Path
 from typing import Callable
-from .workflow_manager import WorkflowSerializer, EventSerializer, WorkflowFunction, WorkflowMetadataSerializer, \
-    WorkflowManager
+from .workflow_manager import WorkflowSerializer, EventSerializer, WorkflowFunction, WorkflowMetadataSerializer
 from .events import UniqueEvent, InMemoryEventManager
 
 
 class StatelessWorkflowSerializer(WorkflowSerializer):
-    def __init__(self, create_workflow: Callable[[WorkflowManager], WorkflowFunction]):
+    def __init__(self, create_workflow: Callable[[], WorkflowFunction]):
         self.create_workflow = create_workflow
 
     def serialize_workflow(self, workflow_id: str, workflow: WorkflowFunction):
         """Nothing needed"""
 
-    def deserialize_workflow(self, workflow_id: str, workflow_manager) -> WorkflowFunction:
-        return self.create_workflow(workflow_manager)
+    def deserialize_workflow(self, workflow_id: str) -> WorkflowFunction:
+        return self.create_workflow()
 
-    def create_new_instance(self, workflow_id: str, workflow_manager) -> WorkflowFunction:
-        return self.create_workflow(workflow_manager)
+    def create_new_instance(self, workflow_id: str) -> WorkflowFunction:
+        return self.create_workflow()
 
 
 class JsonEventSerializer(EventSerializer[InMemoryEventManager]):
