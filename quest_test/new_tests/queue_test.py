@@ -29,15 +29,17 @@ class QueueFlow:
         self.event_counter = 0
         async with await queue('queue1') as queue1:
             # pop should suspend until we have a value
-            identity, value = queue1.pop()
+            queue1.pop()
         # now we shouldn't be able to push to queue1
-
+        queue2 = await queue('queue2')
+        identity, value = queue2.pop()
+        return {'identity': identity, 'value': value}
 
 
 def find_in_workflow_result(result: WorkflowStatus, value: str) -> dict | None:
-    for state_entry in result.state.values():
-        if state_entry['name'] == value:
-            return state_entry['value']
+    for queue_entry in result.queues.values():
+        if queue_entry['name'] == value:
+            return queue_entry['values']
     return None
 
 
@@ -50,16 +52,11 @@ async def test_state(tmp_path):
     workflow_id = get_workflow_id()
     async with workflow_manager:
         result = await workflow_manager.start_workflow(workflow_id, "StateFlow")
-        # the workflow should be done, and we should have a result
+        # the workflow should be suspended
         assert result is not None
-        assert result.status == Status.COMPLETED
-        # should only have visible state
-        assert find_in_workflow_result(result, VISIBLE) == VISIBLE
-        assert find_in_workflow_result(result, NOT_VISIBLE) is None
-        assert find_in_workflow_result(result, VISIBLE_BY_ID) is None
-        # get status with identification
-        status = workflow_manager.get_status(workflow_id, ID)
-        assert find_in_workflow_result(status, VISIBLE_BY_ID) == VISIBLE_BY_ID
+        assert result.status == Status.SUSPENDED
+        # queue1 should be waiting, push to value to queue1
+        assert result.queues[0]
 
     # going out of context deserializes the workflow
     async with workflow_manager:
