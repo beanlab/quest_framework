@@ -43,9 +43,9 @@ class WorkflowStatus:
     started: Optional[datetime]
     ended: Optional[datetime]
     result: Any
-    state: Optional[EventManager]
-    queues: Optional[EventManager]
-    steps: Optional[EventManager]
+    state: dict[str, 'StateEntry']
+    queues: dict[str, 'QueueEntry']
+    steps: dict[str, 'StepEntry']
     exception: Any
 
     @staticmethod
@@ -53,8 +53,8 @@ class WorkflowStatus:
         return WorkflowStatus(Status.RUNNING, start_time, None, None, None, None, None, None)
 
     @staticmethod
-    def create_successfully_completed(start_time: datetime, result: Any, state: EventManager, steps: EventManager):
-        return WorkflowStatus(Status.COMPLETED, start_time, get_current_timestamp(), result, state, None, steps, None)
+    def create_successfully_completed(start_time: datetime, result: Any, state: EventManager, queues: EventManager, steps: EventManager):
+        return WorkflowStatus(Status.COMPLETED, start_time, get_current_timestamp(), result, state, queues, steps, None)
 
     @staticmethod
     def create_suspended(start_time: datetime, state: EventManager, queues: EventManager, steps: EventManager):
@@ -63,20 +63,6 @@ class WorkflowStatus:
     @staticmethod
     def create_errored(start_time: datetime, exception: Any):
         return WorkflowStatus(Status.ERRORED, start_time, get_current_timestamp(), None, None, None, None, exception)
-
-    def filter(self, identity) -> 'WorkflowStatus':
-        new_status = deepcopy(self)
-        for key, value in self.state.items():
-            if value['identity'] is not None and value['identity'] != identity:
-                del new_status.state['identity']
-        for key, value in self.queues.items():
-            if value['identity'] is not None and value['identity'] != identity:
-                del new_status.queues['identity']
-        for key, value in self.steps.items():
-            if value['identity'] is not None and value['identity'] != identity:
-                del new_status.steps['identity']
-        return new_status
-
 
 
 def find_workflow() -> 'Workflow':
@@ -204,7 +190,7 @@ class Workflow:
         self._func = func
         self._prefix = []
         self.started = get_current_timestamp()
-        self.status = WorkflowStatus.create_started(self.started)
+        self.status = Status.RUNNING
         self.state: EventManager[StateEntry] = state_manager  # dict[str, StateEntry]
         self.queues: EventManager[QueueEntry] = step_manager  # dict[str, QueueEntry]
         self.steps: EventManager[StepEntry] = queue_manager  # dict[str, EventEntry]
@@ -317,7 +303,7 @@ class Workflow:
 
                 await self.handle_step(WORKFLOW_RESULT, result_func)
 
-            self.status = WorkflowStatus.create_successfully_completed(self.started, result, self.state, self.steps)
+            self.status = WorkflowStatus.create_successfully_completed(self.started, result, self.state, self.queues, self.steps)
             return self.status
 
         except WorkflowSuspended as ws:
