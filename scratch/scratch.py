@@ -1,7 +1,8 @@
 import asyncio
 from typing import Optional, Any, Callable, TypeVar
 
-from quest.workflow import step, signal, promised_signal, any_promise
+from quest.workflow import signal, promised_signal, any_promise
+from quest import step
 
 
 @promised_signal

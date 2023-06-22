@@ -1,4 +1,3 @@
-import inspect
 import logging
 import uuid
 from datetime import datetime
@@ -9,14 +8,7 @@ from .events import UniqueEvent, EventManager
 from dataclasses import dataclass
 
 ARGUMENTS = "INITIAL_ARGUMENTS"
-PREFIXED_ARGUMENTS = ".INITIAL_ARGUMENTS_0"
 KW_ARGUMENTS = "INITIAL_KW_ARGUMENTS"
-PREFIXED_KW_ARGUMENTS = ".INITIAL_KW_ARGUMENTS_0"
-WORKFLOW_RESULT = "WORKFLOW_RESULT"
-
-
-class WorkflowNotFoundException(Exception):
-    pass
 
 
 class WorkflowSuspended(BaseException):
@@ -50,75 +42,6 @@ class WorkflowStatus:
 
     def get_error(self):
         return self.state['error']
-
-
-def find_workflow() -> 'Workflow':
-    outer_frame = inspect.currentframe()
-    is_workflow = False
-    while not is_workflow:
-        outer_frame = outer_frame.f_back
-        if outer_frame is None:
-            raise WorkflowNotFoundException("Workflow object not found in event stack")
-        is_workflow = isinstance(outer_frame.f_locals.get('self'), Workflow)
-    return outer_frame.f_locals.get('self')
-
-
-class SetState:
-    def __init__(self):
-        self.state_id = None
-
-    async def async_init(self, name: str, initial_value, identity):
-        self.state_id = await find_workflow().create_state(name, initial_value, identity)
-        return self
-
-    async def __call__(self, value):
-        # Make invoke state also act like an event
-        return await find_workflow().set_state(self.state_id, value)
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if not isinstance(exc_type, WorkflowSuspended):
-            await find_workflow().remove_state(self.state_id)
-
-
-async def state(name, initial_value=None, identity=None) -> SetState:
-    return await SetState().async_init(name, initial_value, identity)
-
-
-class Queue:
-    def __init__(self):
-        self.queue_id = None
-
-    async def async_init(self, name: str, *args, **kwargs) -> 'Queue':
-        self.queue_id = await find_workflow().create_queue(name, *args, **kwargs)
-        return self
-
-    async def check(self):
-        return await find_workflow().check_queue(self.queue_id)
-
-    async def pop(self):
-        return await find_workflow().pop_queue(self.queue_id)
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if isinstance(exc_type, WorkflowSuspended):
-            await find_workflow().remove_queue(self.queue_id)
-
-
-async def queue(name, identity=None) -> Queue:
-    return await Queue().async_init(name, identity)
-
-
-def step(func):
-    @wraps(func)
-    async def new_func(*args, **kwargs):
-        return await find_workflow().handle_step(func.__name__, func, *args, **kwargs)
-
-    return new_func
 
 
 def _step(func):

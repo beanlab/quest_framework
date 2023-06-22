@@ -1,5 +1,6 @@
-import uuid
 import pytest
+
+from quest import step
 from quest.workflow import *
 from quest.json_seralizers import *
 

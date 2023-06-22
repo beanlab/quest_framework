@@ -1,2 +1,2 @@
 from .workflow_manager import WorkflowManager
-from .workflow import Workflow, step, state, queue
+from .wrappers import state, queue, step

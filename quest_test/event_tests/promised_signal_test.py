@@ -1,8 +1,7 @@
-import uuid
 import pytest
-import asyncio
+
+from quest import step
 from quest.workflow import *
-from quest.workflow_manager import *
 from quest.json_seralizers import *
 
 STOP_EVENT_NAME = 'stop'
