@@ -1,8 +1,6 @@
 import pytest
 
-from quest import state, step, WorkflowManager
-from quest.workflow import *
-from quest.json_seralizers import *
+from src.quest import *
 
 VISIBLE = 'VISIBLE'
 NOT_VISIBLE = 'NOT_VISIBLE'
