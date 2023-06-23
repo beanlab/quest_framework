@@ -9,12 +9,14 @@ Serializable = Union[dict, ToJson]
 
 
 class UniqueEvent:
-    def __init__(self, name: str, counter=-1):
+    def __init__(self, name: str, counter=-1, replay=True):
         self.name = name
         self.counter = counter
+        self.replay = replay
 
     def reset(self):
-        self.counter = -1
+        if self.replay:
+            self.counter = -1
 
     def __next__(self):
         self.counter += 1
@@ -23,7 +25,8 @@ class UniqueEvent:
     def to_json(self):
         return {
             "name": self.name,
-            "counter": self.counter
+            "counter": self.counter,
+            "replay": self.replay
         }
 
 
@@ -42,7 +45,7 @@ class Event(TypedDict):
 ET = TypeVar('ET')
 
 
-class EventManager(Protocol):
+class EventManager(Protocol[ET]):
     def __getitem__(self, key: str) -> ET: ...
 
     def __setitem__(self, key: str, value: ET): ...
@@ -53,33 +56,29 @@ class EventManager(Protocol):
 
     def items(self) -> Generator: ...
 
-    def all_items(self) -> dict: ...
-
 
 class InMemoryEventManager(EventManager):
     def __init__(self,
                  workflow_id: str,
-                 initial_state: dict[str, Event] = None,
-                 initial_counters: dict[str, UniqueEvent] = None
+                 initial_state: dict[str, Event] = None
                  ):
-        self._workflow_id = workflow_id
-        self._state = initial_state or {}
-        self._counters = initial_counters or {}
+        self.workflow_id = workflow_id
+        self.state = initial_state or {}
 
     def __getitem__(self, key: str) -> Event:
-        return self._state[key]
+        return self.state[key]
 
     def __setitem__(self, key: str, value: Event):
-        self._state[key] = value
+        self.state[key] = value
 
     def __delitem__(self, key):
-        del self._state[key]
+        del self.state[key]
 
     def __contains__(self, key: str) -> bool:
-        return key in self._state
+        return key in self.state
 
     def items(self):
-        yield from self._state.items()
+        yield from self.state.items()
 
 
 if __name__ == '__main__':
