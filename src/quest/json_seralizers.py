@@ -1,8 +1,9 @@
 import json
 from pathlib import Path
 from typing import Callable, Any
-from .workflow_manager import WorkflowSerializer, EventSerializer, WorkflowFunction, WorkflowMetadataSerializer
-from .events import UniqueEvent, InMemoryEventManager
+from .workflow_manager import WorkflowSerializer, EventSerializer, WorkflowFunction, WorkflowMetadataSerializer, \
+    WorkflowManager
+from .events import InMemoryEventManager, UniqueEvent
 
 
 class StatelessWorkflowSerializer(WorkflowSerializer):
@@ -62,6 +63,17 @@ class JsonMetadataSerializer(WorkflowMetadataSerializer):
             return {}
         with open(meta_file) as file:
             return json.load(file)
+
+
+def get_local_workflow_manager(save_folder: Path, workflow_function):
+    return WorkflowManager(
+        JsonMetadataSerializer(save_folder),
+        JsonEventSerializer(save_folder / 'workflow_steps'),
+        JsonEventSerializer(save_folder / 'workflow_state'),
+        JsonEventSerializer(save_folder / 'workflow_queues'),
+        JsonEventSerializer(save_folder / 'workflow_unique_ids', lambda d: UniqueEvent(**d)),
+        {workflow_function.__name__: StatelessWorkflowSerializer(lambda: workflow_function)}
+    )
 
 
 if __name__ == '__main__':

@@ -1,11 +1,10 @@
 import logging
 import uuid
 from datetime import datetime
-from enum import Enum
 from functools import wraps
-from typing import Any, Protocol, Optional, Callable, TypedDict
+from typing import Any, Protocol, Optional, Callable, TypedDict, Literal
 from .events import UniqueEvent, EventManager
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
 ARGUMENTS = "INITIAL_ARGUMENTS"
 KW_ARGUMENTS = "INITIAL_KW_ARGUMENTS"
@@ -20,23 +19,19 @@ class InvalidIdentityError(BaseException):
 
 
 class WorkflowFunction(Protocol):
-    def __init__(self, workflow_manager, *args, **kwargs): ...
+    def __init__(self, *args, **kwargs): ...
 
     def __call__(self, *args, **kwargs) -> Any: ...
 
 
-class Status(Enum):
-    RUNNING = 1
-    SUSPENDED = 2
-    COMPLETED = 3
-    ERRORED = 4
+Status = Literal['RUNNING', 'SUSPENDED', 'COMPLETED', 'ERRORED']
 
 
 @dataclass
 class WorkflowStatus:
     status: Status
-    started: Optional[datetime]
-    ended: Optional[datetime]
+    started: Optional[str]
+    ended: Optional[str]
     steps: dict[str, 'StepEntry']
     state: dict[str, 'StateEntry']
     queues: dict[str, 'QueueEntry']
@@ -46,6 +41,16 @@ class WorkflowStatus:
 
     def get_error(self):
         return self.state['error']
+
+    def to_json(self):
+        return {
+            'status': self.status,
+            'started': self.started,
+            'ended': self.ended,
+            'steps': self.steps,
+            'state': self.state,
+            'queues': self.queues
+        }
 
 
 def _step(func):
@@ -83,8 +88,8 @@ class QueueEntry(TypedDict):
     identity: Optional[str]
 
 
-def get_current_timestamp() -> datetime:
-    return datetime.utcnow()
+def get_current_timestamp() -> str:
+    return datetime.utcnow().isoformat()
 
 
 def assign_identity():
@@ -120,7 +125,7 @@ class Workflow:
         self.workflow_id = workflow_id
         self.started = get_current_timestamp()
         self.ended = None
-        self.status = Status.RUNNING
+        self.status: Status = 'RUNNING'
 
         self._func = func
         self._prefix = []
@@ -253,15 +258,17 @@ class Workflow:
             result = await self._func(*args, **kwargs)
             self.ended = get_current_timestamp()
             logging.debug('Workflow invocation complete')
-            self.status = Status.COMPLETED
+            self.status = 'COMPLETED'
+            # noinspection PyTypeChecker
             await self.create_state('result', result, None)
 
-        except WorkflowSuspended as ws:
-            self.status = Status.SUSPENDED
+        except WorkflowSuspended as _:
+            self.status = 'SUSPENDED'
 
         except Exception as e:
             logging.debug(f'Workflow Errored: {e}')
-            self.status = Status.ERRORED
+            self.status = 'ERRORED'
+            # noinspection PyTypeChecker
             await self.create_state('error', {'name': str(e), 'details': e.args}, None)
             self.ended = get_current_timestamp()
 

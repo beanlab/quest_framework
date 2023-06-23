@@ -1,7 +1,7 @@
 import inspect
 from functools import wraps
 
-from src.quest.workflow import Workflow, WorkflowSuspended
+from .workflow import Workflow, WorkflowSuspended
 
 
 class WorkflowNotFoundException(Exception):
@@ -20,19 +20,17 @@ def _find_workflow() -> Workflow:
 
 
 class SetState:
-    def __init__(self):
-        self.name = None
-        self.identity = None
-
-    async def async_init(self, name: str, initial_value, identity):
-        self.name, self.identity = await _find_workflow().create_state(name, initial_value, identity)
-        return self
+    def __init__(self, name: str, initial_value, identity):
+        self.name = name
+        self.initial_value = initial_value
+        self.identity = identity
 
     async def __call__(self, value):
         # Make invoke state also act like an event
         return await _find_workflow().set_state(self.name, self.identity, value)
 
     async def __aenter__(self):
+        await _find_workflow().create_state(self.name, self.initial_value, self.identity)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -40,19 +38,15 @@ class SetState:
             await _find_workflow().remove_state(self.name, self.identity)
 
 
-async def state(name, initial_value=None, identity=None) -> SetState:
-    return await SetState().async_init(name, initial_value, identity)
+def state(name, initial_value=None, identity=None) -> SetState:
+    return SetState(name, initial_value, identity)
 
 
 class Queue:
-    def __init__(self, identity_queue=False):
-        self.name = None
-        self.identity = None
+    def __init__(self, name, identity, identity_queue=False):
+        self.name = name
+        self.identity = identity
         self.identity_queue = identity_queue
-
-    async def _async_init(self, name: str, *args, **kwargs) -> 'Queue':
-        self.name, self.identity = await _find_workflow().create_queue(name, *args, **kwargs)
-        return self
 
     async def check(self):
         return await _find_workflow().check_queue(self.name, self.identity)
@@ -65,6 +59,7 @@ class Queue:
             return value
 
     async def __aenter__(self):
+        await _find_workflow().create_queue(self.name, self.identity)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -72,15 +67,15 @@ class Queue:
             await _find_workflow().remove_queue(self.name, self.identity)
 
 
-async def queue(name, identity=None) -> Queue:
-    return await Queue()._async_init(name, identity)
+def queue(name, identity=None) -> Queue:
+    return Queue(name, identity)
 
 
-async def identity_queue(name, identity=None) -> Queue:
+def identity_queue(name, identity=None) -> Queue:
     """Create an identity queue
     Each call to `pop()` will return the identity, value pair
     """
-    return await Queue(identity_queue=True)._async_init(name, identity)
+    return Queue(name, identity, identity_queue=True)
 
 
 def step(func):

@@ -6,8 +6,8 @@ import uuid
 from pathlib import Path
 from src.quest import step, state, queue, WorkflowManager
 from src.quest.events import UniqueEvent
-from src.quest import JsonMetadataSerializer, JsonEventSerializer, StatelessWorkflowSerializer
-from src.quest import Status
+from src.quest.json_seralizers import JsonMetadataSerializer, JsonEventSerializer, StatelessWorkflowSerializer
+from src.quest.workflow import Status
 
 logging.basicConfig(level=logging.DEBUG)
 INPUT_EVENT_NAME = 'input'
@@ -25,7 +25,7 @@ async def display(text: str):
 
 @step
 async def get_input(prompt: str):
-    async with await state('prompt', prompt), await queue('input') as input:
+    async with state('prompt', prompt), queue('input') as input:
         await display(prompt)
         return await input.pop()
 
@@ -56,7 +56,7 @@ async def main():
 
     async with workflow_manager:
         status = await workflow_manager.start_workflow(workflow_id, 'register_user', 'Howdy')
-        assert status.status == Status.SUSPENDED
+        assert status.status == 'SUSPENDED'
 
         assert status.state['prompt']['value'] == 'Name: '
         assert 'input' in status.queues
@@ -66,7 +66,7 @@ async def main():
         assert fingerprint is not None
 
         status = await workflow_manager.get_status(workflow_id)
-        assert status.status == Status.SUSPENDED
+        assert status.status == 'SUSPENDED'
 
         assert status.state['prompt']['value'] == 'Student ID: '
         assert 'input' in status.queues
@@ -80,7 +80,7 @@ async def main():
         assert fingerprint is not None
 
         status = await workflow_manager.get_status(workflow_id)
-        assert status.status == Status.COMPLETED
+        assert status.status == 'COMPLETED'
 
         assert status.state['result']['value'] == 'Name: Foo, ID: 123'
         assert not status.queues
