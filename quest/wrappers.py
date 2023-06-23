@@ -36,7 +36,7 @@ class SetState:
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if not isinstance(exc_type, WorkflowSuspended):
+        if not exc_type == WorkflowSuspended:
             await _find_workflow().remove_state(self.name, self.identity)
 
 
