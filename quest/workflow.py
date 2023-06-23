@@ -112,23 +112,32 @@ class Workflow:
             self,
             workflow_id: str,
             func: WorkflowFunction,
-            step_manager: EventManager,
-            state_manager: EventManager,
-            queue_manager: EventManager
+            step_manager: EventManager[StepEntry],
+            state_manager: EventManager[StateEntry],
+            queue_manager: EventManager[QueueEntry],
+            unique_ids: EventManager[UniqueEvent]
     ):
         self.workflow_id = workflow_id
-        self._replay_events: list[UniqueEvent] = []
-        self._func = func
-        self._prefix = []
         self.started = get_current_timestamp()
         self.ended = None
         self.status = Status.RUNNING
+
+        self._func = func
+        self._prefix = []
+
         self.steps: EventManager[StepEntry] = step_manager
         self.state: EventManager[StateEntry] = state_manager
         self.queues: EventManager[QueueEntry] = queue_manager
-        self.unique_ids: dict[str, UniqueEvent] = {}
+        self.unique_ids: EventManager[UniqueEvent] = unique_ids
 
-    def get_status(self, identity, include_steps, include_state, include_queues):
+    def workflow_type(self) -> str:
+        """Used by serializer"""
+        if (name := self._func.__class__.__name__) == 'function':
+            return self._func.__name__
+        else:
+            return name
+
+    async def get_status(self, identity, include_steps, include_state, include_queues):
         steps = filter_identity(identity, self.steps) if include_steps else None
         state = filter_identity(identity, self.state) if include_state else None
         queues = filter_identity(identity, self.queues) if include_queues else None
@@ -141,21 +150,20 @@ class Workflow:
             queues
         )
 
-    def _get_unique_id(self, event_name: str) -> str:
+    def _get_unique_id(self, event_name: str, replay=True) -> str:
         prefixed_name = self._get_prefixed_name(event_name)
-        if prefixed_name not in self.unique_ids.keys():
-            self.unique_ids[prefixed_name] = UniqueEvent(prefixed_name)
-            self._replay_events.append(self.unique_ids[prefixed_name])
+        if prefixed_name not in self.unique_ids:
+            self.unique_ids[prefixed_name] = UniqueEvent(prefixed_name, replay=replay)
         return next(self.unique_ids[prefixed_name])
 
-    async def handle_step(self, step_name: str, func: Callable, *args, **kwargs):
+    async def handle_step(self, step_name: str, func: Callable, *args, replay=True, **kwargs):
         """This is called by the @step decorator"""
-        step_id = self._get_unique_id(step_name)
+        step_id = self._get_unique_id(step_name, replay=replay)
 
         if step_id in self.steps:
             return self.steps[step_id]['value']
         else:
-            self._prefix.append(step_name)
+            self._prefix.append(step_id)
             payload = await func(*args, **kwargs)
             self._prefix.pop(-1)
             self.steps[step_id] = StepEntry(
@@ -179,14 +187,7 @@ class Workflow:
     @_step
     async def remove_state(self, name, identity):
         del self.state[create_id(name, identity)]
-
-    async def get_state(self, name, identity):
-        # Called by workflow manager, readonly: doesn't need to be a step
-        state_id = create_id(name, identity)
-        if (state_identity := self.state[state_id]['identity']) is not None and state_identity != identity:
-            raise InvalidIdentityError()
-
-        return self.state[state_id]['value']
+        return name, identity
 
     @_step
     async def set_state(self, name, identity, value):
@@ -202,8 +203,13 @@ class Workflow:
         )
         return name, identity
 
-    @_step
     async def push_queue(self, name, value, identity) -> None | str:
+        identity = await self.handle_step(
+            'push_queue', self._push_queue, name, value, identity, replay=False)
+        await self.start()
+        return identity
+
+    async def _push_queue(self, name, value, identity) -> None | str:
         # Called by Workflow Manager
         queue_id = create_id(name, identity)
         if (queue_identity := self.queues[queue_id]['identity']) is not None and queue_identity != identity:
@@ -219,7 +225,6 @@ class Workflow:
         if self.queues[queue_id]['values']:
             return self.queues[queue_id]['values'].pop(0)
         else:
-            self._prefix = []
             raise WorkflowSuspended()
 
     @_step
@@ -230,17 +235,13 @@ class Workflow:
     async def remove_queue(self, name, identity):
         del self.queues[create_id(name, identity)]
 
-    def _workflow_type(self) -> str:
-        return self._func.__class__.__name__
-
     def _get_prefixed_name(self, event_name: str) -> str:
         return '.'.join(self._prefix) + '.' + event_name
 
     def _reset(self):
         self._prefix = []
-        for ue in self._replay_events:
-            if ue.name != ".push_queue":  # IS THIS RIGHT??
-                ue.reset()
+        for _, ue in self.unique_ids.items():
+            ue.reset()
 
     async def start(self, *args, **kwargs) -> WorkflowStatus:
         self._reset()
@@ -264,7 +265,7 @@ class Workflow:
             await self.create_state('error', {'name': str(e), 'details': e.args}, None)
             self.ended = get_current_timestamp()
 
-        return self.get_status(None, True, True, True)
+        return await self.get_status(None, True, True, True)
 
 
 if __name__ == '__main__':

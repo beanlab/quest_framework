@@ -1,7 +1,7 @@
 [tool.poetry]
-name = "quest"
-version = "0.1.5"
-description = "Build fault-tolerant"
+name = "quest.py"
+version = "0.2.0"
+description = "Framework for coordinated, long-running processes"
 authors = ["Gordon Bean <gbean@cs.byu.edu>"]
 
 [tool.poetry.dependencies]

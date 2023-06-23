@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Any
 from .workflow_manager import WorkflowSerializer, EventSerializer, WorkflowFunction, WorkflowMetadataSerializer
 from .events import UniqueEvent, InMemoryEventManager
 
@@ -12,16 +12,17 @@ class StatelessWorkflowSerializer(WorkflowSerializer):
     def serialize_workflow(self, workflow_id: str, workflow: WorkflowFunction):
         """Nothing needed"""
 
-    def deserialize_workflow(self, workflow_id: str, workflow_manager) -> WorkflowFunction:
-        return self.create_workflow(workflow_manager)
+    def deserialize_workflow(self, workflow_id: str) -> WorkflowFunction:
+        return self.create_workflow()
 
-    def create_new_instance(self, workflow_id: str, workflow_manager) -> WorkflowFunction:
-        return self.create_workflow(workflow_manager)
+    def create_new_instance(self, workflow_id: str) -> WorkflowFunction:
+        return self.create_workflow()
 
 
 class JsonEventSerializer(EventSerializer[InMemoryEventManager]):
-    def __init__(self, folder: Path):
+    def __init__(self, folder: Path, from_dict: Callable[[dict], Any] = lambda d: d):
         self.folder = folder
+        self.from_dict = from_dict
         if not self.folder.exists():
             self.folder.mkdir(parents=True)
 
@@ -32,17 +33,19 @@ class JsonEventSerializer(EventSerializer[InMemoryEventManager]):
         file = key + '.json'
         with open(self.folder / file, 'w') as file:
             json.dump({
-                'workflow_id': event_manager._workflow_id,
-                'events': event_manager._state,
-                'counters': {k: ue.to_json() for k, ue in event_manager._counters.items()}
+                'workflow_id': event_manager.workflow_id,
+                'events': {
+                    key: (value.to_json() if hasattr(value, 'to_json') else value)
+                    for key, value in event_manager.items()
+                }
             }, file)
 
     def load_events(self, key: str) -> InMemoryEventManager:
         file = key + '.json'
         with open(self.folder / file) as file:
             state = json.load(file)
-            counters = {k: UniqueEvent(**ue) for k, ue in state['counters'].items()}
-            return InMemoryEventManager(state['workflow_id'], state['events'], counters)
+            state['events'] = {k: self.from_dict(v) for k, v in state['events'].items()}
+            return InMemoryEventManager(state['workflow_id'], state['events'])
 
 
 class JsonMetadataSerializer(WorkflowMetadataSerializer):

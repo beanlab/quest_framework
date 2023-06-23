@@ -1,6 +1,6 @@
 import logging
 from typing import Any, Protocol, TypeVar, Union
-from .events import EventManager
+from .events import EventManager, UniqueEvent
 from .workflow import Workflow, WorkflowFunction, WorkflowStatus
 
 EM = TypeVar('EM', bound=EventManager)
@@ -51,7 +51,7 @@ class WorkflowSerializer(Protocol):
         :param workflow: The workflow object to be saved.
         """
 
-    def deserialize_workflow(self, workflow_id: str, workflow_manager) -> WorkflowFunction:
+    def deserialize_workflow(self, workflow_id: str) -> WorkflowFunction:
         """
         Recreate the workflow object that was associated with the workflow ID with a workflow_manager
         as a parameter.
@@ -61,7 +61,7 @@ class WorkflowSerializer(Protocol):
         :return: The WorkflowFunction associated with the workflow ID
         """
 
-    def create_new_instance(self, workflow_id: str, workflow_manager) -> WorkflowFunction:
+    def create_new_instance(self, workflow_id: str) -> WorkflowFunction:
         """
         Create a new instance of the workflow object that was associated with the workflow_id with
         a workflow manager as a parameter.
@@ -81,17 +81,21 @@ class WorkflowManager:
             step_serializer: EventSerializer[EM],
             state_serializer: EventSerializer[EM],
             queue_serializer: EventSerializer[EM],
+            unique_id_serializer: EventSerializer[EM],
             workflow_serializers: dict[str, WorkflowSerializer],
     ):
         self.metadata_serializer = metadata_serializer
         self.step_serializer = step_serializer
         self.state_serializer = state_serializer
         self.queue_serializer = queue_serializer
+        self.unique_id_serializer = unique_id_serializer
         self.workflow_serializers = workflow_serializers
+
         self.workflows: dict[str, Workflow] = {}
         self.step_managers: dict[str, EventManager] = {}
         self.state_managers: dict[str, EventManager] = {}
         self.queue_managers: dict[str, EventManager] = {}
+        self.unique_ids: dict[str, EventManager] = {}
 
     #
     # State Management
@@ -108,7 +112,7 @@ class WorkflowManager:
         return self.metadata_serializer.load()
 
     def _workflow_types(self) -> dict[str, str]:
-        return {wid: workflow._workflow_type() for wid, workflow in self.workflows.items()}
+        return {wid: workflow.workflow_type() for wid, workflow in self.workflows.items()}
 
     def _save_workflows(self):
         """
@@ -125,8 +129,11 @@ class WorkflowManager:
         for wid, queue_manager in self.queue_managers.items():
             self.queue_serializer.save_events(wid, queue_manager)
 
+        for wid, unique_ids in self.unique_ids.items():
+            self.unique_id_serializer.save_events(wid, unique_ids)
+
         for wid, workflow in self.workflows.items():
-            self.workflow_serializers[workflow._workflow_type()].serialize_workflow(wid, workflow._func)
+            self.workflow_serializers[workflow.workflow_type()].serialize_workflow(wid, workflow._func)
 
     async def _load_and_resume_workflows(self, workflow_types: dict[str, str]):
         self._load_workflows(workflow_types)
@@ -137,11 +144,17 @@ class WorkflowManager:
             step_manager = self.step_serializer.load_events(wid)
             state_manager = self.state_serializer.load_events(wid)
             queue_manager = self.queue_serializer.load_events(wid)
-            workflow_func = self.workflow_serializers[wtype].deserialize_workflow(wid, self)
-            self.workflows[wid] = Workflow(wid, workflow_func, step_manager, state_manager, queue_manager)
+            unique_ids = self.unique_id_serializer.load_events(wid)
+
+            workflow_func = self.workflow_serializers[wtype].deserialize_workflow(wid)
+
+            self.workflows[wid] = Workflow(
+                wid, workflow_func, step_manager, state_manager, queue_manager, unique_ids)
+
             self.step_managers[wid] = step_manager
             self.state_managers[wid] = state_manager
             self.queue_managers[wid] = queue_manager
+            self.unique_ids[wid] = unique_ids
 
     async def _resume_workflows(self):
         for workflow in self.workflows.values():
@@ -172,32 +185,37 @@ class WorkflowManager:
         step_manager = self.step_serializer.new_event_manager(workflow_id)
         state_manager = self.state_serializer.new_event_manager(workflow_id)
         queue_manager = self.queue_serializer.new_event_manager(workflow_id)
+        unique_ids = self.unique_id_serializer.new_event_manager(workflow_id)
+
         workflow = Workflow(
             workflow_id,
-            self.workflow_serializers[workflow_type].create_new_instance(workflow_id, self),
+            self.workflow_serializers[workflow_type].create_new_instance(workflow_id),
             step_manager=step_manager,
             state_manager=state_manager,
-            queue_manager=queue_manager
+            queue_manager=queue_manager,
+            unique_ids=unique_ids
         )
+
         self.step_managers[workflow_id] = step_manager
         self.state_managers[workflow_id] = state_manager
         self.queue_managers[workflow_id] = queue_manager
+        self.unique_ids[workflow_id] = unique_ids
+
         self.workflows[workflow_id] = workflow
+
         return await workflow.start(*args, **kwargs)
 
-    def get_status(self,
+    async def get_status(self,
                    workflow_id: str,
                    identity: ID = None,
                    include_steps=True,
                    include_state=True,
                    include_queues=True) -> WorkflowStatus:
-        return self.workflows[workflow_id].get_status(identity, include_steps, include_state, include_queues)
+        return await self.workflows[workflow_id].get_status(identity, include_steps, include_state, include_queues)
 
     async def push_queue(self, workflow_id: str, name: str, value: Any, identity: ID = None) -> str:
         """Returns the identity assigned to this transaction"""
-        result = await self.workflows[workflow_id].push_queue(name, value, identity)
-        await self.workflows[workflow_id].start()
-        return result
+        return await self.workflows[workflow_id].push_queue(name, value, identity)
 
 
 if __name__ == '__main__':

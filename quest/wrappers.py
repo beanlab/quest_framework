@@ -36,7 +36,7 @@ class SetState:
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if not exc_type == WorkflowSuspended:
+        if exc_type != WorkflowSuspended:
             await _find_workflow().remove_state(self.name, self.identity)
 
 
@@ -45,9 +45,10 @@ async def state(name, initial_value=None, identity=None) -> SetState:
 
 
 class Queue:
-    def __init__(self):
+    def __init__(self, identity_queue=False):
         self.name = None
         self.identity = None
+        self.identity_queue = identity_queue
 
     async def _async_init(self, name: str, *args, **kwargs) -> 'Queue':
         self.name, self.identity = await _find_workflow().create_queue(name, *args, **kwargs)
@@ -57,18 +58,29 @@ class Queue:
         return await _find_workflow().check_queue(self.name, self.identity)
 
     async def pop(self):
-        return await _find_workflow().pop_queue(self.name, self.identity)
+        identity, value = await _find_workflow().pop_queue(self.name, self.identity)
+        if self.identity_queue:
+            return identity, value
+        else:
+            return value
 
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if not exc_type == WorkflowSuspended:
+        if exc_type != WorkflowSuspended:
             await _find_workflow().remove_queue(self.name, self.identity)
 
 
 async def queue(name, identity=None) -> Queue:
     return await Queue()._async_init(name, identity)
+
+
+async def identity_queue(name, identity=None) -> Queue:
+    """Create an identity queue
+    Each call to `pop()` will return the identity, value pair
+    """
+    return await Queue(identity_queue=True)._async_init(name, identity)
 
 
 def step(func):
