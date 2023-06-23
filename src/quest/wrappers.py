@@ -1,7 +1,7 @@
 import inspect
 from functools import wraps
 
-from quest.workflow import Workflow, WorkflowSuspended
+from src.quest.workflow import Workflow, WorkflowSuspended
 
 
 class WorkflowNotFoundException(Exception):

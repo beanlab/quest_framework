@@ -1,8 +1,6 @@
 import pytest
 
-from quest import step, WorkflowManager
-from quest.workflow import *
-from quest.json_seralizers import *
+from src.quest import *
 
 STOP_EVENT_NAME = 'stop'
 OTHER_EVENT_NAME = 'other_event'

@@ -4,10 +4,10 @@ import logging
 import shutil
 import uuid
 from pathlib import Path
-from quest import step, state, queue, WorkflowManager
-from quest.events import UniqueEvent
-from quest.json_seralizers import JsonMetadataSerializer, JsonEventSerializer, StatelessWorkflowSerializer
-from quest.workflow import Status
+from src.quest import step, state, queue, WorkflowManager
+from src.quest.events import UniqueEvent
+from src.quest import JsonMetadataSerializer, JsonEventSerializer, StatelessWorkflowSerializer
+from src.quest import Status
 
 logging.basicConfig(level=logging.DEBUG)
 INPUT_EVENT_NAME = 'input'
