@@ -1,14 +1,22 @@
 import logging
+import traceback
 import uuid
 from datetime import datetime
 from functools import wraps
 from typing import Any, Protocol, Optional, Callable, TypedDict, Literal
 from .events import UniqueEvent, EventManager
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
+import logging
 
 ARGUMENTS = "INITIAL_ARGUMENTS"
 KW_ARGUMENTS = "INITIAL_KW_ARGUMENTS"
 
+
+# TODO - change to identities
+# For each identity (including None)
+# create the step ID, check the resource
+# if the resource does not exist for any identity
+# throw an error: resource name, identity list
 
 class WorkflowSuspended(BaseException):
     pass
@@ -146,7 +154,7 @@ class Workflow:
         steps = filter_identity(identity, self.steps) if include_steps else None
         state = filter_identity(identity, self.state) if include_state else None
         queues = filter_identity(identity, self.queues) if include_queues else None
-        return WorkflowStatus(
+        status = WorkflowStatus(
             self.status,
             self.started,
             self.ended,
@@ -154,6 +162,8 @@ class Workflow:
             state,
             queues
         )
+        logging.debug(f'STATUS: {status}')
+        return status
 
     def _get_unique_id(self, event_name: str, replay=True) -> str:
         prefixed_name = self._get_prefixed_name(event_name)
@@ -161,13 +171,15 @@ class Workflow:
             self.unique_ids[prefixed_name] = UniqueEvent(prefixed_name, replay=replay)
         return next(self.unique_ids[prefixed_name])
 
-    async def handle_step(self, step_name: str, func: Callable, *args, replay=True, **kwargs):
+    async def handle_step(self, step_name: str, func: Callable, *args, replay=True, identity=None, **kwargs):
         """This is called by the @step decorator"""
         step_id = self._get_unique_id(step_name, replay=replay)
 
         if step_id in self.steps:
+            logging.debug(f'{self.workflow_id} HANDLE_STEP CACHE: {step_id} {step_name} {args} {identity}')
             return self.steps[step_id]['value']
         else:
+            logging.debug(f'{self.workflow_id} HANDLE_STEP RUN: {step_id} {step_name} {args} {identity}')
             self._prefix.append(step_id)
             payload = await func(*args, **kwargs)
             self._prefix.pop(-1)
@@ -175,13 +187,14 @@ class Workflow:
                 step_id=step_id,
                 name=step_name,
                 value=payload,
-                identity=kwargs.get('identity')
+                identity=identity
             )
             return payload
 
     @_step
     async def create_state(self, name, initial_value, identity):
         state_id = create_id(name, identity)
+        logging.debug(f'{self.workflow_id} CREATE_STATE: {state_id} {name} {initial_value} {identity}')
         self.state[state_id] = StateEntry(
             name=name,
             value=initial_value,
@@ -191,16 +204,21 @@ class Workflow:
 
     @_step
     async def remove_state(self, name, identity):
-        del self.state[create_id(name, identity)]
+        state_id = create_id(name, identity)
+        logging.debug(f'{self.workflow_id} REMOVE_STATE: {state_id} {name} {identity}')
+        del self.state[state_id]
         return name, identity
 
     @_step
     async def set_state(self, name, identity, value):
-        self.state[create_id(name, identity)]['value'] = value
+        state_id = create_id(name, identity)
+        logging.debug(f'{self.workflow_id} SET_STATE: {state_id} {name} {value} {identity}')
+        self.state[state_id]['value'] = value
 
     @_step
     async def create_queue(self, name, identity):
         queue_id = create_id(name, identity)
+        logging.debug(f'{self.workflow_id} CREATE_QUEUE: {queue_id} {name} {identity}')
         self.queues[queue_id] = QueueEntry(
             name=name,
             values=[],
@@ -209,8 +227,16 @@ class Workflow:
         return name, identity
 
     async def push_queue(self, name, value, identity) -> None | str:
-        identity = await self.handle_step(
-            'push_queue', self._push_queue, name, value, identity, replay=False)
+        step_name = 'push_queue_' + name
+        step_id = self._get_unique_id(step_name, False)
+        identity = await self._push_queue(name, value, identity)
+        logging.debug(f'{self.workflow_id} PUSH_QUEUE: {step_id} {name} {value} {identity}')
+        self.steps[step_id] = StepEntry(
+            step_id=step_id,
+            name=step_name,
+            value=value,
+            identity=identity
+        )
         await self.start()
         return identity
 
@@ -228,17 +254,23 @@ class Workflow:
     async def pop_queue(self, name, identity):
         queue_id = create_id(name, identity)
         if self.queues[queue_id]['values']:
+            logging.debug(f'{self.workflow_id} POP_QUEUE RETRIEVING: {queue_id} {name} {identity}')
             return self.queues[queue_id]['values'].pop(0)
         else:
+            logging.debug(f'{self.workflow_id} POP_QUEUE SUSPENDING: {queue_id} {name} {identity}')
             raise WorkflowSuspended()
 
     @_step
     async def check_queue(self, name, identity) -> bool:
-        return bool(self.queues[create_id(name, identity)]['values'])
+        queue_id = create_id(name, identity)
+        logging.debug(f'{self.workflow_id} CHECK_QUEUE: {queue_id} {name} {identity}')
+        return bool(self.queues[queue_id]['values'])
 
     @_step
     async def remove_queue(self, name, identity):
-        del self.queues[create_id(name, identity)]
+        queue_id = create_id(name, identity)
+        logging.debug(f'{self.workflow_id} REMOVE_QUEUE: {queue_id} {name} {identity}')
+        del self.queues[queue_id]
 
     def _get_prefixed_name(self, event_name: str) -> str:
         return '.'.join(self._prefix) + '.' + event_name
@@ -249,27 +281,28 @@ class Workflow:
             ue.reset()
 
     async def start(self, *args, **kwargs) -> WorkflowStatus:
+        logging.debug(f'{self.workflow_id} START: {args} {kwargs}')
         self._reset()
         try:
-            logging.debug('Invoking workflow')
-
             args = await self.handle_step(ARGUMENTS, alambda(args))
             kwargs = await self.handle_step(KW_ARGUMENTS, alambda(kwargs))
             result = await self._func(*args, **kwargs)
             self.ended = get_current_timestamp()
-            logging.debug('Workflow invocation complete')
+            logging.debug(f'{self.workflow_id} COMPLETED')
             self.status = 'COMPLETED'
             # noinspection PyTypeChecker
             await self.create_state('result', result, None)
 
         except WorkflowSuspended as _:
+            logging.debug(f'{self.workflow_id} SUSPENDED')
             self.status = 'SUSPENDED'
 
         except Exception as e:
-            logging.debug(f'Workflow Errored: {e}')
+            logging.warning(f'{self.workflow_id} ERRORED {e}')
+            logging.debug(f'{self.workflow_id} ERRORED {e} {traceback.format_exc()}')
             self.status = 'ERRORED'
             # noinspection PyTypeChecker
-            await self.create_state('error', {'name': str(e), 'details': e.args}, None)
+            await self.create_state('error', {'name': str(e), 'details': traceback.format_exc()}, None)
             self.ended = get_current_timestamp()
 
         return await self.get_status(None, True, True, True)
