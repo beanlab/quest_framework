@@ -104,10 +104,10 @@ def assign_identity():
     return str(uuid.uuid4())
 
 
-def filter_identity(identity, dict_to_filter: EventManager) -> dict:
+def filter_identities(identities: list, dict_to_filter: EventManager) -> dict:
     ret_dict = {}
     for key, value in dict_to_filter.items():
-        if value['identity'] is None or value['identity'] == identity:
+        if value['identity'] is None or value['identity'] in identities:
             ret_dict[key] = value
     return ret_dict
 
@@ -150,10 +150,10 @@ class Workflow:
         else:
             return name
 
-    async def get_status(self, identity, include_steps, include_state, include_queues):
-        steps = filter_identity(identity, self.steps) if include_steps else None
-        state = filter_identity(identity, self.state) if include_state else None
-        queues = filter_identity(identity, self.queues) if include_queues else None
+    async def get_status(self, identities: list[str], include_steps, include_state, include_queues):
+        steps = filter_identities(identities, self.steps) if include_steps else None
+        state = filter_identities(identities, self.state) if include_state else None
+        queues = filter_identities(identities, self.queues) if include_queues else None
         status = WorkflowStatus(
             self.status,
             self.started,
@@ -226,7 +226,7 @@ class Workflow:
         )
         return name, identity
 
-    async def push_queue(self, name, value, identity) -> None | str:
+    async def push_queue(self, name, value, identity: str | None) -> None | str:
         step_name = 'push_queue_' + name
         step_id = self._get_unique_id(step_name, False)
         identity = await self._push_queue(name, value, identity)
@@ -243,22 +243,24 @@ class Workflow:
     async def _push_queue(self, name, value, identity) -> None | str:
         # Called by Workflow Manager
         queue_id = create_id(name, identity)
-        if (queue_identity := self.queues[queue_id]['identity']) is not None and queue_identity != identity:
-            raise InvalidIdentityError()
+        if queue_id not in self.queues:
+            raise InvalidIdentityError()  # No matching queue for those identities
 
-        identity = queue_identity or assign_identity()
+        identity = identity or assign_identity()
+
         self.queues[queue_id]['values'].append((identity, value))
         return identity
 
     @_step
-    async def pop_queue(self, name, identity):
-        queue_id = create_id(name, identity)
-        if self.queues[queue_id]['values']:
-            logging.debug(f'{self.workflow_id} POP_QUEUE RETRIEVING: {queue_id} {name} {identity}')
-            return self.queues[queue_id]['values'].pop(0)
-        else:
-            logging.debug(f'{self.workflow_id} POP_QUEUE SUSPENDING: {queue_id} {name} {identity}')
-            raise WorkflowSuspended()
+    async def pop_queues(self, queues: list[tuple[str, str | None]]):
+        for index, (name, identity) in enumerate(queues):
+            queue_id = create_id(name, identity)
+            if self.queues[queue_id]['values']:
+                logging.debug(f'{self.workflow_id} POP_QUEUES RETRIEVING: {queue_id} {name} {identity}')
+                return index, identity, self.queues[queue_id]['values'].pop(0)
+
+        logging.debug(f'{self.workflow_id} POP_QUEUES SUSPENDING: {queues}')
+        raise WorkflowSuspended()
 
     @_step
     async def check_queue(self, name, identity) -> bool:
@@ -305,7 +307,7 @@ class Workflow:
             await self.create_state('error', {'name': str(e), 'details': traceback.format_exc()}, None)
             self.ended = get_current_timestamp()
 
-        return await self.get_status(None, True, True, True)
+        return await self.get_status([], True, True, True)
 
 
 if __name__ == '__main__':

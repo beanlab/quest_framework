@@ -44,19 +44,25 @@ def state(name, initial_value=None, identity=None) -> SetState:
 
 class Queue:
     def __init__(self, name, identity, identity_queue=False):
-        self.name = name
-        self.identity = identity
-        self.identity_queue = identity_queue
+        self.name: str = name
+        self.identity: str | None = identity
+        self._identity_queue = identity_queue
+        self._closed = False
 
     async def check(self):
         return await _find_workflow().check_queue(self.name, self.identity)
 
     async def pop(self):
-        identity, value = await _find_workflow().pop_queue(self.name, self.identity)
-        if self.identity_queue:
+        index, identity, value = await _find_workflow().pop_queues([(self.name, self.identity)])
+        if self._identity_queue:
             return identity, value
         else:
             return value
+
+    async def close(self):
+        if not self._closed:
+            await _find_workflow().remove_queue(self.name, self.identity)
+            self._closed = True
 
     async def __aenter__(self):
         await _find_workflow().create_queue(self.name, self.identity)
@@ -64,7 +70,7 @@ class Queue:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if exc_type != WorkflowSuspended:
-            await _find_workflow().remove_queue(self.name, self.identity)
+            await self.close()
 
 
 def queue(name, identity=None) -> Queue:
@@ -84,3 +90,8 @@ def step(func):
         return await _find_workflow().handle_step(func.__name__, func, *args, **kwargs)
 
     return new_func
+
+
+async def pop_any(*queues: Queue):
+    index, ident, value = await _find_workflow().pop_queues([(q.name, q.identity) for q in queues])
+    return queues[index], ident, value
