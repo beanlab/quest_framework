@@ -1,7 +1,10 @@
+import asyncio
 import inspect
+from asyncio import Task
 from functools import wraps
+from typing import Callable, Coroutine, Any
 
-from .workflow import Workflow, WorkflowSuspended
+from .workflow import Workflow, WorkflowSuspended, workflow_context
 
 
 class WorkflowNotFoundException(Exception):
@@ -9,6 +12,9 @@ class WorkflowNotFoundException(Exception):
 
 
 def _find_workflow() -> Workflow:
+    if (workflow := workflow_context.get()) is not None:
+        return workflow
+
     outer_frame = inspect.currentframe()
     is_workflow = False
     while not is_workflow:
@@ -53,7 +59,7 @@ class Queue:
         return await _find_workflow().check_queue(self.name, self.identity)
 
     async def pop(self):
-        index, identity, value = await _find_workflow().pop_queues([(self.name, self.identity)])
+        index, _, (identity, value) = await _find_workflow().pop_queues([(self.name, self.identity)])
         if self._identity_queue:
             return identity, value
         else:
@@ -93,5 +99,13 @@ def step(func):
 
 
 async def pop_any(*queues: Queue):
-    index, ident, value = await _find_workflow().pop_queues([(q.name, q.identity) for q in queues])
+    index, _, (ident, value) = await _find_workflow().pop_queues([(q.name, q.identity) for q in queues])
     return queues[index], ident, value
+
+
+def task(func: Callable[..., Coroutine]) -> Callable[..., Coroutine[Any, Any, Task]]:
+    @wraps(func)
+    def new_func(*args, **kwargs):
+        return _find_workflow().create_task(func.__name__, func(*args, **kwargs))
+
+    return new_func

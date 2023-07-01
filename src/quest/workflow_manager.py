@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Any, Protocol, TypeVar, Union
 from .events import EventManager, UniqueEvent
@@ -190,6 +191,7 @@ class WorkflowManager:
         workflow = Workflow(
             workflow_id,
             self.workflow_serializers[workflow_type].create_new_instance(workflow_id),
+            asyncio.get_event_loop(),
             step_manager=step_manager,
             state_manager=state_manager,
             queue_manager=queue_manager,
@@ -206,12 +208,13 @@ class WorkflowManager:
         return await workflow.start(*args, **kwargs)
 
     async def get_status(self,
-                   workflow_id: str,
-                   identity: ID = None,
-                   include_steps=True,
-                   include_state=True,
-                   include_queues=True) -> WorkflowStatus:
-        return await self.workflows[workflow_id].get_status(identity, include_steps, include_state, include_queues)
+                         workflow_id: str,
+                         identity: ID = None,
+                         include_steps=True,
+                         include_state=True,
+                         include_queues=True) -> WorkflowStatus:
+        return await self.workflows[workflow_id].get_status(
+            identity, include_steps, include_state, include_queues)
 
     async def push_queue(self, workflow_id: str, name: str, value: Any, identity: ID = None) -> str:
         """Returns the identity assigned to this transaction"""

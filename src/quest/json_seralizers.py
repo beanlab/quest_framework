@@ -76,5 +76,35 @@ def get_local_workflow_manager(save_folder: Path, workflow_function):
     )
 
 
+class NoOpMetadataSerializer(WorkflowMetadataSerializer):
+    def save(self, workflow_metadata: dict):
+        pass
+
+    def load(self) -> dict:
+        return {}
+
+
+class NoOpEventSerializer(EventSerializer):
+    def new_event_manager(self, workflow_id: str):
+        return InMemoryEventManager(workflow_id)
+
+    def save_events(self, key: str, event_manager):
+        pass
+
+    def load_events(self, key: str):
+        raise NotImplementedError()
+
+
+def get_inmemory_workflow_manager(workflow_function) -> WorkflowManager:
+    return WorkflowManager(
+        NoOpMetadataSerializer(),
+        NoOpEventSerializer(),
+        NoOpEventSerializer(),
+        NoOpEventSerializer(),
+        NoOpEventSerializer(),
+        {workflow_function.__name__: StatelessWorkflowSerializer(lambda: workflow_function)}
+    )
+
+
 if __name__ == '__main__':
     pass

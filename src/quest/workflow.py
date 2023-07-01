@@ -1,15 +1,19 @@
 import logging
 import traceback
 import uuid
+from contextvars import Context, ContextVar
 from datetime import datetime
 from functools import wraps
-from typing import Any, Protocol, Optional, Callable, TypedDict, Literal
+from typing import Any, Protocol, Optional, Callable, TypedDict, Literal, Coroutine
 from .events import UniqueEvent, EventManager
 from dataclasses import dataclass
 import logging
+import asyncio
 
 ARGUMENTS = "INITIAL_ARGUMENTS"
 KW_ARGUMENTS = "INITIAL_KW_ARGUMENTS"
+
+workflow_context = ContextVar('workflow')
 
 
 # TODO - change to identities
@@ -104,10 +108,14 @@ def assign_identity():
     return str(uuid.uuid4())
 
 
-def filter_identities(identities: list, dict_to_filter: EventManager) -> dict:
+def filter_identities(identity: str, dict_to_filter: EventManager) -> dict:
     ret_dict = {}
     for key, value in dict_to_filter.items():
-        if value['identity'] is None or value['identity'] in identities:
+        if value['identity'] is None:
+            ret_dict[key] = value
+        elif value['identity'] == identity:
+            # Strip identity from key "name.identity"
+            key = key[:-len(identity)-1]
             ret_dict[key] = value
     return ret_dict
 
@@ -125,10 +133,11 @@ class Workflow:
             self,
             workflow_id: str,
             func: WorkflowFunction,
+            event_loop: asyncio.AbstractEventLoop,
             step_manager: EventManager[StepEntry],
             state_manager: EventManager[StateEntry],
             queue_manager: EventManager[QueueEntry],
-            unique_ids: EventManager[UniqueEvent]
+            unique_ids: EventManager[UniqueEvent],
     ):
         self.workflow_id = workflow_id
         self.started = get_current_timestamp()
@@ -136,12 +145,18 @@ class Workflow:
         self.status: Status = 'RUNNING'
 
         self._func = func
-        self._prefix = []
+        self._event_loop = event_loop
+        self._prefix = {}  # task name: str => prefix: list[str]
+        self._reset_prefix()  # initializes with current task
+        workflow_context.set(self)
 
         self.steps: EventManager[StepEntry] = step_manager
         self.state: EventManager[StateEntry] = state_manager
         self.queues: EventManager[QueueEntry] = queue_manager
         self.unique_ids: EventManager[UniqueEvent] = unique_ids
+
+    def _get_task_name(self):
+        return asyncio.current_task(self._event_loop).get_name()
 
     def workflow_type(self) -> str:
         """Used by serializer"""
@@ -150,10 +165,10 @@ class Workflow:
         else:
             return name
 
-    async def get_status(self, identities: list[str], include_steps, include_state, include_queues):
-        steps = filter_identities(identities, self.steps) if include_steps else None
-        state = filter_identities(identities, self.state) if include_state else None
-        queues = filter_identities(identities, self.queues) if include_queues else None
+    async def get_status(self, identity: str | None, include_steps, include_state, include_queues):
+        steps = filter_identities(identity, self.steps) if include_steps else None
+        state = filter_identities(identity, self.state) if include_state else None
+        queues = filter_identities(identity, self.queues) if include_queues else None
         status = WorkflowStatus(
             self.status,
             self.started,
@@ -180,9 +195,10 @@ class Workflow:
             return self.steps[step_id]['value']
         else:
             logging.debug(f'{self.workflow_id} HANDLE_STEP RUN: {step_id} {step_name} {args} {identity}')
-            self._prefix.append(step_id)
+            task_name = self._get_task_name()
+            self._prefix[task_name].append(step_id)
             payload = await func(*args, **kwargs)
-            self._prefix.pop(-1)
+            self._prefix[task_name].pop(-1)
             self.steps[step_id] = StepEntry(
                 step_id=step_id,
                 name=step_name,
@@ -190,6 +206,12 @@ class Workflow:
                 identity=identity
             )
             return payload
+
+    def create_task(self, task_name: str, func: Coroutine):
+        unique_name = self._get_unique_id(task_name)
+        task = self._event_loop.create_task(func, name=unique_name)
+        self._prefix[unique_name] = [unique_name]
+        return task
 
     @_step
     async def create_state(self, name, initial_value, identity):
@@ -275,10 +297,13 @@ class Workflow:
         del self.queues[queue_id]
 
     def _get_prefixed_name(self, event_name: str) -> str:
-        return '.'.join(self._prefix) + '.' + event_name
+        return '.'.join(self._prefix[self._get_task_name()]) + '.' + event_name
+
+    def _reset_prefix(self):
+        self._prefix = {asyncio.current_task().get_name(): [asyncio.current_task().get_name()]}
 
     def _reset(self):
-        self._prefix = []
+        self._reset_prefix()
         for _, ue in self.unique_ids.items():
             ue.reset()
 
@@ -303,9 +328,9 @@ class Workflow:
             logging.warning(f'{self.workflow_id} ERRORED {e}')
             logging.debug(f'{self.workflow_id} ERRORED {e} {traceback.format_exc()}')
             self.status = 'ERRORED'
+            self.ended = get_current_timestamp()
             # noinspection PyTypeChecker
             await self.create_state('error', {'name': str(e), 'details': traceback.format_exc()}, None)
-            self.ended = get_current_timestamp()
 
         return await self.get_status([], True, True, True)
 
