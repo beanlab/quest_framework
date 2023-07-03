@@ -65,8 +65,10 @@ async def test_queues_tasks(tmp_path):
     ident2 = 'second'
     wid = '123'
     async with get_local_workflow_manager(tmp_path, workflow2) as wm:
+        # Start workflow
         await wm.start_workflow(wid, 'workflow2', ident1, ident2)
 
+        # Intial status
         status = await wm.get_status(wid, identity=ident1)
         assert status.state['received']['value'] is None
 
@@ -84,7 +86,7 @@ async def test_queues_tasks(tmp_path):
         # Progress ident2 again - closes state and queue
         await wm.push_queue(wid, 'items', 'b', identity=ident2)
         status = await wm.get_status(wid, identity=ident2)
-        assert 'received' not in status.state
+        assert 'received' not in status.state  # i.e. the 'received' state is gone now
 
         status = await wm.get_status(wid, identity=ident1)
         assert status.state['received']['value'] is None
