@@ -25,15 +25,18 @@ def _find_workflow() -> Workflow:
     return outer_frame.f_locals.get('self')
 
 
-class SetState:
+class State:
     def __init__(self, name: str, initial_value, identity):
         self.name = name
         self.initial_value = initial_value
         self.identity = identity
 
-    async def __call__(self, value):
+    async def set(self, value):
         # Make invoke state also act like an event
         return await _find_workflow().set_state(self.name, self.identity, value)
+
+    async def get(self):
+        return await _find_workflow().set_state(self.name, self.identity)
 
     async def __aenter__(self):
         await _find_workflow().create_state(self.name, self.initial_value, self.identity)
@@ -44,8 +47,8 @@ class SetState:
             await _find_workflow().remove_state(self.name, self.identity)
 
 
-def state(name, initial_value=None, identity=None) -> SetState:
-    return SetState(name, initial_value, identity)
+def state(name, initial_value=None, identity=None) -> State:
+    return State(name, initial_value, identity)
 
 
 class Queue:
@@ -64,6 +67,9 @@ class Queue:
             return identity, value
         else:
             return value
+
+    async def push(self, value):
+        return await _find_workflow().push_queue(self.name, value, self.identity)
 
     async def close(self):
         if not self._closed:

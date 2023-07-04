@@ -150,7 +150,7 @@ class WorkflowManager:
             workflow_func = self.workflow_serializers[wtype].deserialize_workflow(wid)
 
             self.workflows[wid] = Workflow(
-                wid, workflow_func, step_manager, state_manager, queue_manager, unique_ids)
+                wid, workflow_func, asyncio.get_event_loop(), step_manager, state_manager, queue_manager, unique_ids)
 
             self.step_managers[wid] = step_manager
             self.state_managers[wid] = state_manager
@@ -210,11 +210,10 @@ class WorkflowManager:
     async def get_status(self,
                          workflow_id: str,
                          identity: ID = None,
-                         include_steps=True,
                          include_state=True,
                          include_queues=True) -> WorkflowStatus:
         return await self.workflows[workflow_id].get_status(
-            identity, include_steps, include_state, include_queues)
+            identity, include_state, include_queues)
 
     async def push_queue(self, workflow_id: str, name: str, value: Any, identity: ID = None) -> str:
         """Returns the identity assigned to this transaction"""
