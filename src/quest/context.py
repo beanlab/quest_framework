@@ -17,6 +17,13 @@ class ContextDict(dict):
             if hasattr(value, '__aexit__'):
                 await value.__aexit__(exc_type, exc_val, exc_tb)
 
+    async def add(self, key, context):
+        self[key] = await context.__aenter__() if hasattr(context, '__aenter__') else context
+
+    async def remove(self, key):
+        await self[key].__aexit__()
+        del self[key]
+
 
 class ContextList(list):
     def __init__(self, *args, **kwargs):
@@ -33,10 +40,15 @@ class ContextList(list):
             if hasattr(value, '__aexit__'):
                 await value.__aexit__(exc_type, exc_val, exc_tb)
 
+    async def add(self, context):
+        if hasattr(context, '__aenter__'):
+            self.append(await context.__aenter__())
+        else:
+            self.append(context)
+
 
 def these(collection_of_contexts: dict | list | Generator[Context, Any, None]):
     if isinstance(collection_of_contexts, dict):
         return ContextDict(collection_of_contexts)
     else:
         return ContextList(collection_of_contexts)
-

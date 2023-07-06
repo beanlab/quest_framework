@@ -109,7 +109,7 @@ async def pop_any(*queues: Queue):
     return queues[index], ident, value
 
 
-def task(func: Callable[..., Coroutine]) -> Callable[..., Coroutine[Any, Any, Task]]:
+def task(func: Callable[..., Coroutine]) -> Callable[..., Task]:
     @wraps(func)
     def new_func(*args, **kwargs):
         return _find_workflow().create_task(func.__name__, func(*args, **kwargs))

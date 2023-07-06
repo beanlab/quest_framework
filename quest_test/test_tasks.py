@@ -43,11 +43,11 @@ async def test_task_flow(tmp_path):
 
 @task
 async def get_sequence(ident: str, q: Queue):
-    async with state('received', identity=ident) as set_received:
+    async with state('received', identity=ident) as receceived:
         value1 = await q.pop()
-        await set_received(value1)
+        await receceived.set(value1)
         value2 = await q.pop()
-        await set_received(value2)
+        await receceived.set(value2)
         return value1, value2
 
 
@@ -68,7 +68,7 @@ async def test_queues_tasks(tmp_path):
         # Start workflow
         await wm.start_workflow(wid, 'workflow2', ident1, ident2)
 
-        # Intial status
+        # Initial status
         status = await wm.get_status(wid, identity=ident1)
         assert status.state['received']['value'] is None
 
@@ -107,3 +107,31 @@ async def test_queues_tasks(tmp_path):
             ('a', 'b'),
         ]
 
+
+@task
+async def fail():
+    raise Exception('Epic Fail')
+
+
+@task
+async def do_stuff():
+    await asyncio.sleep(1)
+    await asyncio.sleep(1)
+    await asyncio.sleep(3)
+    pytest.fail('This should not have been reached')
+
+
+async def failflow():
+    will_do_stuff = do_stuff()
+    will_fail = fail()
+    await will_do_stuff
+    await will_fail
+
+
+@pytest.mark.asyncio
+async def test_failflow(tmp_path):
+    async with get_local_workflow_manager(tmp_path, failflow) as wm:
+        try:
+            await wm.start_workflow('test', 'failflow')
+        except asyncio.CancelledError:
+            pass
