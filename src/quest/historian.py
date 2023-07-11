@@ -3,6 +3,7 @@ import inspect
 import traceback
 from contextvars import ContextVar
 from datetime import datetime
+from functools import wraps
 from typing import TypedDict, Any, Callable, Literal
 
 from src.quest.events import UniqueEvent
@@ -59,7 +60,10 @@ from src.quest.events import UniqueEvent
 # If the author puts "side effect" work on a resource inside a step, that's a problem.
 # Principle: all resources, associated events, and substeps that happen in a step will be entirely skipped.
 #            Never have side effects that are not entirely scoped to the step.
-
+#
+# To prune correctly, I need to turn process the sequence like a tree
+# Each task and step is a separate branch
+# I need to look for resources that are open in each branch and match the relevant events
 
 class ExceptionDetails(TypedDict):
     type: str
@@ -70,23 +74,24 @@ class ExceptionDetails(TypedDict):
 class StepStartRecord(TypedDict):
     type: Literal['start']
     timestamp: str
-    task: str
-    event_id: str
+    task_id: str
+    step_id: str
 
 
 class StepEndRecord(TypedDict):
     type: Literal['end']
     timestamp: str
-    task: str
-    event_id: str
+    task_id: str
+    step_id: str
     result: Any
     exception: Any | None
 
 
-class ResourceEvent(TypedDict):
+class ResourceAccessEvent(TypedDict):
     type: Literal['external', 'internal']
     timestamp: str
-    task: str
+    task_id: str
+    resource_id: str
     event_id: str
     action: str
     args: tuple
@@ -94,48 +99,74 @@ class ResourceEvent(TypedDict):
     result: Any
 
 
-EventRecord = StepStartRecord | StepEndRecord | ResourceEvent
+class TaskEvent(TypedDict):
+    type: Literal['start_task', 'complete_task']
+    timestamp: str
+    parent_task: str
+    task_id: str  # the name of the task created/completed
 
 
-def prune(history) -> list[EventRecord]:
+EventRecord = StepStartRecord | StepEndRecord | ResourceAccessEvent | TaskEvent
+
+
+def _get_id(item):
+    if isinstance(item, dict):
+        return tuple((k, _get_id(v)) for k, v in item.items())
+
+    if isinstance(item, list):
+        return tuple(_get_id(v) for v in item)
+
+    return item
+
+
+def _prune(history) -> list[EventRecord]:
     """
     Remove substep work
     Keep external events that belong to resources created outside the step
     """
-    pruned = []
+    keepers: list[EventRecord | None] = [None for _ in history]
     pos = 0
-    outer_scope_resource_ids = set()
+    outer_scope_ids = set()
     while pos < len(history):
         record = history[pos]
+
         if record['type'] == 'create_resource':
-            outer_scope_resource_ids.add(record['event_id'])
+            outer_scope_ids.add(record['resource_id'])
+            pos += 1
+            continue
 
         elif record['type'] == 'remove_resource':
-            outer_scope_resource_ids.remove(record['event_id'])
+            outer_scope_ids.remove(record['resource_id'])
+            pos += 1
+            continue
 
         elif record['type'] == 'start':
             # Find the associated 'end' record and cut out the rest
             end_pos = pos + 1
-            while end_pos < len(history) and history[end_pos]['event_id'] != record['event_id']:
-                if history[end_pos]['type'] in ['external', 'internal'] and \
-                        history[end_pos]['event_id'] in outer_scope_resource_ids:
-                    pruned.append(history[end_pos])
+            while end_pos < len(history) and history[end_pos].get('step_id', None) != record['step_id']:
+                if history[end_pos]['type'] == 'external' and \
+                        history[end_pos]['resource_id'] in outer_scope_ids:
+                    keepers[end_pos] = history[end_pos]
                 end_pos += 1
 
             if end_pos == len(history):
                 # no end found, so this step isn't finished
-                pruned.append(record)
+                keepers[pos] = history[pos]
                 pos += 1
+                continue
 
             else:
                 # found the end, keep it and move on
-                pruned.append(history[end_pos])
+                keepers[end_pos] = history[end_pos]
                 pos = end_pos + 1
+                continue
         else:
             # Keep it
-            pruned.append(record)
+            keepers[pos] = history[pos]
             pos += 1
-    return pruned
+            continue
+
+    return [record for record in keepers if record is not None]
 
 
 def _get_current_timestamp() -> str:
@@ -151,7 +182,7 @@ class Historian:
         self.workflow = workflow
 
         self._history: list[EventRecord] = history
-        self._pruned = prune(history)
+        self._pruned = _prune(history)
         self._resources = {}
         self._unique_ids = {}
         self._replay = {}
@@ -181,21 +212,21 @@ class Historian:
 
     def _reset_replay(self):
         self._record_replays = {
-            record['event_id']: asyncio.Event()
-            for record in prune(self._pruned)
+            _get_id(record): asyncio.Event()
+            for record in self._pruned
         }
         self._replay_pos = 0
 
     async def _task_records(self, task_name):
         while self._replay_pos < len(self._pruned):
-            while (record := self._pruned[self._replay_pos])['task'] != task_name:
-                await self._record_replays[record['event_id']].wait()
+            while (record := self._pruned[self._replay_pos])['task_id'] != task_name:
+                await self._record_replays[_get_id(record)].wait()
 
             yield record
 
             # TODO - ensure that every task that calls _task_records is sure to reach the StopIteration
             self._replay_pos += 1
-            self._record_replays[record['event_id']].set()
+            self._record_replays[_get_id(record)].set()
 
     async def _external_handler(self):
         async for record in self._task_records('external'):
@@ -219,21 +250,20 @@ class Historian:
             self._history.append(StepStartRecord(
                 type='start',
                 timestamp=_get_current_timestamp(),
-                task=self._get_task_name(),
-                event_id=step_id
+                task_id=self._get_task_name(),
+                step_id=step_id
             ))
 
             try:
-                if asyncio.iscoroutinefunction(func):
-                    result = await func(*args, **kwargs)
-                else:
-                    result = func(*args, **kwargs)
+                result = func(*args, **kwargs)
+                if hasattr(result, '__await__'):
+                    result = await result
 
                 self._history.append(StepEndRecord(
                     type='end',
                     timestamp=_get_current_timestamp(),
-                    task=self._get_task_name(),
-                    event_id=step_id,
+                    task_id=self._get_task_name(),
+                    step_id=step_id,
                     result=result,
                     exception=None
                 ))
@@ -243,8 +273,8 @@ class Historian:
                 self._history.append(StepEndRecord(
                     type='end',
                     timestamp=_get_current_timestamp(),
-                    task=self._get_task_name(),
-                    event_id=step_id,
+                    task_id=self._get_task_name(),
+                    step_id=step_id,
                     result=None,
                     exception=ExceptionDetails(
                         type=str(type(ex)),
@@ -257,7 +287,7 @@ class Historian:
         else:
             # Rehydrate step from history
             assert record['type'] == 'end'
-            assert record['event_id'] == step_id
+            assert record['step_id'] == step_id
             if record['exception'] is None:
                 return record['result']
             else:
@@ -269,22 +299,22 @@ class Historian:
         """
         resource = self._resources[resource_id]
         result = getattr(resource, action)(*args, **kwargs)
-        self._history.append(ResourceEvent(
+        self._history.append(ResourceAccessEvent(
             type='external',
             timestamp=_get_current_timestamp(),
-            task=self._get_task_name(),
-            event_id=resource_id,
+            task_id=self._get_task_name(),
+            resource_id=resource_id,
             action=action,
             args=args,
             kwargs=kwargs,
             result=result
         ))
 
-    def _replay_external_event(self, record: ResourceEvent):
+    def _replay_external_event(self, record: ResourceAccessEvent):
         """
         When an external event is replayed, this method is called
         """
-        getattr(self._resources[record['event_id']], record['action'])(*record['args'], **record['kwargs'])
+        getattr(self._resources[record['resource_id']], record['action'])(*record['args'], **record['kwargs'])
 
     async def _handle_internal_event(self, resource_id, action, *args, **kwargs):
         """
@@ -296,11 +326,11 @@ class Historian:
         result = getattr(resource, action)(*args, **kwargs)
 
         if (record := await self._next_record()) is None:
-            self._history.append(ResourceEvent(
+            self._history.append(ResourceAccessEvent(
                 type='internal',
                 timestamp=_get_current_timestamp(),
-                task=self._get_task_name(),
-                event_id=resource_id,
+                task_id=self._get_task_name(),
+                resource_id=resource_id,
                 action=action,
                 args=args,
                 kwargs=kwargs,
@@ -317,7 +347,45 @@ class Historian:
 
     def start_task(self, func, *args, task_name=None, **kwargs):
         historian_context.set(self)
-        task = self._event_loop.create_task(func(*args, **kwargs), name=task_name or self._get_unique_id(func.__name__))
+        parent = self._get_task_name()
+        task_id = task_name or self._get_unique_id(func.__name__)
+
+        @wraps(func)
+        async def _func(*a, **kw):
+            record = await self._next_record()
+            if record is not None:
+                assert record['type'] == 'start_task'
+                assert record['parent_task'] == parent
+                assert record['task_id'] == task_id
+            else:
+                self._history.append(TaskEvent(
+                    type='start_task',
+                    timestamp=_get_current_timestamp(),
+                    parent_task=parent,
+                    task_id=task_id
+                ))
+
+            result = await func(*a, **kw)
+
+            record = await self._next_record()
+            if record is not None:
+                assert record['type'] == 'complete_task'
+                assert record['parent_task'] == parent
+                assert record['task_id'] == task_id
+            else:
+                self._history.append(TaskEvent(
+                    type='complete_task',
+                    timestamp=_get_current_timestamp(),
+                    parent_task=parent,
+                    task_id=task_id
+                ))
+            return result
+
+        task = self._event_loop.create_task(
+            _func(*args, **kwargs),
+            name=task_id,
+        )
+
         self._prefix[task.get_name()] = []
         self._replay[task.get_name()] = self._task_records(task.get_name())
         return task
