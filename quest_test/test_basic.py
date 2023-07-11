@@ -32,13 +32,20 @@ async def test_basic_workflow():
     assert result == 'Hello world'
 
 
+double_calls = 0
+foo_calls = 0
+
 @step
 def double(text):
+    global double_calls
+    double_calls += 1
     return text * 2
 
 
 @step
 def add_foo(text):
+    global foo_calls
+    foo_calls += 1
     return text + 'foo'
 
 
@@ -63,23 +70,20 @@ async def test_resume():
     )
 
     task = historian.start_workflow('abc')
-    # give the other task a chance to run
+    # give the task a chance to run
     await asyncio.sleep(1)
 
     # task runs and blocks on 'block_workflow'
     # now cancel it
     task.cancel()
 
-    assert history
+    assert history  # should not be empty
     block_workflow.set()
 
-    # Make a new historian with the old history
-    historian = Historian(
-        'test',
-        longer_workflow,
-        history
-    )
+    # Start the workflow again
     task = historian.start_workflow('abc')
     result = await task
 
     assert result == 'abcabcfooabcabcfoo'
+    assert double_calls == 2
+    assert foo_calls == 1

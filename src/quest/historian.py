@@ -4,7 +4,7 @@ import traceback
 from contextvars import ContextVar
 from datetime import datetime
 from functools import wraps
-from typing import TypedDict, Any, Callable, Literal
+from typing import TypedDict, Any, Callable, Literal, Protocol
 
 from src.quest.events import UniqueEvent
 
@@ -176,20 +176,33 @@ def _get_current_timestamp() -> str:
 historian_context = ContextVar('historian')
 
 
+class History(Protocol):
+    def append(self, item): ...
+
+    def __iter__(self): ...
+
+    def __getitem__(self, item): ...
+
+    def __len__(self): ...
+
+
 class Historian:
-    def __init__(self, workflow_id: str, workflow: Callable, history):
+    def __init__(self, workflow_id: str, workflow: Callable, history: History):
         self.workflow_id = workflow_id
         self.workflow = workflow
 
-        self._history: list[EventRecord] = history
-        self._pruned = _prune(history)
+        self._history: History = history
+        self._event_loop = asyncio.get_event_loop()
+
+        # These values are reset every time you call start_workflow
+        # See _reset_replay()
         self._resources = {}
-        self._unique_ids = {}
+        self._unique_ids: dict[str, UniqueEvent] = {}
+        self._prefix = {'external': []}
         self._replay = {}
         self._record_replays = {}
         self._replay_pos = -1
-        self._prefix = {'external': []}
-        self._event_loop = asyncio.get_event_loop()
+        self._pruned = []
 
     def _get_task_name(self):
         try:
@@ -211,6 +224,16 @@ class Historian:
         return next(self._unique_ids[prefixed_name])
 
     def _reset_replay(self):
+        self._resources = {}
+
+        self._prefix = {'external': []}
+
+        for ue in self._unique_ids.values():
+            ue.reset()
+
+        self._pruned = _prune(self._history)
+
+        self._replay = {}
         self._record_replays = {
             _get_id(record): asyncio.Event()
             for record in self._pruned
@@ -297,6 +320,7 @@ class Historian:
         """
         When an external event occurs, this method is called.
         """
+        event_id = self._get_unique_id(resource_id + '.' + action)
         resource = self._resources[resource_id]
         result = getattr(resource, action)(*args, **kwargs)
         self._history.append(ResourceAccessEvent(
@@ -304,6 +328,7 @@ class Historian:
             timestamp=_get_current_timestamp(),
             task_id=self._get_task_name(),
             resource_id=resource_id,
+            event_id=event_id,
             action=action,
             args=args,
             kwargs=kwargs,
@@ -322,6 +347,8 @@ class Historian:
         If the event is replayed, the details are asserted
         If the event is new, it is recorded
         """
+        event_id = self._get_unique_id(resource_id + '.' + action)
+
         resource = self._resources[resource_id]
         result = getattr(resource, action)(*args, **kwargs)
 
@@ -331,6 +358,7 @@ class Historian:
                 timestamp=_get_current_timestamp(),
                 task_id=self._get_task_name(),
                 resource_id=resource_id,
+                event_id=event_id,
                 action=action,
                 args=args,
                 kwargs=kwargs,
