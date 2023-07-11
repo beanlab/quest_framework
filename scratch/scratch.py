@@ -43,7 +43,7 @@ async def get_players_host_adds() -> tuple[str, str, dict[str, dict]]:
             players[player_id] = result['name']
             notify_player(player_id, name)
         except SignalException as se:
-            if se.name == 'GameReady':
+            if se.step_id == 'GameReady':
                 return host_id, host_name, players
             else:
                 raise
@@ -141,7 +141,7 @@ async def player_worklow():
             guess = await provide_guess()
             instructions = await wait_for_turn(guess)
     except SignalException as se:
-        if se.name == 'GameComplete':
+        if se.step_id == 'GameComplete':
             return se.game_stats
         else:
             raise

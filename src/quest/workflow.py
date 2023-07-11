@@ -1,7 +1,7 @@
-import logging
+import inspect
 import traceback
-import uuid
-from contextvars import Context, ContextVar
+from asyncio import Task
+from contextvars import ContextVar
 from datetime import datetime
 from functools import wraps
 from typing import Any, Protocol, Optional, Callable, TypedDict, Literal, Coroutine
@@ -16,11 +16,29 @@ KW_ARGUMENTS = "INITIAL_KW_ARGUMENTS"
 workflow_context = ContextVar('workflow')
 
 
-# TODO - change to identities
-# For each identity (including None)
-# create the step ID, check the resource
-# if the resource does not exist for any identity
-# throw an error: resource name, identity list
+# Creation or modification of state must be identifiable and cacheable
+# - anything that is non-deterministic must be cached
+#   - long-running steps, random actions, or information from outside parties
+# - this includes actions taken by external parties (e.g. via the API)
+# - events produced by the code must be restored from cache
+# - events produced by outside parties must be restored in the correct sequence
+# - even though I don't need to cache deletion or observation of state,
+#   I have to record these actions so I know when to replay modifications to state
+# Deletion or observation of state is allowed to replay
+# Creation of and interaction between threads is allowed to replay
+# Standard asyncio resources should be fair game for use within a workflow among its threads
+# - only state/resources visible to the outside need to be handled specially
+# The workflow can use asyncio resources
+# - they do not need to be serialized because the history will reconstruct all state
+# - provide basic wrappers to register the resource on the workflow
+
+# Proposed replay algorithm:
+# - As the code runs, match up cached calls with the next step in the history
+#   - if they don't match, that's an identified error
+# - After matching a step, advance the history to the next step needing matching
+#   - Play all external events found
+#   - the framework needs to be able to replay an external event based on the information stored
+#     - the resource, the method, the arguments
 
 class WorkflowSuspended(BaseException):
     pass
@@ -39,20 +57,27 @@ class WorkflowFunction(Protocol):
 Status = Literal['RUNNING', 'SUSPENDED', 'COMPLETED', 'ERRORED']
 
 
+class ExceptionDetails(TypedDict):
+    name: str
+    details: str
+
+
+class StepEntry(TypedDict):
+    step_id: str
+    name: str
+    value: Any
+    args: tuple
+    kwargs: dict
+
+
 @dataclass
 class WorkflowStatus:
     status: Status
     started: Optional[str]
     ended: Optional[str]
-    steps: dict[str, 'StepEntry']
-    state: dict[str, 'StateEntry']
-    queues: dict[str, 'QueueEntry']
-
-    def get_result(self):
-        return self.state['result']
-
-    def get_error(self):
-        return self.state['error']
+    steps: dict[str, StepEntry]
+    result: Any | None
+    error: ExceptionDetails | None
 
     def to_json(self):
         return {
@@ -60,8 +85,8 @@ class WorkflowStatus:
             'started': self.started,
             'ended': self.ended,
             'steps': self.steps,
-            'state': self.state,
-            'queues': self.queues
+            'result': self.result,
+            'error': self.error
         }
 
 
@@ -73,64 +98,15 @@ def _step(func):
     return new_func
 
 
-def alambda(value):
+def _alambda(value):
     async def run():
         return value
 
     return run
 
 
-class StepEntry(TypedDict):
-    step_id: str
-    name: str
-    value: Any
-    args: tuple
-    kwargs: dict
-
-
-class StateEntry(TypedDict):
-    name: str
-    value: Any
-    identity: Optional[str]
-
-
-class QueueEntry(TypedDict):
-    name: str
-    values: list
-    identity: Optional[str]
-
-
-def get_current_timestamp() -> str:
+def _get_current_timestamp() -> str:
     return datetime.utcnow().isoformat()
-
-
-def assign_identity():
-    return str(uuid.uuid4())
-
-
-def filter_identities(identity: str, dict_to_filter: EventManager) -> dict:
-    """
-    Filter the EventManager to just the entries visible to the identity
-    Prefer entries that are scoped to the specific identity over global (identity == None) entries
-    """
-    # Start with global entries
-    ret_dict = {key: value for key, value in dict_to_filter.items() if value['identity'] is None}
-
-    if identity is None:
-        return ret_dict
-
-    # Overwrite/add entries for the specific identity
-    for key, value in dict_to_filter.items():
-        if value['identity'] == identity:
-            # Strip identity from key "name.identity"
-            key = key[:-len(identity) - 1]
-            ret_dict[key] = value
-
-    return ret_dict
-
-
-def create_id(name: str, identity: str) -> str:
-    return f'{name}.{identity}' if identity is not None else name
 
 
 class Workflow:
@@ -144,14 +120,14 @@ class Workflow:
             func: WorkflowFunction,
             event_loop: asyncio.AbstractEventLoop,
             step_manager: EventManager[StepEntry],
-            state_manager: EventManager[StateEntry],
-            queue_manager: EventManager[QueueEntry],
             unique_ids: EventManager[UniqueEvent],
     ):
         self.workflow_id = workflow_id
-        self.started = get_current_timestamp()
+        self.started = _get_current_timestamp()
         self.ended = None
         self.status: Status = 'RUNNING'
+        self.result = None
+        self.error = None
 
         self._func = func
         self._event_loop = event_loop
@@ -160,12 +136,7 @@ class Workflow:
         self._reset_prefix()  # initializes with current task
 
         self.steps: EventManager[StepEntry] = step_manager
-        self.state: EventManager[StateEntry] = state_manager
-        self.queues: EventManager[QueueEntry] = queue_manager
         self.unique_ids: EventManager[UniqueEvent] = unique_ids
-
-    def _get_task_name(self):
-        return asyncio.current_task(self._event_loop).get_name()
 
     def workflow_type(self) -> str:
         """Used by serializer"""
@@ -174,25 +145,20 @@ class Workflow:
         else:
             return name
 
-    async def get_status(self, identity: str | None, include_state, include_queues):
-        state = filter_identities(identity, self.state) if include_state else None
-        queues = filter_identities(identity, self.queues) if include_queues else None
+    def get_status(self):
         status = WorkflowStatus(
             self.status,
             self.started,
             self.ended,
-            {},
-            state,
-            queues
+            dict(self.steps.items()),
+            self.result,
+            self.error
         )
         logging.debug(f'STATUS: {status}')
         return status
 
-    def _get_unique_id(self, event_name: str, replay=True) -> str:
-        prefixed_name = self._get_prefixed_name(event_name)
-        if prefixed_name not in self.unique_ids:
-            self.unique_ids[prefixed_name] = UniqueEvent(prefixed_name, replay=replay)
-        return next(self.unique_ids[prefixed_name])
+    def _get_task_name(self):
+        return asyncio.current_task(self._event_loop).get_name()
 
     def _get_task_callback(self):
         def cancel_on_exception(the_task):
@@ -214,6 +180,15 @@ class Workflow:
         task.add_done_callback(self._get_task_callback())
         self._prefix[unique_name] = [unique_name]
         return task
+
+    def _get_prefixed_name(self, event_name: str) -> str:
+        return '.'.join(self._prefix.get(self._get_task_name(), ['external'])) + '.' + event_name
+
+    def _get_unique_id(self, event_name: str, replay=True) -> str:
+        prefixed_name = self._get_prefixed_name(event_name)
+        if prefixed_name not in self.unique_ids:
+            self.unique_ids[prefixed_name] = UniqueEvent(prefixed_name, replay=replay)
+        return next(self.unique_ids[prefixed_name])
 
     async def handle_step(self, step_name: str, func: Callable, *args, replay=True, **kwargs):
         """This is called by the @step decorator"""
@@ -239,99 +214,6 @@ class Workflow:
             )
             return payload
 
-    @_step
-    async def create_state(self, name, initial_value, identity):
-        state_id = create_id(name, identity)
-        logging.debug(
-            f'{self.workflow_id} {self._get_task_name()} CREATE_STATE: {state_id} {name} {initial_value} {identity}')
-        self.state[state_id] = StateEntry(
-            name=name,
-            value=initial_value,
-            identity=identity
-        )
-        return name, identity
-
-    @_step
-    async def remove_state(self, name, identity):
-        state_id = create_id(name, identity)
-        logging.debug(f'{self.workflow_id} {self._get_task_name()} REMOVE_STATE: {state_id} {name} {identity}')
-        del self.state[state_id]
-        return name, identity
-
-    @_step
-    async def set_state(self, name, identity, value):
-        state_id = create_id(name, identity)
-        logging.debug(f'{self.workflow_id} {self._get_task_name()} SET_STATE: {state_id} {name} {value} {identity}')
-        self.state[state_id]['value'] = value
-
-    async def get_state(self, name, identity):
-        state_id = create_id(name, identity)
-        return self.state[state_id]['value']
-
-    @_step
-    async def create_queue(self, name, identity):
-        queue_id = create_id(name, identity)
-        logging.debug(f'{self.workflow_id} {self._get_task_name()} CREATE_QUEUE: {queue_id} {name} {identity}')
-        self.queues[queue_id] = QueueEntry(
-            name=name,
-            values=[],
-            identity=identity,
-        )
-        return name, identity
-
-    async def push_queue(self, name, value, identity: str | None) -> None | str:
-        step_name = 'push_queue_' + name
-        step_id = self._get_unique_id(step_name, False)
-        identity = await self._push_queue(name, value, identity)
-        logging.debug(f'{self.workflow_id} {self._get_task_name()} PUSH_QUEUE: {step_id} {name} {value} {identity}')
-        self.steps[step_id] = StepEntry(
-            step_id=step_id,
-            name=step_name,
-            value=value,
-            args=(value,),
-            kwargs={}
-        )
-        await self.start()
-        return identity
-
-    async def _push_queue(self, name, value, identity) -> None | str:
-        # Called by Workflow Manager
-        queue_id = create_id(name, identity)
-        if queue_id not in self.queues:
-            raise InvalidIdentityError()  # No matching queue for those identities
-
-        identity = identity or assign_identity()
-
-        self.queues[queue_id]['values'].append((identity, value))
-        return identity
-
-    @_step
-    async def pop_queues(self, queues: list[tuple[str, str | None]]):
-        for index, (name, identity) in enumerate(queues):
-            queue_id = create_id(name, identity)
-            if self.queues[queue_id]['values']:
-                logging.debug(
-                    f'{self.workflow_id} {self._get_task_name()} POP_QUEUES RETRIEVING: {queue_id} {name} {identity}')
-                return index, identity, self.queues[queue_id]['values'].pop(0)
-
-        logging.debug(f'{self.workflow_id} {self._get_task_name()} POP_QUEUES SUSPENDING: {queues}')
-        raise WorkflowSuspended()
-
-    @_step
-    async def check_queue(self, name, identity) -> bool:
-        queue_id = create_id(name, identity)
-        logging.debug(f'{self.workflow_id} {self._get_task_name()} CHECK_QUEUE: {queue_id} {name} {identity}')
-        return bool(self.queues[queue_id]['values'])
-
-    @_step
-    async def remove_queue(self, name, identity):
-        queue_id = create_id(name, identity)
-        logging.debug(f'{self.workflow_id} {self._get_task_name()} REMOVE_QUEUE: {queue_id} {name} {identity}')
-        del self.queues[queue_id]
-
-    def _get_prefixed_name(self, event_name: str) -> str:
-        return '.'.join(self._prefix.get(self._get_task_name(), ['external'])) + '.' + event_name
-
     def _reset_prefix(self):
         self._prefix = {asyncio.current_task().get_name(): [asyncio.current_task().get_name()]}
 
@@ -341,40 +223,52 @@ class Workflow:
         for _, ue in self.unique_ids.items():
             ue.reset()
 
-    async def start(self, *args, **kwargs) -> WorkflowStatus:
+    def start(self, *args, **kwargs) -> Task[WorkflowStatus]:
         workflow_context.set(self)
         task = self._event_loop.create_task(self._start(*args, **kwargs), name='main')
         self._tasks.add(task)
         task.add_done_callback(self._get_task_callback())
-        return await task
+        return task
 
     async def _start(self, *args, **kwargs) -> WorkflowStatus:
         logging.debug(f'{self.workflow_id} {self._get_task_name()} START: {args} {kwargs}')
         self._reset()
         try:
-            args = await self.handle_step(ARGUMENTS, alambda(args))
-            kwargs = await self.handle_step(KW_ARGUMENTS, alambda(kwargs))
+            args = await self.handle_step(ARGUMENTS, _alambda(args))
+            kwargs = await self.handle_step(KW_ARGUMENTS, _alambda(kwargs))
             result = await self._func(*args, **kwargs)
-            self.ended = get_current_timestamp()
+            self.ended = _get_current_timestamp()
             logging.debug(f'{self.workflow_id} {self._get_task_name()} COMPLETED')
             self.status = 'COMPLETED'
-            # noinspection PyTypeChecker
-            await self.create_state('result', result, None)
-
-        except WorkflowSuspended as _:
-            logging.debug(f'{self.workflow_id} {self._get_task_name()} SUSPENDED')
-            self.status = 'SUSPENDED'
+            self.result = result
 
         except Exception as e:
             logging.warning(f'{self.workflow_id} {self._get_task_name()} ERRORED {e}')
             logging.debug(f'{self.workflow_id} {self._get_task_name()} ERRORED {e} {traceback.format_exc()}')
             self.status = 'ERRORED'
-            self.ended = get_current_timestamp()
-            # noinspection PyTypeChecker
-            await self.create_state('error', {'name': str(e), 'details': traceback.format_exc()}, None)
+            self.ended = _get_current_timestamp()
+            self.error = {'name': str(e), 'details': traceback.format_exc()}
             raise
 
-        return await self.get_status(None, True, True)
+        return self.get_status()
+
+
+class WorkflowNotFoundException(Exception):
+    pass
+
+
+def find_workflow() -> Workflow:
+    if (workflow := workflow_context.get()) is not None:
+        return workflow
+
+    outer_frame = inspect.currentframe()
+    is_workflow = False
+    while not is_workflow:
+        outer_frame = outer_frame.f_back
+        if outer_frame is None:
+            raise WorkflowNotFoundException("Workflow object not found in event stack")
+        is_workflow = isinstance(outer_frame.f_locals.get('self'), Workflow)
+    return outer_frame.f_locals.get('self')
 
 
 if __name__ == '__main__':

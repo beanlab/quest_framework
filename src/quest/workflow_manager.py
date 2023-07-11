@@ -193,8 +193,6 @@ class WorkflowManager:
             self.workflow_serializers[workflow_type].create_new_instance(workflow_id),
             asyncio.get_event_loop(),
             step_manager=step_manager,
-            state_manager=state_manager,
-            queue_manager=queue_manager,
             unique_ids=unique_ids
         )
 
@@ -212,12 +210,7 @@ class WorkflowManager:
                          identity: ID = None,
                          include_state=True,
                          include_queues=True) -> WorkflowStatus:
-        return await self.workflows[workflow_id].get_status(
-            identity, include_state, include_queues)
-
-    async def push_queue(self, workflow_id: str, name: str, value: Any, identity: ID = None) -> str:
-        """Returns the identity assigned to this transaction"""
-        return await self.workflows[workflow_id].push_queue(name, value, identity)
+        return await self.workflows[workflow_id].get_status()
 
 
 if __name__ == '__main__':

@@ -23,7 +23,7 @@ def test_context_dict():
     values = []
     with these({k: Context(k, entered.append, exited.append) for k in 'abcd'}) as data:
         for k, v in data.items():
-            values.append(v.name)
+            values.append(v.step_id)
 
     expected = list('abcd')
     assert entered == expected
@@ -35,7 +35,7 @@ def test_context_list():
     entered = []
     exited = []
     with these(Context(k, entered.append, exited.append) for k in 'abcd') as data:
-        values = [v.name for v in data]
+        values = [v.step_id for v in data]
 
     expected = list('abcd')
     assert entered == expected
@@ -47,7 +47,7 @@ def test_generator():
     entered = []
     exited = []
     with contexts('abcd', entered.append, exited.append) as data:
-        values = [v.name for v in data]
+        values = [v.step_id for v in data]
 
     expected = list('abcd')
     assert entered == expected

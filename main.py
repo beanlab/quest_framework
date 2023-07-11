@@ -4,13 +4,15 @@ import logging
 import shutil
 import uuid
 from pathlib import Path
-from src.quest import step, state, queue, WorkflowManager
+from src.quest import step, WorkflowManager
 from src.quest.events import UniqueEvent
+from src.quest.external import ExternalProvider
 from src.quest.json_seralizers import JsonMetadataSerializer, JsonEventSerializer, StatelessWorkflowSerializer
-from src.quest.workflow import Status
 
 logging.basicConfig(level=logging.DEBUG)
 INPUT_EVENT_NAME = 'input'
+
+ep = ExternalProvider()
 
 
 @step
@@ -25,7 +27,7 @@ async def display(text: str):
 
 @step
 async def get_input(prompt: str):
-    async with state('prompt', prompt), queue('input') as input:
+    async with ep.state('prompt', None, prompt), queue('input') as input:
         await display(prompt)
         return await input.pop()
 
