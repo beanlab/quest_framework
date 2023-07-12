@@ -30,8 +30,7 @@ async def test_basic_workflow():
         history
     )
 
-    task = historian.run('world')
-    result = await task
+    result = await historian.run('world')
 
     assert result == 'Hello world'
 
@@ -64,7 +63,8 @@ block_workflow = asyncio.Event()
 async def longer_workflow(text):
     text = await double(text)
     text = await add_foo(text)
-    await block_workflow.wait()
+    if not block_workflow.is_set():
+        raise asyncio.CancelledError()
     text = await double(text)
     return text
 
@@ -78,20 +78,19 @@ async def test_resume():
         history
     )
 
-    task = historian.run('abc')
-    # give the task a chance to run
-    await asyncio.sleep(1)
-
-    # task runs and blocks on 'block_workflow'
-    # now cancel it
-    task.cancel()
+    try:
+        # task runs and blocks on 'block_workflow'
+        await historian.run('abc')
+    except asyncio.CancelledError:
+        pass
 
     assert history  # should not be empty
+
+    # Allow workflow to proceed
     block_workflow.set()
 
     # Start the workflow again
-    task = historian.run('abc')
-    result = await task
+    result = await historian.run('abc')
 
     assert result == 'abcabcfooabcabcfoo'
     assert double_calls == 2
@@ -125,7 +124,8 @@ pause = asyncio.Event()
 async def nested_workflow(text1, text2):
     text1 = await foo_then_bar(text1)
     text2 = await foo_then_bar(text2)
-    await pause.wait()
+    if not pause.is_set():
+        raise asyncio.CancelledError()
     return await foo(text1 + text2)
 
 
@@ -138,13 +138,13 @@ async def test_nested_steps_resume():
         history
     )
 
-    task = historian.run('abc', 'xyz')
-    await asyncio.sleep(1)
+    try:
+        await historian.run('abc', 'xyz')
+    except asyncio.CancelledError:
+        pass
 
-    task.cancel()
     pause.set()
 
     result = await historian.run()
 
     assert result == 'foofooabcbarfooxyzbar'
-
