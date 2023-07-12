@@ -31,8 +31,6 @@ async def foobar(text, counter):
     return 'foo' + text + 'bar'
 
 
-
-
 @task
 async def do_the_foo(text, counter):
     text = await foobar(text, counter)
