@@ -57,10 +57,12 @@ async def test_basic_tasks():
     pauses['basic_tasks'] = asyncio.Event()
 
     history = []
+    unique_ids = {}
     historian = Historian(
         'test',
         sub_task_workflow,
-        history
+        history,
+        unique_ids
     )
 
     # Don't pause
@@ -80,10 +82,12 @@ async def test_basic_tasks_resume():
     pauses['tasks_resume'] = asyncio.Event()
 
     history = []
+    unique_ids = {}
     historian = Historian(
         'test',
         sub_task_workflow,
-        history
+        history,
+        unique_ids
     )
 
     try:

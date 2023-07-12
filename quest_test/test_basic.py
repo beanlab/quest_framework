@@ -24,10 +24,12 @@ async def workflow(name):
 @pytest.mark.asyncio
 async def test_basic_workflow():
     history = []
+    unique_ids = {}
     historian = Historian(
         'test',
         workflow,
-        history
+        history,
+        unique_ids
     )
 
     result = await historian.run('world')
@@ -72,10 +74,12 @@ async def longer_workflow(text):
 @pytest.mark.asyncio
 async def test_resume():
     history = []
+    unique_ids = {}
     historian = Historian(
         'test',
         longer_workflow,
-        history
+        history,
+        unique_ids
     )
 
     try:
@@ -132,10 +136,12 @@ async def nested_workflow(text1, text2):
 @pytest.mark.asyncio
 async def test_nested_steps_resume():
     history = []
+    unique_ids = {}
     historian = Historian(
         'test',
         nested_workflow,
-        history
+        history,
+        unique_ids
     )
 
     try:

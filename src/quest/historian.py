@@ -1,11 +1,12 @@
 import asyncio
+import collections
 import inspect
 import logging
 import traceback
 from contextvars import ContextVar
 from datetime import datetime
 from functools import wraps
-from typing import TypedDict, Any, Callable, Literal, Protocol
+from typing import TypedDict, Any, Callable, Literal, Protocol, Iterable
 
 from src.quest.events import UniqueEvent
 
@@ -187,12 +188,24 @@ class History(Protocol):
     def __len__(self): ...
 
 
+class UniqueEvents(Protocol):
+    def __setitem__(self, key: str, value: UniqueEvent): ...
+
+    def __getitem__(self, item: str) -> UniqueEvent: ...
+
+    def __contains__(self, item: UniqueEvent): ...
+
+    def values(self) -> Iterable: ...
+
+
 class Historian:
-    def __init__(self, workflow_id: str, workflow: Callable, history: History):
+    def __init__(self, workflow_id: str, workflow: Callable, history: History, unique_events: UniqueEvents):
         self.workflow_id = workflow_id
         self.workflow = workflow
 
+        # These things need to be serialized
         self._history: History = history
+        self._unique_ids: UniqueEvents = unique_events
 
         # This is set in run
         self._open_tasks = None
@@ -200,12 +213,28 @@ class Historian:
         # These values are reset every time you call start_workflow
         # See _reset_replay() (called in run)
         self._resources = {}
-        self._unique_ids: dict[str, UniqueEvent] = {}
         self._prefix = {'external': []}
         self._replay = {}
         self._record_replays = {}
         self._replay_pos = -1
         self._pruned = []
+
+    def _reset_replay(self):
+        self._resources = {}
+
+        self._prefix = {'external': []}
+
+        for ue in self._unique_ids.values():
+            ue.reset()
+
+        self._pruned = _prune(self._history)
+
+        self._replay = {'external': None}
+        self._record_replays = {
+            _get_id(record): asyncio.Event()
+            for record in self._pruned
+        }
+        self._replay_pos = 0
 
     def _get_task_name(self):
         try:
@@ -226,24 +255,6 @@ class Historian:
             self._unique_ids[prefixed_name] = UniqueEvent(prefixed_name, replay=replay)
         return next(self._unique_ids[prefixed_name])
 
-    def _reset_replay(self):
-        self._open_tasks = set()
-        self._resources = {}
-
-        self._prefix = {'external': []}
-
-        for ue in self._unique_ids.values():
-            ue.reset()
-
-        self._pruned = _prune(self._history)
-
-        self._replay = {'external': None}
-        self._record_replays = {
-            _get_id(record): asyncio.Event()
-            for record in self._pruned
-        }
-        self._replay_pos = 0
-
     class _NextRecord:
         def __init__(self, current_record, on_close: Callable):
             self.current_record = current_record
@@ -257,7 +268,8 @@ class Historian:
 
     async def _task_records(self, task_name):
         while self._replay_pos < len(self._pruned):
-            while self._replay_pos < len(self._pruned) and (record := self._pruned[self._replay_pos])['task_id'] != task_name:
+            while self._replay_pos < len(self._pruned) and \
+                    (record := self._pruned[self._replay_pos])['task_id'] != task_name:
                 logging.debug(f'{task_name} waiting on {record}')
                 await self._record_replays[_get_id(record)].wait()
 
@@ -269,6 +281,8 @@ class Historian:
                 logging.debug(f'{task_name} completing {r}')
                 self._record_replays[_get_id(r)].set()
 
+            # only unset if replay_pos == len(self._pruned), which case returns
+            # noinspection PyUnboundLocalVariable
             yield self._NextRecord(record, advance)
 
     async def _external_handler(self):
