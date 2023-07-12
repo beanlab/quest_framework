@@ -89,6 +89,13 @@ class StepEndRecord(TypedDict):
     exception: Any | None
 
 
+class ResourceLifecycleEvent(TypedDict):
+    type: Literal['create_resource', 'delete_resource']
+    timestamp: str
+    resource_id: str
+    resource_type: str
+
+
 class ResourceAccessEvent(TypedDict):
     type: Literal['external', 'internal']
     timestamp: str
@@ -137,7 +144,7 @@ def _prune(history) -> list[EventRecord]:
             pos += 1
             continue
 
-        elif record['type'] == 'remove_resource':
+        elif record['type'] == 'delete_resource':
             outer_scope_ids.remove(record['resource_id'])
             pos += 1
             continue
@@ -173,6 +180,10 @@ def _prune(history) -> list[EventRecord]:
 
 def _get_current_timestamp() -> str:
     return datetime.utcnow().isoformat()
+
+
+def _create_id(task_id: str, name: str, identity: str) -> str:
+    return f'{task_id}|{name}|{identity}' if identity is not None else name
 
 
 historian_context = ContextVar('historian')
@@ -411,6 +422,40 @@ class Historian:
                 assert args == record['args']
                 assert kwargs == record['kwargs']
                 assert result == record['result']
+
+    async def register_resource(self, name, identity, resource):
+        resource_id = _create_id(self._get_task_name(), name, identity)
+
+        if (next_record := await self._next_record()) is None:
+            self._resources[resource_id] = resource
+            self._history.append(ResourceLifecycleEvent(
+                type='create_resource',
+                timestamp=_get_current_timestamp(),
+                resource_id=resource_id,
+                resource_type=str(type(resource))
+            ))
+
+        else:
+            async with next_record as record:
+                assert record['type'] == 'create_resource'
+                assert record['resource_id'] == resource_id
+
+    async def delete_resource(self, name, identity):
+        resource_id = _create_id(self._get_task_name(), name, identity)
+
+        if (next_record := await self._next_record()) is None:
+            resource = self._resources.pop(resource_id)
+            self._history.append(ResourceLifecycleEvent(
+                type='delete_resource',
+                timestamp=_get_current_timestamp(),
+                resource_id=resource_id,
+                resource_type=str(type(resource))
+            ))
+
+        else:
+            async with next_record as record:
+                assert record['type'] == 'delete_resource'
+                assert record['resource_id'] == resource_id
 
     def start_task(self, func, *args, task_name=None, **kwargs):
         historian_context.set(self)
