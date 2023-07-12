@@ -75,7 +75,7 @@ async def test_basic_tasks():
 
 
 @pytest.mark.asyncio
-# @timeout(3)
+@timeout(3)
 async def test_basic_tasks_resume():
     global counters
     counters['tasks_resume'] = 0
@@ -104,3 +104,31 @@ async def test_basic_tasks_resume():
 
     assert counters['tasks_resume'] == 4
     assert result == 'foofooabcbarbarfoofooxyzbarbar'
+
+
+@task
+async def will_fail(duration):
+    await asyncio.sleep(duration)
+    raise Exception(f'failed! {duration}')
+
+
+async def workflow_that_fails():
+    task1 = will_fail(5)
+    task2 = will_fail(0.1)  # this one should fail first and kill the workflow
+    await asyncio.sleep(0.01)
+    await task1
+    await task2
+
+
+@pytest.mark.asyncio
+async def test_task_exception():
+    historian = Historian(
+        'test',
+        workflow_that_fails,
+        [],
+        {}
+    )
+    try:
+        await historian.run()
+    except ExceptionGroup as ex:
+        assert ex.exceptions[0].args[0] == 'failed! 0.1'

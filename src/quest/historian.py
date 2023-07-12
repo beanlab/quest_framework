@@ -459,9 +459,6 @@ class Historian:
         self._replay[task.get_name()] = self._task_records(task.get_name())
         return task
 
-    def _cancel_open_tasks(self):
-        asyncio.gather(*self._open_tasks).cancel()
-
     async def _run(self, *args, **kwargs):
         args = await self.handle_step('args', lambda: args)
         kwargs = await self.handle_step('kwargs', lambda: kwargs)
