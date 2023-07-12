@@ -18,8 +18,11 @@ def step(func):
 
 
 def task(func: Callable[..., Coroutine]) -> Callable[..., Task]:
+    if not inspect.iscoroutinefunction(func):
+        raise ValueError(f'Task function must be async: {func.__name__}')
+
     @wraps(func)
     def new_func(*args, **kwargs):
-        return find_historian().start_task(func.__name__, func(*args, **kwargs))
+        return find_historian().start_task(func, *args, **kwargs)
 
     return new_func

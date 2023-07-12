@@ -1,5 +1,6 @@
 import asyncio
 import inspect
+import logging
 import traceback
 from contextvars import ContextVar
 from datetime import datetime
@@ -192,10 +193,12 @@ class Historian:
         self.workflow = workflow
 
         self._history: History = history
-        self._event_loop = asyncio.get_event_loop()
+
+        # This is set in run
+        self._open_tasks = None
 
         # These values are reset every time you call start_workflow
-        # See _reset_replay()
+        # See _reset_replay() (called in run)
         self._resources = {}
         self._unique_ids: dict[str, UniqueEvent] = {}
         self._prefix = {'external': []}
@@ -206,7 +209,7 @@ class Historian:
 
     def _get_task_name(self):
         try:
-            name = asyncio.current_task(self._event_loop).get_name()
+            name = asyncio.current_task().get_name()
             if name in self._replay:
                 return name
             else:
@@ -224,6 +227,7 @@ class Historian:
         return next(self._unique_ids[prefixed_name])
 
     def _reset_replay(self):
+        self._open_tasks = set()
         self._resources = {}
 
         self._prefix = {'external': []}
@@ -233,27 +237,44 @@ class Historian:
 
         self._pruned = _prune(self._history)
 
-        self._replay = {}
+        self._replay = {'external': None}
         self._record_replays = {
             _get_id(record): asyncio.Event()
             for record in self._pruned
         }
         self._replay_pos = 0
 
+    class _NextRecord:
+        def __init__(self, current_record, on_close: Callable):
+            self.current_record = current_record
+            self.on_close = on_close
+
+        async def __aenter__(self):
+            return self.current_record
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            await self.on_close(self.current_record)
+
     async def _task_records(self, task_name):
         while self._replay_pos < len(self._pruned):
-            while (record := self._pruned[self._replay_pos])['task_id'] != task_name:
+            while self._replay_pos < len(self._pruned) and (record := self._pruned[self._replay_pos])['task_id'] != task_name:
+                logging.debug(f'{task_name} waiting on {record}')
                 await self._record_replays[_get_id(record)].wait()
 
-            yield record
+            if self._replay_pos == len(self._pruned):
+                return
 
-            # TODO - ensure that every task that calls _task_records is sure to reach the StopIteration
-            self._replay_pos += 1
-            self._record_replays[_get_id(record)].set()
+            async def advance(r):
+                self._replay_pos += 1
+                logging.debug(f'{task_name} completing {r}')
+                self._record_replays[_get_id(r)].set()
+
+            yield self._NextRecord(record, advance)
 
     async def _external_handler(self):
-        async for record in self._task_records('external'):
-            self._replay_external_event(record)
+        async for next_record in self._task_records('external'):
+            async with next_record as record:
+                self._replay_external_event(record)
 
     async def _next_record(self):
         if self._replay[self._get_task_name()] is None:
@@ -269,7 +290,7 @@ class Historian:
     async def handle_step(self, func_name, func: Callable, *args, **kwargs):
         step_id = self._get_unique_id(func_name)
 
-        if (record := await self._next_record()) is None:
+        if (next_record := await self._next_record()) is None:
             self._history.append(StepStartRecord(
                 type='start',
                 timestamp=_get_current_timestamp(),
@@ -278,7 +299,9 @@ class Historian:
             ))
 
             try:
+                self._prefix[self._get_task_name()].append(step_id)
                 result = func(*args, **kwargs)
+                self._prefix[self._get_task_name()].pop(-1)
                 if hasattr(result, '__await__'):
                     result = await result
 
@@ -308,13 +331,14 @@ class Historian:
                 raise
 
         else:
-            # Rehydrate step from history
-            assert record['type'] == 'end'
-            assert record['step_id'] == step_id
-            if record['exception'] is None:
-                return record['result']
-            else:
-                raise globals()[record['exception']['type']](*record['exception']['args'])
+            async with next_record as record:
+                # Rehydrate step from history
+                assert record['type'] == 'end'
+                assert record['step_id'] == step_id, f'{record["step_id"]} vs {step_id}'
+                if record['exception'] is None:
+                    return record['result']
+                else:
+                    raise globals()[record['exception']['type']](*record['exception']['args'])
 
     def _record_external_event(self, resource_id, action, *args, **kwargs):
         """
@@ -352,7 +376,7 @@ class Historian:
         resource = self._resources[resource_id]
         result = getattr(resource, action)(*args, **kwargs)
 
-        if (record := await self._next_record()) is None:
+        if (next_record := await self._next_record()) is None:
             self._history.append(ResourceAccessEvent(
                 type='internal',
                 timestamp=_get_current_timestamp(),
@@ -366,12 +390,13 @@ class Historian:
             ))
 
         else:
-            assert 'internal' == record['type']
-            assert resource_id == record['event_id']
-            assert action == record['action']
-            assert args == record['args']
-            assert kwargs == record['kwargs']
-            assert result == record['result']
+            async with next_record as record:
+                assert 'internal' == record['type']
+                assert resource_id == record['event_id']
+                assert action == record['action']
+                assert args == record['args']
+                assert kwargs == record['kwargs']
+                assert result == record['result']
 
     def start_task(self, func, *args, task_name=None, **kwargs):
         historian_context.set(self)
@@ -380,54 +405,59 @@ class Historian:
 
         @wraps(func)
         async def _func(*a, **kw):
-            record = await self._next_record()
-            if record is not None:
-                assert record['type'] == 'start_task'
-                assert record['parent_task'] == parent
-                assert record['task_id'] == task_id
-            else:
+            if (next_record := await self._next_record()) is None:
                 self._history.append(TaskEvent(
                     type='start_task',
                     timestamp=_get_current_timestamp(),
                     parent_task=parent,
                     task_id=task_id
                 ))
+            else:
+                async with next_record as record:
+                    assert record['type'] == 'start_task'
+                    assert record['parent_task'] == parent
+                    assert record['task_id'] == task_id
 
             result = await func(*a, **kw)
 
-            record = await self._next_record()
-            if record is not None:
-                assert record['type'] == 'complete_task'
-                assert record['parent_task'] == parent
-                assert record['task_id'] == task_id
-            else:
+            if (next_record := await self._next_record()) is None:
                 self._history.append(TaskEvent(
                     type='complete_task',
                     timestamp=_get_current_timestamp(),
                     parent_task=parent,
                     task_id=task_id
                 ))
+
+            else:
+                async with next_record as record:
+                    assert record['type'] == 'complete_task'
+                    assert record['parent_task'] == parent
+                    assert record['task_id'] == task_id
+
             return result
 
-        task = self._event_loop.create_task(
+        task = self._open_tasks.create_task(
             _func(*args, **kwargs),
             name=task_id,
         )
 
-        self._prefix[task.get_name()] = []
+        self._prefix[task.get_name()] = [task.get_name()]
         self._replay[task.get_name()] = self._task_records(task.get_name())
         return task
 
-    async def _start(self, *args, **kwargs):
+    def _cancel_open_tasks(self):
+        asyncio.gather(*self._open_tasks).cancel()
+
+    async def _run(self, *args, **kwargs):
         args = await self.handle_step('args', lambda: args)
         kwargs = await self.handle_step('kwargs', lambda: kwargs)
         result = await self.workflow(*args, **kwargs)
         return result
 
-    def start_workflow(self, *args, **kwargs):
+    async def run(self, *args, **kwargs):
         self._reset_replay()
-        main_task = self.start_task(self._start, *args, **kwargs, task_name='main')
-        return main_task
+        async with asyncio.TaskGroup() as self._open_tasks:
+            return await self.start_task(self._run, *args, **kwargs, task_name='main')
 
 
 class HistorianNotFoundException(Exception):

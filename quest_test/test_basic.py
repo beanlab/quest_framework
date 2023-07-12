@@ -30,7 +30,7 @@ async def test_basic_workflow():
         history
     )
 
-    task = historian.start_workflow('world')
+    task = historian.run('world')
     result = await task
 
     assert result == 'Hello world'
@@ -78,7 +78,7 @@ async def test_resume():
         history
     )
 
-    task = historian.start_workflow('abc')
+    task = historian.run('abc')
     # give the task a chance to run
     await asyncio.sleep(1)
 
@@ -90,7 +90,7 @@ async def test_resume():
     block_workflow.set()
 
     # Start the workflow again
-    task = historian.start_workflow('abc')
+    task = historian.run('abc')
     result = await task
 
     assert result == 'abcabcfooabcabcfoo'
@@ -138,13 +138,13 @@ async def test_nested_steps_resume():
         history
     )
 
-    task = historian.start_workflow('abc', 'xyz')
+    task = historian.run('abc', 'xyz')
     await asyncio.sleep(1)
 
     task.cancel()
     pause.set()
 
-    result = await historian.start_workflow()
+    result = await historian.run()
 
     assert result == 'foofooabcbarfooxyzbar'
 

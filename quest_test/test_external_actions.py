@@ -38,7 +38,7 @@ async def workflow():
 @pytest.mark.asyncio
 async def test_task_flow(tmp_path):
     async with get_local_workflow_manager(tmp_path, workflow) as workflow_manager:
-        workflow_manager.start_workflow('test', 'workflow')
+        workflow_manager.run('test', 'workflow')
 
 
 @task
@@ -66,7 +66,7 @@ async def test_queues_tasks(tmp_path):
     wid = '123'
     async with get_local_workflow_manager(tmp_path, workflow2) as wm:
         # Start workflow
-        await wm.start_workflow(wid, 'workflow2', ident1, ident2)
+        await wm.run(wid, 'workflow2', ident1, ident2)
 
         # Initial status
         status = await wm.get_status(wid, identity=ident1)
@@ -132,6 +132,6 @@ async def failflow():
 async def test_failflow(tmp_path):
     async with get_local_workflow_manager(tmp_path, failflow) as wm:
         try:
-            await wm.start_workflow('test', 'failflow')
+            await wm.run('test', 'failflow')
         except asyncio.CancelledError:
             pass
