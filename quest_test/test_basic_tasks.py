@@ -96,7 +96,7 @@ async def test_basic_tasks_resume():
 
     # Don't pause this time
     pauses['tasks_resume'].set()
-    result = await historian.run('abc', 'xyz', 'tasks_resume')
+    result = await historian.run()
 
     assert counters['tasks_resume'] == 4
     assert result == 'foofooabcbarbarfoofooxyzbarbar'
