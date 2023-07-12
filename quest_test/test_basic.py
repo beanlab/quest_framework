@@ -6,6 +6,10 @@ from src.quest import step
 from src.quest.historian import Historian
 
 
+#
+# Test single step and workflow return value
+#
+
 @step
 async def make_message(name):
     return 'Hello ' + name
@@ -32,18 +36,23 @@ async def test_basic_workflow():
     assert result == 'Hello world'
 
 
+#
+## Test basic resume
+#
+
 double_calls = 0
 foo_calls = 0
 
+
 @step
-def double(text):
+async def double(text):
     global double_calls
     double_calls += 1
     return text * 2
 
 
 @step
-def add_foo(text):
+async def add_foo(text):
     global foo_calls
     foo_calls += 1
     return text + 'foo'
@@ -87,3 +96,55 @@ async def test_resume():
     assert result == 'abcabcfooabcabcfoo'
     assert double_calls == 2
     assert foo_calls == 1
+
+
+#
+## Test nested steps with resume
+#
+
+@step
+async def foo(text):
+    return 'foo' + text
+
+
+@step
+async def bar(text):
+    return text + 'bar'
+
+
+@step
+async def foo_then_bar(text):
+    text = await foo(text)
+    text = await bar(text)
+    return text
+
+
+pause = asyncio.Event()
+
+
+async def nested_workflow(text1, text2):
+    text1 = await foo_then_bar(text1)
+    text2 = await foo_then_bar(text2)
+    await pause.wait()
+    return await foo(text1 + text2)
+
+
+@pytest.mark.asyncio
+async def test_nested_steps_resume():
+    history = []
+    historian = Historian(
+        'test',
+        nested_workflow,
+        history
+    )
+
+    task = historian.start_workflow('abc', 'xyz')
+    await asyncio.sleep(1)
+
+    task.cancel()
+    pause.set()
+
+    result = await historian.start_workflow()
+
+    assert result == 'foofooabcbarfooxyzbar'
+

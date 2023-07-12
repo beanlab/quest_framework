@@ -7,6 +7,9 @@ from .historian import find_historian
 
 
 def step(func):
+    if not inspect.iscoroutinefunction(func):
+        raise ValueError(f'Step function must be async: {func.__name__}')
+
     @wraps(func)
     async def new_func(*args, **kwargs):
         return await find_historian().handle_step(func.__name__, func, *args, **kwargs)
