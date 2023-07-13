@@ -89,6 +89,14 @@ class StepEndRecord(TypedDict):
     exception: Any | None
 
 
+class ResourceEntry(TypedDict):
+    name: str
+    identity: str | None
+    type: str
+    value: str
+    resource: Any
+
+
 class ResourceLifecycleEvent(TypedDict):
     type: Literal['create_resource', 'delete_resource']
     timestamp: str
@@ -182,8 +190,9 @@ def _get_current_timestamp() -> str:
     return datetime.utcnow().isoformat()
 
 
-def _create_id(task_id: str, name: str, identity: str) -> str:
-    return f'{task_id}|{name}|{identity}' if identity is not None else name
+# Resource names should be unique to the workflow and identity
+def _create_resource_id(name: str, identity: str) -> str:
+    return f'{name}|{identity}' if identity is not None else name
 
 
 historian_context = ContextVar('historian')
@@ -365,12 +374,14 @@ class Historian:
                 else:
                     raise globals()[record['exception']['type']](*record['exception']['args'])
 
-    def _record_external_event(self, resource_id, action, *args, **kwargs):
+    def record_external_event(self, name, identity, action, *args, **kwargs):
         """
         When an external event occurs, this method is called.
         """
+        resource_id = _create_resource_id(name, identity)
+
         event_id = self._get_unique_id(resource_id + '.' + action)
-        resource = self._resources[resource_id]
+        resource = self._resources[resource_id]['resource']
         result = getattr(resource, action)(*args, **kwargs)
         self._history.append(ResourceAccessEvent(
             type='external',
@@ -384,11 +395,16 @@ class Historian:
             result=result
         ))
 
+        return result
+
     def _replay_external_event(self, record: ResourceAccessEvent):
         """
         When an external event is replayed, this method is called
         """
-        getattr(self._resources[record['resource_id']], record['action'])(*record['args'], **record['kwargs'])
+        getattr(
+            self._resources[record['resource_id']]['resource'],
+            record['action']
+        )(*record['args'], **record['kwargs'])
 
     async def _handle_internal_event(self, resource_id, action, *args, **kwargs):
         """
@@ -398,7 +414,7 @@ class Historian:
         """
         event_id = self._get_unique_id(resource_id + '.' + action)
 
-        resource = self._resources[resource_id]
+        resource = self._resources[resource_id]['resource']
         result = getattr(resource, action)(*args, **kwargs)
 
         if (next_record := await self._next_record()) is None:
@@ -424,10 +440,21 @@ class Historian:
                 assert result == record['result']
 
     async def register_resource(self, name, identity, resource):
-        resource_id = _create_id(self._get_task_name(), name, identity)
+        resource_id = _create_resource_id(name, identity)
 
         if (next_record := await self._next_record()) is None:
-            self._resources[resource_id] = resource
+            if resource_id in self._resources:
+                raise Exception(f'A resource for {identity} named {name} already exists in this workflow')
+                # TODO - custom exception
+
+            self._resources[resource_id] = ResourceEntry(
+                name=name,
+                identity=identity,
+                type=str(type(resource)),
+                value=str(resource),
+                resource=resource
+            )
+
             self._history.append(ResourceLifecycleEvent(
                 type='create_resource',
                 timestamp=_get_current_timestamp(),
@@ -440,16 +467,22 @@ class Historian:
                 assert record['type'] == 'create_resource'
                 assert record['resource_id'] == resource_id
 
+        return resource_id
+
     async def delete_resource(self, name, identity):
-        resource_id = _create_id(self._get_task_name(), name, identity)
+        resource_id = _create_resource_id(name, identity)
 
         if (next_record := await self._next_record()) is None:
-            resource = self._resources.pop(resource_id)
+            if resource_id not in self._resources:
+                raise Exception(f'No resource for {identity} named {name} found')
+                # TODO - custom exception
+
+            resource_entry = self._resources.pop(resource_id)
             self._history.append(ResourceLifecycleEvent(
                 type='delete_resource',
                 timestamp=_get_current_timestamp(),
                 resource_id=resource_id,
-                resource_type=str(type(resource))
+                resource_type=resource_entry['type']
             ))
 
         else:
@@ -514,6 +547,26 @@ class Historian:
         self._reset_replay()
         async with asyncio.TaskGroup() as self._open_tasks:
             return await self.start_task(self._run, *args, **kwargs, task_name='main')
+
+    def get_resources(self, identity):
+        # Get public resources first
+        resources = {
+            entry['name']: {
+                'type': entry['type'],
+                'value': entry['value']
+            } for entry in self._resources.values()
+            if entry['identity'] is None
+        }
+
+        # Now add in (and override) identity-specific resources
+        for entry in self._resources.values():
+            if entry['identity'] == identity:
+                resources[entry['name']] = {
+                    'type': entry['type'],
+                    'value': entry['value']
+                }
+
+        return resources
 
 
 class HistorianNotFoundException(Exception):

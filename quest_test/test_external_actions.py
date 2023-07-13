@@ -3,10 +3,54 @@ import asyncio
 import pytest
 
 from src.quest import these
+from src.quest.historian import Historian
 from src.quest.json_seralizers import get_local_workflow_manager
-from src.quest.wrappers import task, queue, state, Queue
+from src.quest.wrappers import task
+from src.quest.external import state, queue, identity_queue
+
+# External resource tests
+# - create the resource
+# - act on the resource
+# - observe the resource
+# - delete the resource
+# - resume and observe resource (external events should be accurately replayed)
 
 
+# Also:
+# - identities and visibility
+# - should the identity be required along with the resource ID?
+
+# Test state
+
+name_event = asyncio.Event()
+
+
+async def state_workflow(identity):
+    async with state('name', identity, 'Foobar') as name:
+        assert name.get() == 'Foobar'
+        await name_event.wait()
+        assert name.get() == 'Barbaaz'
+
+
+@pytest.mark.asyncio
+async def test_external_state():
+    identity = 'foo_ident'
+    historian = Historian('test', state_workflow, [], {})
+    workflow = asyncio.create_task(historian.run(identity))
+    await asyncio.sleep(0.01)
+
+    # Observe state
+    resources = historian.get_resources(identity)
+    assert 'name' in resources
+    assert resources['name']['type'] == "<class 'src.quest.external.State'>"
+    assert resources['name']['value'] == 'Foobar'
+
+    # Set state
+    # Resume
+
+
+
+"""
 @task
 async def hello_world(action, name: str, event: asyncio.Event):
     action(name + ' hello')
@@ -135,3 +179,4 @@ async def test_failflow(tmp_path):
             await wm.run('test', 'failflow')
         except asyncio.CancelledError:
             pass
+"""
