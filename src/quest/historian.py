@@ -93,7 +93,6 @@ class ResourceEntry(TypedDict):
     name: str
     identity: str | None
     type: str
-    value: str
     resource: Any
 
 
@@ -124,6 +123,10 @@ class TaskEvent(TypedDict):
 
 
 EventRecord = StepStartRecord | StepEndRecord | ResourceAccessEvent | TaskEvent
+
+
+def _get_type_name(obj):
+    return obj.__class__.__module__ + '.' + obj.__class__.__name__
 
 
 def _get_id(item):
@@ -357,7 +360,7 @@ class Historian:
                     step_id=step_id,
                     result=None,
                     exception=ExceptionDetails(
-                        type=str(type(ex)),
+                        type=_get_type_name(ex),
                         args=ex.args,
                         details=traceback.format_exc()
                     )
@@ -374,7 +377,7 @@ class Historian:
                 else:
                     raise globals()[record['exception']['type']](*record['exception']['args'])
 
-    def record_external_event(self, name, identity, action, *args, **kwargs):
+    async def record_external_event(self, name, identity, action, *args, **kwargs):
         """
         When an external event occurs, this method is called.
         """
@@ -406,12 +409,13 @@ class Historian:
             record['action']
         )(*record['args'], **record['kwargs'])
 
-    async def _handle_internal_event(self, resource_id, action, *args, **kwargs):
+    async def handle_internal_event(self, name, identity, action, *args, **kwargs):
         """
         Internal events are always played
         If the event is replayed, the details are asserted
         If the event is new, it is recorded
         """
+        resource_id = _create_resource_id(name, identity)
         event_id = self._get_unique_id(resource_id + '.' + action)
 
         resource = self._resources[resource_id]['resource']
@@ -439,6 +443,8 @@ class Historian:
                 assert kwargs == record['kwargs']
                 assert result == record['result']
 
+        return result
+
     async def register_resource(self, name, identity, resource):
         resource_id = _create_resource_id(name, identity)
 
@@ -450,8 +456,7 @@ class Historian:
             self._resources[resource_id] = ResourceEntry(
                 name=name,
                 identity=identity,
-                type=str(type(resource)),
-                value=str(resource),
+                type=_get_type_name(resource),
                 resource=resource
             )
 
@@ -459,7 +464,7 @@ class Historian:
                 type='create_resource',
                 timestamp=_get_current_timestamp(),
                 resource_id=resource_id,
-                resource_type=str(type(resource))
+                resource_type=_get_type_name(resource)
             ))
 
         else:
@@ -553,7 +558,7 @@ class Historian:
         resources = {
             entry['name']: {
                 'type': entry['type'],
-                'value': entry['value']
+                'value': entry['resource']
             } for entry in self._resources.values()
             if entry['identity'] is None
         }

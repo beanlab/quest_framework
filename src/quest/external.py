@@ -50,19 +50,11 @@ def _wrap(resource: T, name, identity, historian) -> T:
         if callable(method := getattr(resource, field)):
             # Use default-value kwargs to force value binding instead of late binding
 
-            if inspect.iscoroutinefunction(method):
-                @wraps(method)
-                async def record(*args, _name=name, _identity=identity, _field=field, **kwargs):
-                    return historian.record_external_event(_name, _identity, _field, *args, **kwargs)
+            @wraps(method)
+            async def record(*args, _name=name, _identity=identity, _field=field, **kwargs):
+                return await historian.handle_internal_event(_name, _identity, _field, *args, **kwargs)
 
-                setattr(wrapper, field, record)
-
-            else:
-                @wraps(method)
-                def record(*args, _name=name, _identity=identity, _field=field, **kwargs):
-                    return historian.record_external_event(_name, _identity, _field, *args, **kwargs)
-
-                setattr(wrapper, field, record)
+            setattr(wrapper, field, record)
 
     return wrapper
 

@@ -27,9 +27,9 @@ name_event = asyncio.Event()
 
 async def state_workflow(identity):
     async with state('name', identity, 'Foobar') as name:
-        assert name.get() == 'Foobar'
+        assert await name.get() == 'Foobar'
         await name_event.wait()
-        assert name.get() == 'Barbaaz'
+        assert await name.get() == 'Barbaz'
 
 
 @pytest.mark.asyncio
@@ -40,12 +40,22 @@ async def test_external_state():
     await asyncio.sleep(0.01)
 
     # Observe state
+    resources = historian.get_resources(None)  # i.e. public resources
+    assert not resources  # should be empty
+
     resources = historian.get_resources(identity)
     assert 'name' in resources
-    assert resources['name']['type'] == "<class 'src.quest.external.State'>"
+    assert resources['name']['type'] == "src.quest.external.State"
     assert resources['name']['value'] == 'Foobar'
 
     # Set state
+    await historian.record_external_event('name', identity, 'set', 'Barbaz')
+
+    resources = historian.get_resources(identity)
+    assert 'name' in resources
+    assert resources['name']['type'] == "src.quest.external.State"
+    assert resources['name']['value'] == 'Barbaz'
+
     # Resume
 
 
