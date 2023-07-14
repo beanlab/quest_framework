@@ -447,6 +447,7 @@ class Historian:
 
     async def register_resource(self, name, identity, resource):
         resource_id = _create_resource_id(name, identity)
+        # TODO - support the ability to limit the exposed API on the resource
 
         if (next_record := await self._next_record()) is None:
             if resource_id in self._resources:
@@ -558,7 +559,7 @@ class Historian:
         resources = {
             entry['name']: {
                 'type': entry['type'],
-                'value': entry['resource']
+                'value': res.value() if hasattr((res := entry['resource']), 'value') else repr(res)
             } for entry in self._resources.values()
             if entry['identity'] is None
         }
@@ -568,7 +569,7 @@ class Historian:
             if entry['identity'] == identity:
                 resources[entry['name']] = {
                     'type': entry['type'],
-                    'value': entry['value']
+                    'value': res.value() if hasattr((res := entry['resource']), 'value') else repr(res)
                 }
 
         return resources

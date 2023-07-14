@@ -17,8 +17,8 @@ class State:
     def set(self, value):
         self._value = value
 
-    def __str__(self):
-        return str(self._value)
+    def value(self):
+        return self._value
 
 
 class IdentityQueue:

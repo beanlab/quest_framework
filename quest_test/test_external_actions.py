@@ -57,6 +57,11 @@ async def test_external_state():
     assert resources['name']['value'] == 'Barbaz'
 
     # Resume
+    name_event.set()
+
+    await workflow
+
+
 
 
 
