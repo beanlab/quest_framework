@@ -385,7 +385,12 @@ class Historian:
 
         event_id = self._get_unique_id(resource_id + '.' + action)
         resource = self._resources[resource_id]['resource']
-        result = getattr(resource, action)(*args, **kwargs)
+        function = getattr(resource, action)
+        if inspect.iscoroutinefunction(function):
+            result = await function(*args, **kwargs)
+        else:
+            result = function(*args, **kwargs)
+
         self._history.append(ResourceAccessEvent(
             type='external',
             timestamp=_get_current_timestamp(),
@@ -419,7 +424,11 @@ class Historian:
         event_id = self._get_unique_id(resource_id + '.' + action)
 
         resource = self._resources[resource_id]['resource']
-        result = getattr(resource, action)(*args, **kwargs)
+        function = getattr(resource, action)
+        if inspect.iscoroutinefunction(function):
+            result = await function(*args, **kwargs)
+        else:
+            result = function(*args, **kwargs)
 
         if (next_record := await self._next_record()) is None:
             self._history.append(ResourceAccessEvent(

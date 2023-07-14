@@ -62,8 +62,39 @@ async def test_external_state():
     await workflow
 
 
+async def workflow_with_queue(identity):
+    items_received = []
+    async with queue('items', identity) as items:
+        while len(items_received) < 3:
+            item = await items.get()
+            items_received.append(item)
+    return items_received
 
 
+@pytest.mark.asyncio
+async def test_external_queue():
+    identity = 'foo_ident'
+    historian = Historian(
+        'test',
+        workflow_with_queue,
+        [],
+        {}
+    )
+    workflow = asyncio.create_task(historian.run(identity))
+    await asyncio.sleep(0.01)
+
+    resources = historian.get_resources(None)
+    assert not resources
+
+    resources = historian.get_resources(identity)
+    assert 'items' in resources
+    assert resources['items']['type'] == 'asyncio.queues.Queue'
+
+    await historian.record_external_event('items', identity, 'put', 7)
+    await historian.record_external_event('items', identity, 'put', 8)
+    await historian.record_external_event('items', identity, 'put', 9)
+
+    assert await workflow == [7, 8, 9]
 
 """
 @task
