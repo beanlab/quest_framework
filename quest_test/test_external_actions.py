@@ -1,12 +1,13 @@
 import asyncio
+import logging
 
 import pytest
 
 from src.quest import these
 from src.quest.historian import Historian
 from src.quest.json_seralizers import get_local_workflow_manager
-from src.quest.wrappers import task
-from src.quest.external import state, queue, identity_queue
+from src.quest.wrappers import task, step
+from src.quest.external import state, queue, identity_queue, event
 
 # External resource tests
 # - create the resource
@@ -96,39 +97,73 @@ async def test_external_queue():
 
     assert await workflow == [7, 8, 9]
 
-"""
+
+async def one_of(*coro):
+    tasks = [asyncio.create_task(co) for co in coro]
+    done, pending = asyncio.wait(tasks)
+    for i in range(len(tasks)):
+        if tasks[i] in done:
+            return i, done
+    raise Exception('Unreachable code was reached')
+
+
 @task
-async def hello_world(action, name: str, event: asyncio.Event):
-    action(name + ' hello')
-    await event.wait()
-    action(name + 'world')
+async def get_foos(identity, foo_values: list):
+    async with queue('foo', identity) as foos:
+        while True:
+            foo_values.append(await foos.get())
 
 
-async def workflow():
-    event1 = asyncio.Event()
-    event2 = asyncio.Event()
-    messages = []
-    first = hello_world(messages.append, 'first', event1)
-    second = hello_world(messages.append, 'second', event2)
+@task
+@step
+async def foo_task(identity):
+    foo_values = []
+    async with event('foo_done', identity) as finished:
+        foos = get_foos(identity, foo_values)
+        await finished.wait()
+        foos.cancel()
+        return foo_values
 
-    event2.set()
-    event1.set()
 
-    await first
-    await second
-
-    assert messages == [
-        'first hello',
-        'second hello',
-        'second world',
-        'first world'
-    ]
+async def queue_task_workflow(id1, id2):
+    foos = foo_task(id1)
+    bars = foo_task(id2)
+    return (await foos) + (await bars)
 
 
 @pytest.mark.asyncio
-async def test_task_flow(tmp_path):
-    async with get_local_workflow_manager(tmp_path, workflow) as workflow_manager:
-        workflow_manager.run('test', 'workflow')
+async def test_queue_tasks():
+    id_foo = 'FOO'
+    id_bar = 'BAR'
+    historian = Historian(
+        'test',
+        queue_task_workflow,
+        [], {}
+    )
+
+    workflow = asyncio.create_task(historian.run(id_foo, id_bar))
+    await asyncio.sleep(0.01)
+
+    resources = historian.get_resources(id_foo)
+    assert 'foo' in resources
+    assert 'foo_done' in resources
+
+    resources = historian.get_resources(id_bar)
+    assert 'foo' in resources
+    assert 'foo_done' in resources
+
+    await historian.record_external_event('foo', id_bar, 'put', 4)
+    await historian.record_external_event('foo', id_foo, 'put', 1)
+    await historian.record_external_event('foo', id_foo, 'put', 2)
+    await historian.record_external_event('foo', id_bar, 'put', 5)
+    await historian.record_external_event('foo_done', id_bar, 'set')
+    await historian.record_external_event('foo', id_foo, 'put', 3)
+    await historian.record_external_event('foo_done', id_foo, 'set')
+
+    assert await workflow == [1, 2, 3, 4, 5]
+
+
+"""
 
 
 @task

@@ -79,6 +79,10 @@ def queue(name, identity):
     return ExternalResource(name, identity, asyncio.Queue())
 
 
+def event(name, identity):
+    return ExternalResource(name, identity, asyncio.Event())
+
+
 def state(name, identity, value):
     return ExternalResource(name, identity, State(value))
 
