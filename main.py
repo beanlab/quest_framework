@@ -6,13 +6,11 @@ import uuid
 from pathlib import Path
 from src.quest import step, WorkflowManager
 from src.quest.events import UniqueEvent
-from src.quest.external import ExternalProvider
 from src.quest.json_seralizers import JsonMetadataSerializer, JsonEventSerializer, StatelessWorkflowSerializer
 
 logging.basicConfig(level=logging.DEBUG)
 INPUT_EVENT_NAME = 'input'
 
-ep = ExternalProvider()
 
 
 @step

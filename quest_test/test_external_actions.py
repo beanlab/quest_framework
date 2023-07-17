@@ -106,7 +106,6 @@ async def get_foos(identity, foo_values: list):
 
 
 @task
-@step
 async def foo_task(identity):
     foo_values = []
     async with event('foo_done', identity) as finished:
@@ -150,6 +149,115 @@ async def test_queue_tasks():
     await historian.record_external_event('foo_done', id_bar, 'set')
     await historian.record_external_event('foo', id_foo, 'put', 3)
     await historian.record_external_event('foo_done', id_foo, 'set')
+
+    assert await workflow == [1, 2, 3, 4, 5]
+
+
+@task
+async def level2():
+    async with queue('the_queue', None) as the_queue:
+        return (await the_queue.get()) + (await the_queue.get())
+
+
+@task
+async def level1():
+    job = level2()
+    await asyncio.sleep(0.01)
+    return await job
+
+
+async def workflow_nested_tasks():
+    job = level1()
+    await asyncio.sleep(0.01)
+    return await job
+
+
+@pytest.mark.asyncio
+async def test_nested_tasks():
+    history = []
+    unique_ids = {}
+    historian = Historian(
+        'test',
+        workflow_nested_tasks,
+        history,
+        unique_ids
+    )
+
+    workflow = asyncio.create_task(historian.run())
+    await asyncio.sleep(0.01)
+
+    await historian.record_external_event('the_queue', None, 'put', 1)
+
+    new_historian = Historian(
+        'test',
+        workflow_nested_tasks,
+        history,
+        unique_ids
+    )
+
+    new_workflow = asyncio.create_task(new_historian.run())
+    await asyncio.sleep(1)
+    await new_historian.record_external_event('the_queue', None, 'put', 2)
+
+    assert await new_workflow == 3
+
+
+#
+# Resuming tasks tests
+#
+
+@pytest.mark.asyncio
+async def test_queue_tasks_resume():
+    id_foo = 'FOO'
+    id_bar = 'BAR'
+    history = []
+    unique_events = {}
+    historian = Historian(
+        'test',
+        queue_task_workflow,
+        history, unique_events
+    )
+
+    workflow = asyncio.create_task(historian.run(id_foo, id_bar))
+    await asyncio.sleep(1)
+
+    resources = historian.get_resources(id_foo)
+    assert 'foo' in resources
+    assert 'foo_done' in resources
+
+    resources = historian.get_resources(id_bar)
+    assert 'foo' in resources
+    assert 'foo_done' in resources
+
+    await historian.record_external_event('foo', id_bar, 'put', 4)
+    await historian.record_external_event('foo', id_foo, 'put', 1)
+    await historian.record_external_event('foo', id_foo, 'put', 2)
+
+    new_history = list(history)
+    new_events = dict(unique_events)
+    new_historian = Historian(
+        'test',
+        queue_task_workflow,
+        new_history,
+        new_events
+    )
+
+    # Start it over
+    workflow = asyncio.create_task(new_historian.run(id_foo, id_bar))
+    await asyncio.sleep(1)
+
+    resources = new_historian.get_resources(id_foo)
+    assert 'foo' in resources
+    assert 'foo_done' in resources
+
+    resources = new_historian.get_resources(id_bar)
+    assert 'foo' in resources
+    assert 'foo_done' in resources
+
+    await new_historian.record_external_event('foo', id_bar, 'put', 5)
+    await new_historian.record_external_event('foo_done', id_bar, 'set')
+    await new_historian.record_external_event('foo', id_foo, 'put', 3)
+    await new_historian.record_external_event('foo_done', id_foo, 'set')
 
     assert await workflow == [1, 2, 3, 4, 5]
 

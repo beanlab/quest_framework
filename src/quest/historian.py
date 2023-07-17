@@ -3,6 +3,7 @@ import collections
 import inspect
 import logging
 import traceback
+from asyncio import TaskGroup
 from contextvars import ContextVar
 from datetime import datetime
 from functools import wraps
@@ -99,6 +100,7 @@ class ResourceEntry(TypedDict):
 class ResourceLifecycleEvent(TypedDict):
     type: Literal['create_resource', 'delete_resource']
     timestamp: str
+    task_id: str
     resource_id: str
     resource_type: str
 
@@ -118,7 +120,6 @@ class ResourceAccessEvent(TypedDict):
 class TaskEvent(TypedDict):
     type: Literal['start_task', 'complete_task']
     timestamp: str
-    parent_task: str
     task_id: str  # the name of the task created/completed
 
 
@@ -152,13 +153,9 @@ def _prune(history) -> list[EventRecord]:
 
         if record['type'] == 'create_resource':
             outer_scope_ids.add(record['resource_id'])
-            pos += 1
-            continue
 
         elif record['type'] == 'delete_resource':
             outer_scope_ids.remove(record['resource_id'])
-            pos += 1
-            continue
 
         elif record['type'] == 'start':
             # Find the associated 'end' record and cut out the rest
@@ -180,11 +177,10 @@ def _prune(history) -> list[EventRecord]:
                 keepers[end_pos] = history[end_pos]
                 pos = end_pos + 1
                 continue
-        else:
-            # Keep it
-            keepers[pos] = history[pos]
-            pos += 1
-            continue
+
+        # Keep it
+        keepers[pos] = history[pos]
+        pos += 1
 
     return [record for record in keepers if record is not None]
 
@@ -231,7 +227,8 @@ class Historian:
         self._unique_ids: UniqueEvents = unique_events
 
         # This is set in run
-        self._open_tasks = None
+        self._open_tasks: TaskGroup | None = None
+        self._main_task = None
 
         # These values are reset every time you call start_workflow
         # See _reset_replay() (called in run)
@@ -243,6 +240,7 @@ class Historian:
         self._pruned = []
 
     def _reset_replay(self):
+        logging.debug('Resetting replay')
         self._resources = {}
 
         self._prefix = {'external': []}
@@ -283,23 +281,27 @@ class Historian:
             self.current_record = current_record
             self.on_close = on_close
 
-        async def __aenter__(self):
+        def __enter__(self):
             return self.current_record
 
-        async def __aexit__(self, exc_type, exc_val, exc_tb):
-            await self.on_close(self.current_record)
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            self.on_close(self.current_record)
 
     async def _task_records(self, task_name):
         while self._replay_pos < len(self._pruned):
             while self._replay_pos < len(self._pruned) and \
                     (record := self._pruned[self._replay_pos])['task_id'] != task_name:
-                logging.debug(f'{task_name} waiting on {record}')
-                await self._record_replays[_get_id(record)].wait()
+
+                if (event := self._record_replays[_get_id(record)]).is_set():
+                    logging.debug(f'{task_name} found {record} completed')
+                else:
+                    logging.debug(f'{task_name} waiting on {record}')
+                await event.wait()
 
             if self._replay_pos == len(self._pruned):
                 return
 
-            async def advance(r):
+            def advance(r):
                 self._replay_pos += 1
                 logging.debug(f'{task_name} completing {r}')
                 self._record_replays[_get_id(r)].set()
@@ -310,8 +312,8 @@ class Historian:
 
     async def _external_handler(self):
         async for next_record in self._task_records('external'):
-            async with next_record as record:
-                self._replay_external_event(record)
+            with next_record as record:
+                await self._replay_external_event(record)
 
     async def _next_record(self):
         if self._replay[self._get_task_name()] is None:
@@ -338,9 +340,9 @@ class Historian:
             try:
                 self._prefix[self._get_task_name()].append(step_id)
                 result = func(*args, **kwargs)
-                self._prefix[self._get_task_name()].pop(-1)
                 if hasattr(result, '__await__'):
                     result = await result
+                self._prefix[self._get_task_name()].pop(-1)
 
                 self._history.append(StepEndRecord(
                     type='end',
@@ -368,20 +370,25 @@ class Historian:
                 raise
 
         else:
-            async with next_record as record:
+            with next_record as record:
+                logging.debug(f'{self._get_task_name()} Replaying {record}')
                 # Rehydrate step from history
-                assert record['type'] == 'end'
                 assert record['step_id'] == step_id, f'{record["step_id"]} vs {step_id}'
-                if record['exception'] is None:
-                    return record['result']
+                if record['type'] == 'end':
+                    if record['exception'] is None:
+                        return record['result']
+                    else:
+                        raise globals()[record['exception']['type']](*record['exception']['args'])
                 else:
-                    raise globals()[record['exception']['type']](*record['exception']['args'])
+                    assert record['type'] == 'start'
 
     async def record_external_event(self, name, identity, action, *args, **kwargs):
         """
         When an external event occurs, this method is called.
         """
         resource_id = _create_resource_id(name, identity)
+
+        logging.debug(f'External {action} on {resource_id} with {args} and {kwargs}')
 
         event_id = self._get_unique_id(resource_id + '.' + action)
         resource = self._resources[resource_id]['resource']
@@ -405,14 +412,22 @@ class Historian:
 
         return result
 
-    def _replay_external_event(self, record: ResourceAccessEvent):
+    async def _replay_external_event(self, record: ResourceAccessEvent):
         """
         When an external event is replayed, this method is called
         """
-        getattr(
+        logging.debug(f'{self._get_task_name()} Replaying {record}')
+        assert record['type'] == 'external'
+
+        result = getattr(
             self._resources[record['resource_id']]['resource'],
             record['action']
         )(*record['args'], **record['kwargs'])
+
+        if inspect.iscoroutine(result):
+            result = await result
+
+        assert result == record['result']
 
     async def handle_internal_event(self, name, identity, action, *args, **kwargs):
         """
@@ -421,6 +436,7 @@ class Historian:
         If the event is new, it is recorded
         """
         resource_id = _create_resource_id(name, identity)
+        logging.debug(f'{self._get_task_name()} calling {action} on {resource_id} with {args} and {kwargs}')
         event_id = self._get_unique_id(resource_id + '.' + action)
 
         resource = self._resources[resource_id]['resource']
@@ -444,9 +460,10 @@ class Historian:
             ))
 
         else:
-            async with next_record as record:
+            with next_record as record:
+                logging.debug(f'{self._get_task_name()} Replaying {record}')
                 assert 'internal' == record['type']
-                assert resource_id == record['event_id']
+                assert resource_id == record['resource_id']
                 assert action == record['action']
                 assert args == record['args']
                 assert kwargs == record['kwargs']
@@ -458,27 +475,30 @@ class Historian:
         resource_id = _create_resource_id(name, identity)
         # TODO - support the ability to limit the exposed API on the resource
 
+        if resource_id in self._resources:
+            raise Exception(f'A resource for {identity} named {name} already exists in this workflow')
+            # TODO - custom exception
+
+        logging.debug(f'Creating {resource_id}')
+        self._resources[resource_id] = ResourceEntry(
+            name=name,
+            identity=identity,
+            type=_get_type_name(resource),
+            resource=resource
+        )
+
         if (next_record := await self._next_record()) is None:
-            if resource_id in self._resources:
-                raise Exception(f'A resource for {identity} named {name} already exists in this workflow')
-                # TODO - custom exception
-
-            self._resources[resource_id] = ResourceEntry(
-                name=name,
-                identity=identity,
-                type=_get_type_name(resource),
-                resource=resource
-            )
-
             self._history.append(ResourceLifecycleEvent(
                 type='create_resource',
                 timestamp=_get_current_timestamp(),
+                task_id=self._get_task_name(),
                 resource_id=resource_id,
                 resource_type=_get_type_name(resource)
             ))
 
         else:
-            async with next_record as record:
+            with next_record as record:
+                logging.debug(f'{self._get_task_name()} Replaying {record}')
                 assert record['type'] == 'create_resource'
                 assert record['resource_id'] == resource_id
 
@@ -486,22 +506,25 @@ class Historian:
 
     async def delete_resource(self, name, identity):
         resource_id = _create_resource_id(name, identity)
+        if resource_id not in self._resources:
+            raise Exception(f'No resource for {identity} named {name} found')
+            # TODO - custom exception
+
+        logging.debug(f'Removing {resource_id}')
+        resource_entry = self._resources.pop(resource_id)
 
         if (next_record := await self._next_record()) is None:
-            if resource_id not in self._resources:
-                raise Exception(f'No resource for {identity} named {name} found')
-                # TODO - custom exception
-
-            resource_entry = self._resources.pop(resource_id)
             self._history.append(ResourceLifecycleEvent(
                 type='delete_resource',
                 timestamp=_get_current_timestamp(),
+                task_id=self._get_task_name(),
                 resource_id=resource_id,
                 resource_type=resource_entry['type']
             ))
 
         else:
-            async with next_record as record:
+            with next_record as record:
+                logging.debug(f'{self._get_task_name()} Replaying {record}')
                 assert record['type'] == 'delete_resource'
                 assert record['resource_id'] == resource_id
 
@@ -509,36 +532,37 @@ class Historian:
         historian_context.set(self)
         parent = self._get_task_name()
         task_id = task_name or self._get_unique_id(func.__name__)
+        logging.debug(f'{self._get_task_name()} has requested {task_id} start')
 
         @wraps(func)
         async def _func(*a, **kw):
             if (next_record := await self._next_record()) is None:
+                logging.debug(f'Starting task {task_id}')
                 self._history.append(TaskEvent(
                     type='start_task',
                     timestamp=_get_current_timestamp(),
-                    parent_task=parent,
                     task_id=task_id
                 ))
             else:
-                async with next_record as record:
+                with next_record as record:
+                    logging.debug(f'{self._get_task_name()} Replaying {record}')
                     assert record['type'] == 'start_task'
-                    assert record['parent_task'] == parent
                     assert record['task_id'] == task_id
 
             result = await func(*a, **kw)
 
             if (next_record := await self._next_record()) is None:
+                logging.debug(f'Completing task {task_id}')
                 self._history.append(TaskEvent(
                     type='complete_task',
                     timestamp=_get_current_timestamp(),
-                    parent_task=parent,
                     task_id=task_id
                 ))
 
             else:
-                async with next_record as record:
+                with next_record as record:
+                    logging.debug(f'{self._get_task_name()} Replaying {record}')
                     assert record['type'] == 'complete_task'
-                    assert record['parent_task'] == parent
                     assert record['task_id'] == task_id
 
             return result
@@ -561,7 +585,13 @@ class Historian:
     async def run(self, *args, **kwargs):
         self._reset_replay()
         async with asyncio.TaskGroup() as self._open_tasks:
-            return await self.start_task(self._run, *args, **kwargs, task_name='main')
+            self._open_tasks.create_task(self._external_handler(), name=f'{self.workflow_id}.external_replay')
+            self._main_task = self.start_task(self._run, *args, **kwargs, task_name=self.workflow_id)
+            return await self._main_task
+
+    async def cancel(self):
+        logging.debug(f'Cancelling task {self._main_task.get_name()}')
+        self._main_task.cancel()
 
     def get_resources(self, identity):
         # Get public resources first
