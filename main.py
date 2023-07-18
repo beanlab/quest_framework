@@ -12,12 +12,6 @@ logging.basicConfig(level=logging.DEBUG)
 INPUT_EVENT_NAME = 'input'
 
 
-
-@step
-async def throw_error():
-    raise Exception("This is a test")
-
-
 @step
 async def display(text: str):
     print(text)
