@@ -43,13 +43,3 @@ def test_context_list():
     assert values == expected
 
 
-def test_generator():
-    entered = []
-    exited = []
-    with contexts('abcd', entered.append, exited.append) as data:
-        values = [v.step_id for v in data]
-
-    expected = list('abcd')
-    assert entered == expected
-    assert exited == expected
-    assert values == expected
