@@ -3,7 +3,7 @@ import collections
 import inspect
 import logging
 import traceback
-from asyncio import TaskGroup
+from asyncio import TaskGroup, Task
 from contextvars import ContextVar
 from datetime import datetime
 from functools import wraps
@@ -227,11 +227,12 @@ class Historian:
         self._unique_ids: UniqueEvents = unique_events
 
         # This is set in run
-        self._open_tasks: TaskGroup | None = None
+        self._task_factory: TaskGroup | None = None
         self._main_task = None
 
         # These values are reset every time you call start_workflow
         # See _reset_replay() (called in run)
+        self._open_tasks: set[Task] = set()
         self._resources = {}
         self._prefix = {'external': []}
         self._replay = {}
@@ -256,6 +257,8 @@ class Historian:
             for record in self._pruned
         }
         self._replay_pos = 0
+
+        self._open_tasks: set[Task] = set()
 
     def _get_task_name(self):
         try:
@@ -530,7 +533,6 @@ class Historian:
 
     def start_task(self, func, *args, task_name=None, **kwargs):
         historian_context.set(self)
-        parent = self._get_task_name()
         task_id = task_name or self._get_unique_id(func.__name__)
         logging.debug(f'{self._get_task_name()} has requested {task_id} start')
 
@@ -567,13 +569,16 @@ class Historian:
 
             return result
 
-        task = self._open_tasks.create_task(
+        task = self._task_factory.create_task(
             _func(*args, **kwargs),
             name=task_id,
         )
 
         self._prefix[task.get_name()] = [task.get_name()]
         self._replay[task.get_name()] = self._task_records(task.get_name())
+        self._open_tasks.add(task)
+        task.add_done_callback(lambda t: self._open_tasks.remove(t))
+
         return task
 
     async def _run(self, *args, **kwargs):
@@ -584,12 +589,16 @@ class Historian:
 
     async def run(self, *args, **kwargs):
         self._reset_replay()
-        async with asyncio.TaskGroup() as self._open_tasks:
-            self._open_tasks.create_task(self._external_handler(), name=f'{self.workflow_id}.external_replay')
+        async with asyncio.TaskGroup() as self._task_factory:
+            self._task_factory.create_task(self._external_handler(), name=f'{self.workflow_id}.external_replay')
             self._main_task = self.start_task(self._run, *args, **kwargs, task_name=self.workflow_id)
             return await self._main_task
 
     async def cancel(self):
+        for task in self._open_tasks:
+            if not task.cancelled() and not task.cancelling() and not task.done():
+                logging.debug(f'Cancelling task {task.get_name()}')
+                task.cancel()
         logging.debug(f'Cancelling task {self._main_task.get_name()}')
         self._main_task.cancel()
 
