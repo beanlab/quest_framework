@@ -26,7 +26,7 @@ async def test_cancel():
 
     workflow = asyncio.create_task(historian.run())
     await asyncio.sleep(0.1)
-    await historian.cancel()
+    historian.suspend()
     stop.set()
     await asyncio.sleep(0.1)
 
@@ -67,7 +67,7 @@ async def test_task_cancel():
 
     workflow = asyncio.create_task(historian.run())
     await asyncio.sleep(0.1)
-    await historian.cancel()
+    historian.suspend()
     block.set()
     await asyncio.sleep(0.1)
 

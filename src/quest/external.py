@@ -4,7 +4,7 @@ import uuid
 from functools import wraps
 from typing import TypeVar, Generic
 
-from src.quest.historian import find_historian
+from src.quest.historian import find_historian, SUSPENDED
 
 
 class State:
@@ -72,7 +72,8 @@ class ExternalResource(Generic[T]):
         return _wrap(self._resource, self._name, self._identity, self._historian)
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self._historian.delete_resource(self._name, self._identity)
+        suspending = (exc_type == asyncio.CancelledError and exc_val.args and exc_val.args[0] == SUSPENDED)
+        await self._historian.delete_resource(self._name, self._identity, suspending=suspending)
 
 
 def queue(name, identity):

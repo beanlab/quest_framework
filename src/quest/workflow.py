@@ -168,7 +168,7 @@ class Workflow:
                     f'{self.workflow_id} CREATE_TASK: Task {the_task.get_name()} finished with exception {ex}')
                 for t in self._tasks:
                     if not t.done():
-                        t.cancel(f'Sibling task {the_task.get_name()} errored with {ex}')
+                        t.suspend(f'Sibling task {the_task.get_name()} errored with {ex}')
 
         return cancel_on_exception
 

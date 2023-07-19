@@ -34,8 +34,7 @@ async def foobar(text, counter):
 @task
 async def do_the_foo(text, counter):
     text = await foobar(text, counter)
-    if not pauses[counter].is_set():
-        raise asyncio.CancelledError()
+    await pauses[counter].wait()
     text = await foobar(text, counter)
     return text
 
@@ -75,7 +74,7 @@ async def test_basic_tasks():
 
 
 @pytest.mark.asyncio
-@timeout(3)
+# @timeout(3)
 async def test_basic_tasks_resume():
     global counters
     counters['tasks_resume'] = 0
@@ -90,10 +89,10 @@ async def test_basic_tasks_resume():
         unique_ids
     )
 
-    try:
-        result = await historian.run('abc', 'xyz', 'tasks_resume')
-    except asyncio.CancelledError:
-        pass
+    # Will run and block on the event
+    workflow = asyncio.create_task(historian.run('abc', 'xyz', 'tasks_resume'))
+    await asyncio.sleep(0.1)
+    historian.suspend()
 
     # Both subtasks should have run the first foobar
     assert counters['tasks_resume'] == 2

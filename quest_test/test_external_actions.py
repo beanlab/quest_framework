@@ -174,30 +174,22 @@ async def workflow_nested_tasks():
 
 @pytest.mark.asyncio
 async def test_nested_tasks():
-    history = []
-    unique_ids = {}
     historian = Historian(
         'test',
         workflow_nested_tasks,
-        history,
-        unique_ids
+        [],
+        {}
     )
 
     workflow = asyncio.create_task(historian.run())
     await asyncio.sleep(0.01)
 
     await historian.record_external_event('the_queue', None, 'put', 1)
+    historian.suspend()
 
-    new_historian = Historian(
-        'test',
-        workflow_nested_tasks,
-        history,
-        unique_ids
-    )
-
-    new_workflow = asyncio.create_task(new_historian.run())
+    new_workflow = asyncio.create_task(historian.run())
     await asyncio.sleep(1)
-    await new_historian.record_external_event('the_queue', None, 'put', 2)
+    await historian.record_external_event('the_queue', None, 'put', 2)
 
     assert await new_workflow == 3
 

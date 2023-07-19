@@ -11,7 +11,6 @@ from typing import TypedDict, Any, Callable, Literal, Protocol, Iterable
 
 from src.quest.events import UniqueEvent
 
-
 # external replay:
 # - there are possibly multiple threads interacting with the same resource
 # - if a resource is published, external parties can interact with it
@@ -67,6 +66,9 @@ from src.quest.events import UniqueEvent
 # To prune correctly, I need to turn process the sequence like a tree
 # Each task and step is a separate branch
 # I need to look for resources that are open in each branch and match the relevant events
+
+SUSPENDED = '__WORKFLOW_SUSPENDED__'
+
 
 class ExceptionDetails(TypedDict):
     type: str
@@ -333,6 +335,7 @@ class Historian:
         step_id = self._get_unique_id(func_name)
 
         if (next_record := await self._next_record()) is None:
+            logging.debug(f'{self._get_task_name()} starting step {func_name} with {args} and {kwargs}')
             self._history.append(StepStartRecord(
                 type='start',
                 timestamp=_get_current_timestamp(),
@@ -346,6 +349,8 @@ class Historian:
                 if hasattr(result, '__await__'):
                     result = await result
                 self._prefix[self._get_task_name()].pop(-1)
+
+                logging.debug(f'{self._get_task_name()} completing step {func_name} with {result}')
 
                 self._history.append(StepEndRecord(
                     type='end',
@@ -507,7 +512,7 @@ class Historian:
 
         return resource_id
 
-    async def delete_resource(self, name, identity):
+    async def delete_resource(self, name, identity, suspending=False):
         resource_id = _create_resource_id(name, identity)
         if resource_id not in self._resources:
             raise Exception(f'No resource for {identity} named {name} found')
@@ -516,20 +521,21 @@ class Historian:
         logging.debug(f'Removing {resource_id}')
         resource_entry = self._resources.pop(resource_id)
 
-        if (next_record := await self._next_record()) is None:
-            self._history.append(ResourceLifecycleEvent(
-                type='delete_resource',
-                timestamp=_get_current_timestamp(),
-                task_id=self._get_task_name(),
-                resource_id=resource_id,
-                resource_type=resource_entry['type']
-            ))
+        if not suspending:
+            if (next_record := await self._next_record()) is None:
+                self._history.append(ResourceLifecycleEvent(
+                    type='delete_resource',
+                    timestamp=_get_current_timestamp(),
+                    task_id=self._get_task_name(),
+                    resource_id=resource_id,
+                    resource_type=resource_entry['type']
+                ))
 
-        else:
-            with next_record as record:
-                logging.debug(f'{self._get_task_name()} Replaying {record}')
-                assert record['type'] == 'delete_resource'
-                assert record['resource_id'] == resource_id
+            else:
+                with next_record as record:
+                    logging.debug(f'{self._get_task_name()} Replaying {record}')
+                    assert record['type'] == 'delete_resource'
+                    assert record['resource_id'] == resource_id
 
     def start_task(self, func, *args, task_name=None, **kwargs):
         historian_context.set(self)
@@ -577,7 +583,7 @@ class Historian:
         self._prefix[task.get_name()] = [task.get_name()]
         self._replay[task.get_name()] = self._task_records(task.get_name())
         self._open_tasks.add(task)
-        task.add_done_callback(lambda t: self._open_tasks.remove(t))
+        task.add_done_callback(lambda t: self._open_tasks.remove(t) if t in self._open_tasks else None)
 
         return task
 
@@ -594,13 +600,14 @@ class Historian:
             self._main_task = self.start_task(self._run, *args, **kwargs, task_name=self.workflow_id)
             return await self._main_task
 
-    async def cancel(self):
+    def suspend(self):
+        # TODO - don't record the deletion when exiting on a cancel
         for task in self._open_tasks:
             if not task.cancelled() and not task.cancelling() and not task.done():
                 logging.debug(f'Cancelling task {task.get_name()}')
-                task.cancel()
+                task.cancel(SUSPENDED)
         logging.debug(f'Cancelling task {self._main_task.get_name()}')
-        self._main_task.cancel()
+        self._main_task.cancel(SUSPENDED)
 
     def get_resources(self, identity):
         # Get public resources first
