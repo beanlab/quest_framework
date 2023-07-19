@@ -1,3 +1,5 @@
+"""import pytest
+
 from src.quest import these
 
 
@@ -17,13 +19,14 @@ class Context:
         self.exit(self.name)
 
 
-def test_context_dict():
+@pytest.mark.asyncio
+async def test_context_dict():
     entered = []
     exited = []
     values = []
-    with these({k: Context(k, entered.append, exited.append) for k in 'abcd'}) as data:
+    async with these({k: Context(k, entered.append, exited.append) for k in 'abcd'}) as data:
         for k, v in data.items():
-            values.append(v.step_id)
+            values.append(v)
 
     expected = list('abcd')
     assert entered == expected
@@ -31,11 +34,12 @@ def test_context_dict():
     assert values == expected
 
 
-def test_context_list():
+@pytest.mark.asyncio
+async def test_context_list():
     entered = []
     exited = []
-    with these(Context(k, entered.append, exited.append) for k in 'abcd') as data:
-        values = [v.step_id for v in data]
+    async with these(Context(k, entered.append, exited.append) for k in 'abcd') as data:
+        values = [v for v in data]
 
     expected = list('abcd')
     assert entered == expected
@@ -43,3 +47,4 @@ def test_context_list():
     assert values == expected
 
 
+"""

@@ -1,13 +1,10 @@
 import asyncio
-import logging
 
 import pytest
 
-from src.quest import these
+from src.quest.external import state, queue, event
 from src.quest.historian import Historian
-from src.quest.json_seralizers import get_local_workflow_manager
-from src.quest.wrappers import task, step
-from src.quest.external import state, queue, identity_queue, event
+from src.quest.wrappers import task
 
 # External resource tests
 # - create the resource
@@ -225,31 +222,24 @@ async def test_queue_tasks_resume():
     await historian.record_external_event('foo', id_foo, 'put', 1)
     await historian.record_external_event('foo', id_foo, 'put', 2)
 
-    new_history = list(history)
-    new_events = dict(unique_events)
-    new_historian = Historian(
-        'test',
-        queue_task_workflow,
-        new_history,
-        new_events
-    )
+    historian.suspend()
 
     # Start it over
-    workflow = asyncio.create_task(new_historian.run(id_foo, id_bar))
+    workflow = asyncio.create_task(historian.run(id_foo, id_bar))
     await asyncio.sleep(1)
 
-    resources = new_historian.get_resources(id_foo)
+    resources = historian.get_resources(id_foo)
     assert 'foo' in resources
     assert 'foo_done' in resources
 
-    resources = new_historian.get_resources(id_bar)
+    resources = historian.get_resources(id_bar)
     assert 'foo' in resources
     assert 'foo_done' in resources
 
-    await new_historian.record_external_event('foo', id_bar, 'put', 5)
-    await new_historian.record_external_event('foo_done', id_bar, 'set')
-    await new_historian.record_external_event('foo', id_foo, 'put', 3)
-    await new_historian.record_external_event('foo_done', id_foo, 'set')
+    await historian.record_external_event('foo', id_bar, 'put', 5)
+    await historian.record_external_event('foo_done', id_bar, 'set')
+    await historian.record_external_event('foo', id_foo, 'put', 3)
+    await historian.record_external_event('foo_done', id_foo, 'set')
 
     assert await workflow == [1, 2, 3, 4, 5]
 

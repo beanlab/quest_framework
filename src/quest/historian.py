@@ -601,7 +601,6 @@ class Historian:
             return await self._main_task
 
     def suspend(self):
-        # TODO - don't record the deletion when exiting on a cancel
         for task in self._open_tasks:
             if not task.cancelled() and not task.cancelling() and not task.done():
                 logging.debug(f'Cancelling task {task.get_name()}')
