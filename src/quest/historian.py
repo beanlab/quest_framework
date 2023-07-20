@@ -584,7 +584,7 @@ class Historian:
     async def _run(self, *args, **kwargs):
         args = await self.handle_step('args', lambda: args)
         kwargs = await self.handle_step('kwargs', lambda: kwargs)
-        result = await self.workflow(*args, **kwargs)
+        result = await self.handle_step(self.workflow.__name__, self.workflow, *args, **kwargs)
         return result
 
     async def run(self, *args, **kwargs):
