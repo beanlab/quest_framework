@@ -347,7 +347,7 @@ class Historian:
             ))
 
         try:
-            self._prefix[self._get_task_name()].append(step_id)
+            self._prefix[self._get_task_name()].append(func_name)
             result = func(*args, **kwargs)
             if hasattr(result, '__await__'):
                 result = await result

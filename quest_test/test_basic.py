@@ -155,7 +155,6 @@ async def do_step1(start):
     return a + 1
 
 
-@step
 async def dance(start):
     a = await do_step1(start)
     return a
