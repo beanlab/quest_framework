@@ -20,7 +20,8 @@ class JsonHistory(History):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        with open(self._filename, 'r') as file:
+        self._filename.parent.mkdir(parents=True, exist_ok=True)
+        with open(self._filename, 'w') as file:
             json.dump(self._history, file)
 
     def append(self, item):
@@ -43,14 +44,15 @@ class JsonDictionary(UniqueEvents):
 
     def __enter__(self):
         if self._filename.exists():
-            self._events = json.loads(self._filename.read_text())
+            self._events = {k: UniqueEvent(**v) for k, v in json.loads(self._filename.read_text()).items()}
         else:
             self._events = {}
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        with open(self._filename, 'r') as file:
-            json.dump(self._events, file)
+        self._filename.parent.mkdir(parents=True, exist_ok=True)
+        with open(self._filename, 'w') as file:
+            json.dump({k: v.to_json() for k, v in self._events.items()}, file)
 
     def __setitem__(self, key: str, value: UniqueEvent):
         return self._events.__setitem__(key, value)
@@ -59,7 +61,7 @@ class JsonDictionary(UniqueEvents):
         return self._events.__getitem__(item)
 
     def __contains__(self, item: UniqueEvent):
-        return self.__contains__(item)
+        return self._events.__contains__(item)
 
     def values(self) -> Iterable[UniqueEvent]:
         return self._events.values()

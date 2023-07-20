@@ -1,5 +1,4 @@
 import asyncio
-import collections
 import inspect
 import logging
 import traceback
@@ -313,6 +312,7 @@ class Historian:
 
             # only unset if replay_pos == len(self._pruned), which case returns
             # noinspection PyUnboundLocalVariable
+            logging.debug(f'{self._get_task_name()} replaying {record}')
             yield self._NextRecord(record, advance)
 
     async def _external_handler(self):
@@ -334,7 +334,20 @@ class Historian:
     async def handle_step(self, func_name, func: Callable, *args, **kwargs):
         step_id = self._get_unique_id(func_name)
 
-        if (next_record := await self._next_record()) is None:
+        if (next_record := await self._next_record()) is not None:
+            with next_record as record:
+                assert record['step_id'] == step_id, f'{record["step_id"]} vs {step_id}'
+                if record['type'] == 'end':
+                    # Rehydrate step from history
+                    assert record['type'] == 'end'
+                    if record['exception'] is None:
+                        return record['result']
+                    else:
+                        raise globals()[record['exception']['type']](*record['exception']['args'])
+                else:
+                    assert record['type'] == 'start'
+
+        if next_record is None:
             logging.debug(f'{self._get_task_name()} starting step {func_name} with {args} and {kwargs}')
             self._history.append(StepStartRecord(
                 type='start',
@@ -343,52 +356,39 @@ class Historian:
                 step_id=step_id
             ))
 
-            try:
-                self._prefix[self._get_task_name()].append(step_id)
-                result = func(*args, **kwargs)
-                if hasattr(result, '__await__'):
-                    result = await result
-                self._prefix[self._get_task_name()].pop(-1)
+        try:
+            self._prefix[self._get_task_name()].append(step_id)
+            result = func(*args, **kwargs)
+            if hasattr(result, '__await__'):
+                result = await result
+            self._prefix[self._get_task_name()].pop(-1)
 
-                logging.debug(f'{self._get_task_name()} completing step {func_name} with {result}')
+            logging.debug(f'{self._get_task_name()} completing step {func_name} with {result}')
 
-                self._history.append(StepEndRecord(
-                    type='end',
-                    timestamp=_get_current_timestamp(),
-                    task_id=self._get_task_name(),
-                    step_id=step_id,
-                    result=result,
-                    exception=None
-                ))
-                return result
+            self._history.append(StepEndRecord(
+                type='end',
+                timestamp=_get_current_timestamp(),
+                task_id=self._get_task_name(),
+                step_id=step_id,
+                result=result,
+                exception=None
+            ))
+            return result
 
-            except Exception as ex:
-                self._history.append(StepEndRecord(
-                    type='end',
-                    timestamp=_get_current_timestamp(),
-                    task_id=self._get_task_name(),
-                    step_id=step_id,
-                    result=None,
-                    exception=ExceptionDetails(
-                        type=_get_type_name(ex),
-                        args=ex.args,
-                        details=traceback.format_exc()
-                    )
-                ))
-                raise
-
-        else:
-            with next_record as record:
-                logging.debug(f'{self._get_task_name()} Replaying {record}')
-                # Rehydrate step from history
-                assert record['step_id'] == step_id, f'{record["step_id"]} vs {step_id}'
-                if record['type'] == 'end':
-                    if record['exception'] is None:
-                        return record['result']
-                    else:
-                        raise globals()[record['exception']['type']](*record['exception']['args'])
-                else:
-                    assert record['type'] == 'start'
+        except Exception as ex:
+            self._history.append(StepEndRecord(
+                type='end',
+                timestamp=_get_current_timestamp(),
+                task_id=self._get_task_name(),
+                step_id=step_id,
+                result=None,
+                exception=ExceptionDetails(
+                    type=_get_type_name(ex),
+                    args=ex.args,
+                    details=traceback.format_exc()
+                )
+            ))
+            raise
 
     async def record_external_event(self, name, identity, action, *args, **kwargs):
         """
@@ -424,7 +424,6 @@ class Historian:
         """
         When an external event is replayed, this method is called
         """
-        logging.debug(f'{self._get_task_name()} Replaying {record}')
         assert record['type'] == 'external'
 
         result = getattr(
@@ -469,7 +468,6 @@ class Historian:
 
         else:
             with next_record as record:
-                logging.debug(f'{self._get_task_name()} Replaying {record}')
                 assert 'internal' == record['type']
                 assert resource_id == record['resource_id']
                 assert action == record['action']
@@ -506,7 +504,6 @@ class Historian:
 
         else:
             with next_record as record:
-                logging.debug(f'{self._get_task_name()} Replaying {record}')
                 assert record['type'] == 'create_resource'
                 assert record['resource_id'] == resource_id
 
@@ -533,7 +530,6 @@ class Historian:
 
             else:
                 with next_record as record:
-                    logging.debug(f'{self._get_task_name()} Replaying {record}')
                     assert record['type'] == 'delete_resource'
                     assert record['resource_id'] == resource_id
 
@@ -553,7 +549,6 @@ class Historian:
                 ))
             else:
                 with next_record as record:
-                    logging.debug(f'{self._get_task_name()} Replaying {record}')
                     assert record['type'] == 'start_task'
                     assert record['task_id'] == task_id
 
@@ -569,7 +564,6 @@ class Historian:
 
             else:
                 with next_record as record:
-                    logging.debug(f'{self._get_task_name()} Replaying {record}')
                     assert record['type'] == 'complete_task'
                     assert record['task_id'] == task_id
 

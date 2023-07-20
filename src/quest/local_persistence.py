@@ -1,23 +1,26 @@
 import json
 from pathlib import Path
-from typing import Callable, Any
-from .workflow_manager import WorkflowSerializer, EventSerializer, WorkflowFunction, WorkflowMetadataSerializer, \
-    WorkflowManager
+from typing import Callable, Any, TypeVar
+
+from src.quest.historian import History
+from src.quest.lifecycle import HistoryFactory
 from .events import InMemoryEventManager, UniqueEvent
+from .workflow_manager import EventSerializer, WorkflowMetadataSerializer, \
+    WorkflowManager
+
+WT = TypeVar('WT')
 
 
-class StatelessWorkflowSerializer(WorkflowSerializer):
-    def __init__(self, create_workflow: Callable[[], WorkflowFunction]):
-        self.create_workflow = create_workflow
+class JsonHistoryFactory(HistoryFactory):
+    def __init__(self, root_folder: Path):
+        self._root_folder = root_folder
 
-    def serialize_workflow(self, workflow_id: str, workflow: WorkflowFunction):
-        """Nothing needed"""
+    def create_history(self, workflow_id) -> History:
+        return
 
-    def deserialize_workflow(self, workflow_id: str) -> WorkflowFunction:
-        return self.create_workflow()
+    def load_history(self, workflow_id) -> History: ...
 
-    def create_new_instance(self, workflow_id: str) -> WorkflowFunction:
-        return self.create_workflow()
+    def save_history(self, workflow_id, history: History): ...
 
 
 class JsonEventSerializer(EventSerializer[InMemoryEventManager]):

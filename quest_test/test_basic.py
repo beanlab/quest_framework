@@ -2,6 +2,7 @@ import asyncio
 
 import pytest
 
+from quest_test.test_basic_tasks import timeout
 from src.quest import step
 from src.quest.historian import Historian
 
@@ -148,3 +149,40 @@ async def test_nested_steps_resume():
     result = await historian.run()
 
     assert result == 'foofooabcbarfooxyzbar'
+
+
+stop = asyncio.Event()
+
+
+@step
+async def do_step1(start):
+    a = start + 1
+    await stop.wait()
+    return a + 1
+
+
+@step
+async def dance(start):
+    a = await do_step1(start)
+    return a
+
+
+@pytest.mark.asyncio
+@timeout(3)
+async def test_resume_mid_step():
+    historian = Historian(
+        'test',
+        dance,
+        [],
+        {}
+    )
+
+    wtask = asyncio.create_task(historian.run(1))
+    await asyncio.sleep(0.1)
+    historian.suspend()
+    stop.set()
+
+    wtask = asyncio.create_task(historian.run(1))
+    await asyncio.sleep(0.1)
+
+    assert await wtask == 3

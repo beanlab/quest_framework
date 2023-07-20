@@ -4,9 +4,11 @@ import logging
 import shutil
 import uuid
 from pathlib import Path
-from src.quest import step, WorkflowManager
-from src.quest.events import UniqueEvent
-from src.quest.json_seralizers import JsonMetadataSerializer, JsonEventSerializer, StatelessWorkflowSerializer
+
+from src.quest import step
+from src.quest.external import state, queue
+from src.quest.historian import Historian
+from src.quest.persistence import JsonHistory, JsonDictionary
 
 logging.basicConfig(level=logging.DEBUG)
 INPUT_EVENT_NAME = 'input'
@@ -19,9 +21,9 @@ async def display(text: str):
 
 @step
 async def get_input(prompt: str):
-    async with ep.state('prompt', None, prompt), queue('input') as input:
+    async with state('prompt', None, prompt), queue('input', None) as input:
         await display(prompt)
-        return await input.pop()
+        return await input.get()
 
 
 async def register_user(welcome_message):
@@ -31,56 +33,65 @@ async def register_user(welcome_message):
     return f'Name: {name}, ID: {sid}'
 
 
+async def run_persistent_workflow(root_folder: Path, workflow_id: str, workflow_func, *args, **kwargs):
+    with JsonHistory((root_folder / "workflow_history" / workflow_id).with_suffix(".json")) as history, \
+            JsonDictionary(
+                (root_folder / "workflow_unique_events" / workflow_id).with_suffix(".json")) as unique_events:
+        historian = Historian(
+            workflow_id,
+            workflow_func,
+            history,
+            unique_events
+        )
+        return await historian.run(*args, **kwargs)
+
+
 async def main():
     saved_state = Path('saved-state')
 
     # Remove data
     shutil.rmtree(saved_state, ignore_errors=True)
 
-    workflow_manager = WorkflowManager(
-        JsonMetadataSerializer(saved_state),
-        JsonEventSerializer(saved_state / 'workflow_steps'),
-        JsonEventSerializer(saved_state / 'workflow_state'),
-        JsonEventSerializer(saved_state / 'workflow_queues'),
-        JsonEventSerializer(saved_state / 'workflow_unique_ids', lambda d: UniqueEvent(**d)),
-        {'register_user': StatelessWorkflowSerializer(lambda: register_user)}
-    )
-
     workflow_id = str(uuid.uuid4())
 
-    async with workflow_manager:
-        status = await workflow_manager.start_workflow(workflow_id, 'register_user', 'Howdy')
-        assert status.status == 'SUSPENDED'
+    history_file = (saved_state / "workflow_history" / workflow_id).with_suffix(".json")
+    unique_events_file = (saved_state / "workflow_unique_events" / workflow_id).with_suffix(".json")
 
-        assert status.state['prompt']['value'] == 'Name: '
-        assert 'input' in status.queues
+    with JsonHistory(history_file) as history, JsonDictionary(unique_events_file) as unique_events:
+        historian = Historian(
+            workflow_id,
+            register_user,
+            history,
+            unique_events
+        )
+        workflow_task = asyncio.create_task(historian.run('Howdy'))
+        await asyncio.sleep(0.1)
 
-        print('---')
-        fingerprint = await workflow_manager.push_queue(workflow_id, 'input', 'Foo')
-        assert fingerprint is not None
+        resources = historian.get_resources(None)
+        assert resources['prompt']['value'] == 'Name: '
 
-        status = await workflow_manager.get_status(workflow_id)
-        assert status.status == 'SUSPENDED'
+        await historian.record_external_event('input', None, 'put', 'Foo')
+        await asyncio.sleep(0.1)
+        historian.suspend()
 
-        assert status.state['prompt']['value'] == 'Student ID: '
-        assert 'input' in status.queues
+    with JsonHistory(history_file) as history, JsonDictionary(unique_events_file) as unique_events:
+        historian = Historian(
+            workflow_id,
+            register_user,
+            history,
+            unique_events
+        )
+        workflow_task = asyncio.create_task(historian.run('Howdy'))
+        await asyncio.sleep(0.1)
 
-    # The manager (and all workflows) now shuts down
+        resources = historian.get_resources(None)
+        assert resources['prompt']['value'] == 'Student ID: '
 
-    async with workflow_manager:
-        # The workflow manager comes back online
-        print('---')
-        fingerprint = await workflow_manager.push_queue(workflow_id, 'input', '123')
-        assert fingerprint is not None
+        await historian.record_external_event('input', None, 'put', '123')
 
-        status = await workflow_manager.get_status(workflow_id)
-        assert status.status == 'COMPLETED'
+        assert await workflow_task == 'Name: Foo, ID: 123'
 
-        assert status.state['result']['value'] == 'Name: Foo, ID: 123'
-        assert not status.queues
-
-        print('---')
-        print(json.dumps(dict(workflow_manager.workflows[workflow_id].state.items()), indent=2))
+        print(json.dumps(history, indent=2))
 
 
 if __name__ == '__main__':
