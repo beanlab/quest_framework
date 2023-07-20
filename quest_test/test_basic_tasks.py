@@ -56,12 +56,10 @@ async def test_basic_tasks():
     pauses['basic_tasks'] = asyncio.Event()
 
     history = []
-    unique_ids = {}
     historian = Historian(
         'test',
         sub_task_workflow,
         history,
-        unique_ids
     )
 
     # Don't pause
@@ -81,12 +79,10 @@ async def test_basic_tasks_resume():
     pauses['tasks_resume'] = asyncio.Event()
 
     history = []
-    unique_ids = {}
     historian = Historian(
         'test',
         sub_task_workflow,
         history,
-        unique_ids
     )
 
     # Will run and block on the event
@@ -125,7 +121,6 @@ async def test_task_exception():
         'test',
         workflow_that_fails,
         [],
-        {}
     )
     try:
         await historian.run()

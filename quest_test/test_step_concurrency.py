@@ -30,7 +30,6 @@ async def test_step_concurrency():
         'test',
         fooflow,
         [],
-        {}
     )
 
     assert await historian.run('abc', 'xyz') == ('abcfoofoofoo', 'xyzfoofoofoo')
@@ -55,7 +54,6 @@ async def test_step_tasks():
         'test',
         doubleflow,
         [],
-        {}
     )
 
     assert await historian.run('abcxyz') == 'abcxyzabcxyzabcabc'

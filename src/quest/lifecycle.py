@@ -1,6 +1,6 @@
 from typing import Protocol, TypeVar
 
-from src.quest.historian import Historian, History, UniqueEvents
+from src.quest.historian import Historian, History
 
 WT = TypeVar('WT')
 
@@ -13,47 +13,43 @@ class WorkflowFactory(Protocol[WT]):
     def save_workflow(self, workflow_id: str, workflow_function: WT): ...
 
 
+class StatelessWorkflowFactory(WorkflowFactory[WT]):
+    def __init__(self, workflow_fuction: WT):
+        self._workflow_function = workflow_fuction
+
+    def create_new_workflow(self) -> WT:
+        return self._workflow_function
+
+    def load_workflow(self, workflow_id: str) -> WT:
+        return self._workflow_function
+
+    def save_workflow(self, workflow_id: str, workflow_function: WT):
+        pass
+
+
 class HistoryFactory(Protocol):
-    def create_history(self, workflow_id) -> History: ...
-
-    def load_history(self, workflow_id) -> History: ...
-
-    def save_history(self, workflow_id, history: History): ...
-
-
-class UniqueIdsFactory(Protocol):
-    def create_unique_events(self, workflow_id) -> UniqueEvents: ...
-
-    def load_unique_events(self, workflow_id) -> UniqueEvents: ...
-
-    def save_unique_events(self, workflow_id, unique_events: UniqueEvents): ...
+    def __call__(self, workflow_id) -> History: ...
 
 
 class WorkflowLifecycleManager:
     def __init__(self,
-                 workflow_factories: dict[str, WorkflowFactory],
-                 history_factory: HistoryFactory,
-                 unique_ids_factory: UniqueIdsFactory
+                 workflow_factory: WorkflowFactory,
+                 history_factory: HistoryFactory
                  ):
-        self._workflow_factories = workflow_factories
+        self._workflow_factory = workflow_factory
         self._history_factory = history_factory
-        self._unique_ids_factory = unique_ids_factory
 
         self._historians: dict[str, Historian] = {}
 
-    async def run_workflow(self, workflow_type: str, workflow_id: str, *args, **kwargs):
-        self._historians[workflow_id] = (historian := Historian(
-            workflow_id,
-            self._workflow_factories[workflow_type].create_new_workflow(),
-            self._history_factory.create_history(workflow_id),
-            self._unique_ids_factory.create_unique_events(workflow_id)
-        ))
+    async def run_workflow(self, workflow_id: str, *args, **kwargs):
+        if workflow_id not in self._historians:
+            self._historians[workflow_id] = Historian(
+                workflow_id,
+                self._workflow_factory.create_new_workflow(),
+                self._history_factory(workflow_id)
+            )
 
-        result = await historian.run(*args, **kwargs)
-
-        self._historians.pop(workflow_id)
-
-        return result
+        return await self._historians[workflow_id].run(*args, **kwargs)
 
     def has_workflow(self, workflow_id):
         return workflow_id in self._historians
@@ -61,8 +57,9 @@ class WorkflowLifecycleManager:
     def suspend_workflow(self, workflow_id):
         return self._historians[workflow_id].suspend()
 
+    def get_resources(self, workflow_id, identity):
+        return self._historians[workflow_id].get_resources(identity)
+
     async def signal_workflow(self, workflow_id, resource_name, identity, action, *args, **kwargs):
         return await self._historians[workflow_id] \
             .record_external_event(resource_name, identity, action, *args, **kwargs)
-
-

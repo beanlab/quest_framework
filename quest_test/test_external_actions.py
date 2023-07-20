@@ -33,7 +33,7 @@ async def state_workflow(identity):
 @pytest.mark.asyncio
 async def test_external_state():
     identity = 'foo_ident'
-    historian = Historian('test', state_workflow, [], {})
+    historian = Historian('test', state_workflow, [])
     workflow = asyncio.create_task(historian.run(identity))
     await asyncio.sleep(0.01)
 
@@ -76,7 +76,6 @@ async def test_external_queue():
         'test',
         workflow_with_queue,
         [],
-        {}
     )
     workflow = asyncio.create_task(historian.run(identity))
     await asyncio.sleep(0.01)
@@ -125,7 +124,7 @@ async def test_queue_tasks():
     historian = Historian(
         'test',
         queue_task_workflow,
-        [], {}
+        [],
     )
 
     workflow = asyncio.create_task(historian.run(id_foo, id_bar))
@@ -175,7 +174,6 @@ async def test_nested_tasks():
         'test',
         workflow_nested_tasks,
         [],
-        {}
     )
 
     workflow = asyncio.create_task(historian.run())
@@ -200,11 +198,10 @@ async def test_queue_tasks_resume():
     id_foo = 'FOO'
     id_bar = 'BAR'
     history = []
-    unique_events = {}
     historian = Historian(
         'test',
         queue_task_workflow,
-        history, unique_events
+        history
     )
 
     workflow = asyncio.create_task(historian.run(id_foo, id_bar))
@@ -269,7 +266,7 @@ async def test_failflow(tmp_path):
     historian = Historian(
         'test',
         failflow,
-        [], {}
+        []
     )
     try:
         await historian.run()

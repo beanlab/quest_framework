@@ -6,9 +6,7 @@ from asyncio import TaskGroup, Task
 from contextvars import ContextVar
 from datetime import datetime
 from functools import wraps
-from typing import TypedDict, Any, Callable, Literal, Protocol, Iterable
-
-from src.quest.events import UniqueEvent
+from typing import TypedDict, Any, Callable, Literal, Protocol
 
 # external replay:
 # - there are possibly multiple threads interacting with the same resource
@@ -208,24 +206,13 @@ class History(Protocol):
     def __len__(self): ...
 
 
-class UniqueEvents(Protocol):
-    def __setitem__(self, key: str, value: UniqueEvent): ...
-
-    def __getitem__(self, item: str) -> UniqueEvent: ...
-
-    def __contains__(self, item: UniqueEvent): ...
-
-    def values(self) -> Iterable[UniqueEvent]: ...
-
-
 class Historian:
-    def __init__(self, workflow_id: str, workflow: Callable, history: History, unique_events: UniqueEvents):
+    def __init__(self, workflow_id: str, workflow: Callable, history: History):
         self.workflow_id = workflow_id
         self.workflow = workflow
 
         # These things need to be serialized
         self._history: History = history
-        self._unique_ids: UniqueEvents = unique_events
 
         # This is set in run
         self._task_factory: TaskGroup | None = None
@@ -236,6 +223,7 @@ class Historian:
         self._open_tasks: set[Task] = set()
         self._resources = {}
         self._prefix = {'external': []}
+        self._unique_ids: set[str] = set()
         self._replay = {}
         self._record_replays = {}
         self._replay_pos = -1
@@ -246,9 +234,7 @@ class Historian:
         self._resources = {}
 
         self._prefix = {'external': []}
-
-        for ue in self._unique_ids.values():
-            ue.reset()
+        self._unique_ids = set()
 
         self._pruned = _prune(self._history)
 
@@ -275,10 +261,14 @@ class Historian:
         return '.'.join(self._prefix[self._get_task_name()]) + '.' + event_name
 
     def _get_unique_id(self, event_name: str, replay=True) -> str:
-        prefixed_name = self._get_prefixed_name(event_name)
-        if prefixed_name not in self._unique_ids:
-            self._unique_ids[prefixed_name] = UniqueEvent(prefixed_name, replay=replay)
-        return next(self._unique_ids[prefixed_name])
+        prefixed_name_root = self._get_prefixed_name(event_name)
+        prefixed_name = prefixed_name_root
+        counter = 0
+        while prefixed_name in self._unique_ids:
+            counter += 1
+            prefixed_name = f'{prefixed_name_root}_{counter}'
+        self._unique_ids.add(prefixed_name)
+        return prefixed_name
 
     class _NextRecord:
         def __init__(self, current_record, on_close: Callable):
