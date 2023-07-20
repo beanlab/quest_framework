@@ -91,7 +91,7 @@ async def main():
 
         assert await workflow_task == 'Name: Foo, ID: 123'
 
-        print(json.dumps(history, indent=2))
+        print(json.dumps(list(history), indent=2))
 
 
 if __name__ == '__main__':
