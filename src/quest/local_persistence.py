@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from typing import TypeVar
 
-from src.quest.historian import History
+from .historian import History
 
 WT = TypeVar('WT')
 

@@ -1,10 +1,9 @@
 import asyncio
-import inspect
 import uuid
 from functools import wraps
 from typing import TypeVar, Generic
 
-from src.quest.historian import find_historian, SUSPENDED
+from .historian import find_historian, SUSPENDED
 
 
 class State:

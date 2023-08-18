@@ -348,10 +348,10 @@ class Historian:
 
         try:
             self._prefix[self._get_task_name()].append(func_name)
+
             result = func(*args, **kwargs)
             if hasattr(result, '__await__'):
                 result = await result
-            self._prefix[self._get_task_name()].pop(-1)
 
             logging.debug(f'{self._get_task_name()} completing step {func_name} with {result}')
 
@@ -366,6 +366,7 @@ class Historian:
             return result
 
         except Exception as ex:
+            logging.exception(f'Error in {step_id}')
             self._history.append(StepEndRecord(
                 type='end',
                 timestamp=_get_current_timestamp(),
@@ -379,6 +380,8 @@ class Historian:
                 )
             ))
             raise
+        finally:
+            self._prefix[self._get_task_name()].pop(-1)
 
     async def record_external_event(self, name, identity, action, *args, **kwargs):
         """
@@ -461,7 +464,7 @@ class Historian:
                 assert 'internal' == record['type']
                 assert resource_id == record['resource_id']
                 assert action == record['action']
-                assert args == record['args']
+                assert list(args) == record['args']
                 assert kwargs == record['kwargs']
                 assert result == record['result']
 
