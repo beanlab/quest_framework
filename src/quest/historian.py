@@ -171,6 +171,7 @@ def _prune(step_id: str, history: "History"):
     for record in to_delete:
         history.remove(record)
 
+
 def _get_current_timestamp() -> str:
     return datetime.utcnow().isoformat()
 
@@ -191,10 +192,6 @@ class History(Protocol, Reversible):
     def __iter__(self): ...
 
     def __reversed__(self): ...
-
-    def __getitem__(self, pos): ...
-
-    def __len__(self): ...
 
 
 class Historian:
