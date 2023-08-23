@@ -76,15 +76,15 @@ class ExceptionDetails(TypedDict):
 class StepStartRecord(TypedDict):
     type: Literal['start']
     timestamp: str
-    task_id: str
     step_id: str
+    task_id: str
 
 
 class StepEndRecord(TypedDict):
     type: Literal['end']
     timestamp: str
-    task_id: str
     step_id: str
+    task_id: str
     result: Any
     exception: Any | None
 
@@ -99,6 +99,7 @@ class ResourceEntry(TypedDict):
 class ResourceLifecycleEvent(TypedDict):
     type: Literal['create_resource', 'delete_resource']
     timestamp: str
+    step_id: str
     task_id: str
     resource_id: str
     resource_type: str
@@ -107,9 +108,9 @@ class ResourceLifecycleEvent(TypedDict):
 class ResourceAccessEvent(TypedDict):
     type: Literal['external', 'internal']
     timestamp: str
+    step_id: str
     task_id: str
     resource_id: str
-    event_id: str
     action: str
     args: tuple
     kwargs: dict
@@ -119,6 +120,7 @@ class ResourceAccessEvent(TypedDict):
 class TaskEvent(TypedDict):
     type: Literal['start_task', 'complete_task']
     timestamp: str
+    step_id: str
     task_id: str  # the name of the task created/completed
 
 
@@ -142,44 +144,23 @@ def _get_id(item):
 def _prune(history) -> list[EventRecord]:
     """
     Remove substep work
+    Records whose step_ids are prefixed by the step_id of the step are substep work
     Keep external events that belong to resources created outside the step
     """
-    keepers: list[EventRecord | None] = [None for _ in history]
-    pos = 0
-    outer_scope_ids = set()
-    while pos < len(history):
-        record = history[pos]
+    keepers: list[EventRecord | None] = list(history)
+    for pos, record in enumerate(history):
+        if record['type'] == 'end':
+            # Go back and remove all the associated records
+            for back_pos in range(pos - 1, -1, -1):
+                back_record = history[back_pos]
 
-        if record['type'] == 'create_resource':
-            outer_scope_ids.add(record['resource_id'])
+                if back_record['step_id'].startswith(record['step_id']):
+                    # Found a sub-record of the step, we can delete it
+                    keepers[back_pos] = None
 
-        elif record['type'] == 'delete_resource':
-            outer_scope_ids.remove(record['resource_id'])
-
-        elif record['type'] == 'start':
-            # Find the associated 'end' record and cut out the rest
-            end_pos = pos + 1
-            while end_pos < len(history) and history[end_pos].get('step_id', None) != record['step_id']:
-                if history[end_pos]['type'] == 'external' and \
-                        history[end_pos]['resource_id'] in outer_scope_ids:
-                    keepers[end_pos] = history[end_pos]
-                end_pos += 1
-
-            if end_pos == len(history):
-                # no end found, so this step isn't finished
-                keepers[pos] = history[pos]
-                pos += 1
-                continue
-
-            else:
-                # found the end, keep it and move on
-                keepers[end_pos] = history[end_pos]
-                pos = end_pos + 1
-                continue
-
-        # Keep it
-        keepers[pos] = history[pos]
-        pos += 1
+                if back_record['step_id'] == record['step_id']:
+                    # Found the beginning of the step, we can stop searching
+                    break
 
     return [record for record in keepers if record is not None]
 
@@ -199,6 +180,8 @@ historian_context = ContextVar('historian')
 class History(Protocol):
     def append(self, item): ...
 
+    def insert(self, pos, item): ...
+
     def __iter__(self): ...
 
     def __getitem__(self, item): ...
@@ -216,7 +199,6 @@ class Historian:
 
         # This is set in run
         self._task_factory: TaskGroup | None = None
-        self._main_task = None
 
         # These values are reset every time you call start_workflow
         # See _reset_replay() (called in run)
@@ -260,7 +242,7 @@ class Historian:
     def _get_prefixed_name(self, event_name: str) -> str:
         return '.'.join(self._prefix[self._get_task_name()]) + '.' + event_name
 
-    def _get_unique_id(self, event_name: str, replay=True) -> str:
+    def _get_unique_id(self, event_name: str) -> str:
         prefixed_name_root = self._get_prefixed_name(event_name)
         prefixed_name = prefixed_name_root
         counter = 0
@@ -323,6 +305,7 @@ class Historian:
 
     async def handle_step(self, func_name, func: Callable, *args, **kwargs):
         step_id = self._get_unique_id(func_name)
+        unique_func_name = step_id.split('.')[-1]
 
         if (next_record := await self._next_record()) is not None:
             with next_record as record:
@@ -347,11 +330,13 @@ class Historian:
             ))
 
         try:
-            self._prefix[self._get_task_name()].append(func_name)
+            self._prefix[self._get_task_name()].append(unique_func_name)
 
             result = func(*args, **kwargs)
             if hasattr(result, '__await__'):
                 result = await result
+
+            self._prefix[self._get_task_name()].pop(-1)
 
             logging.debug(f'{self._get_task_name()} completing step {func_name} with {result}')
 
@@ -379,19 +364,18 @@ class Historian:
                     details=traceback.format_exc()
                 )
             ))
-            raise
-        finally:
             self._prefix[self._get_task_name()].pop(-1)
+            raise
 
     async def record_external_event(self, name, identity, action, *args, **kwargs):
         """
         When an external event occurs, this method is called.
         """
         resource_id = _create_resource_id(name, identity)
+        step_id = self._get_unique_id(resource_id + '.' + action)
 
-        logging.debug(f'External {action} on {resource_id} with {args} and {kwargs}')
+        logging.debug(f'External event {step_id} with {args} and {kwargs}')
 
-        event_id = self._get_unique_id(resource_id + '.' + action)
         resource = self._resources[resource_id]['resource']
         function = getattr(resource, action)
         if inspect.iscoroutinefunction(function):
@@ -402,9 +386,9 @@ class Historian:
         self._history.append(ResourceAccessEvent(
             type='external',
             timestamp=_get_current_timestamp(),
+            step_id=step_id,
             task_id=self._get_task_name(),
             resource_id=resource_id,
-            event_id=event_id,
             action=action,
             args=args,
             kwargs=kwargs,
@@ -436,8 +420,8 @@ class Historian:
         If the event is new, it is recorded
         """
         resource_id = _create_resource_id(name, identity)
-        logging.debug(f'{self._get_task_name()} calling {action} on {resource_id} with {args} and {kwargs}')
-        event_id = self._get_unique_id(resource_id + '.' + action)
+        step_id = self._get_unique_id(resource_id + '.' + action)
+        logging.debug(f'{self._get_task_name()} calling {step_id} with {args} and {kwargs}')
 
         resource = self._resources[resource_id]['resource']
         function = getattr(resource, action)
@@ -450,9 +434,9 @@ class Historian:
             self._history.append(ResourceAccessEvent(
                 type='internal',
                 timestamp=_get_current_timestamp(),
+                step_id=step_id,
                 task_id=self._get_task_name(),
                 resource_id=resource_id,
-                event_id=event_id,
                 action=action,
                 args=args,
                 kwargs=kwargs,
@@ -478,7 +462,9 @@ class Historian:
             raise Exception(f'A resource for {identity} named {name} already exists in this workflow')
             # TODO - custom exception
 
+        step_id = self._get_unique_id(resource_id + '.' + '__init__')
         logging.debug(f'Creating {resource_id}')
+
         self._resources[resource_id] = ResourceEntry(
             name=name,
             identity=identity,
@@ -490,6 +476,7 @@ class Historian:
             self._history.append(ResourceLifecycleEvent(
                 type='create_resource',
                 timestamp=_get_current_timestamp(),
+                step_id=step_id,
                 task_id=self._get_task_name(),
                 resource_id=resource_id,
                 resource_type=_get_type_name(resource)
@@ -508,6 +495,7 @@ class Historian:
             raise Exception(f'No resource for {identity} named {name} found')
             # TODO - custom exception
 
+        step_id = self._get_unique_id(resource_id + '.' + '__del__')
         logging.debug(f'Removing {resource_id}')
         resource_entry = self._resources.pop(resource_id)
 
@@ -516,6 +504,7 @@ class Historian:
                 self._history.append(ResourceLifecycleEvent(
                     type='delete_resource',
                     timestamp=_get_current_timestamp(),
+                    step_id=step_id,
                     task_id=self._get_task_name(),
                     resource_id=resource_id,
                     resource_type=resource_entry['type']
@@ -538,6 +527,7 @@ class Historian:
                 self._history.append(TaskEvent(
                     type='start_task',
                     timestamp=_get_current_timestamp(),
+                    step_id=task_id + '.start',
                     task_id=task_id
                 ))
             else:
@@ -552,6 +542,7 @@ class Historian:
                 self._history.append(TaskEvent(
                     type='complete_task',
                     timestamp=_get_current_timestamp(),
+                    step_id=task_id + '.complete',
                     task_id=task_id
                 ))
 
@@ -584,16 +575,13 @@ class Historian:
         self._reset_replay()
         async with asyncio.TaskGroup() as self._task_factory:
             self._task_factory.create_task(self._external_handler(), name=f'{self.workflow_id}.external_replay')
-            self._main_task = self.start_task(self._run, *args, **kwargs, task_name=self.workflow_id)
-            return await self._main_task
+            return await self.start_task(self._run, *args, **kwargs, task_name=self.workflow_id)
 
     def suspend(self):
         for task in self._open_tasks:
             if not task.cancelled() and not task.cancelling() and not task.done():
                 logging.debug(f'Cancelling task {task.get_name()}')
                 task.cancel(SUSPENDED)
-        logging.debug(f'Cancelling task {self._main_task.get_name()}')
-        self._main_task.cancel(SUSPENDED)
 
     def get_resources(self, identity):
         # Get public resources first

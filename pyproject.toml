@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "quest.py"
-version = "0.2.0-beta"
+version = "0.2.0-beta2"
 description = "Framework for coordinated, long-running processes"
 authors = ["Gordon Bean <gbean@cs.byu.edu>"]
 packages = [{include = "quest", from = "src"}]
