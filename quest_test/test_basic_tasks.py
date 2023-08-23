@@ -88,7 +88,7 @@ async def test_basic_tasks_resume():
     # Will run and block on the event
     workflow = asyncio.create_task(historian.run('abc', 'xyz', 'tasks_resume'))
     await asyncio.sleep(0.1)
-    historian.suspend()
+    await historian.suspend()
 
     # Both subtasks should have run the first foobar
     assert counters['tasks_resume'] == 2

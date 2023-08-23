@@ -180,7 +180,7 @@ async def test_nested_tasks():
     await asyncio.sleep(0.01)
 
     await historian.record_external_event('the_queue', None, 'put', 1)
-    historian.suspend()
+    await historian.suspend()
 
     new_workflow = asyncio.create_task(historian.run())
     await asyncio.sleep(1)
@@ -219,7 +219,7 @@ async def test_queue_tasks_resume():
     await historian.record_external_event('foo', id_foo, 'put', 1)
     await historian.record_external_event('foo', id_foo, 'put', 2)
 
-    historian.suspend()
+    await historian.suspend()
 
     # Start it over
     workflow = asyncio.create_task(historian.run(id_foo, id_bar))

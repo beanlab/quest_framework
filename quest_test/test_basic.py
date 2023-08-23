@@ -80,7 +80,7 @@ async def test_resume():
 
     workflow = asyncio.create_task(historian.run('abc'))
     await asyncio.sleep(0.1)
-    historian.suspend()
+    await historian.suspend()
 
     assert history  # should not be empty
 
@@ -137,7 +137,7 @@ async def test_nested_steps_resume():
 
     workflow = asyncio.create_task(historian.run('abc', 'xyz'))
     await asyncio.sleep(0.1)
-    historian.suspend()
+    await historian.suspend()
 
     pause.set()
     result = await historian.run()
@@ -171,7 +171,7 @@ async def test_resume_mid_step():
 
     wtask = asyncio.create_task(historian.run(1))
     await asyncio.sleep(0.1)
-    historian.suspend()
+    await historian.suspend()
     stop.set()
 
     wtask = asyncio.create_task(historian.run(1))

@@ -54,8 +54,8 @@ class WorkflowLifecycleManager:
     def has_workflow(self, workflow_id):
         return workflow_id in self._historians
 
-    def suspend_workflow(self, workflow_id):
-        return self._historians[workflow_id].suspend()
+    async def suspend_workflow(self, workflow_id):
+        return await self._historians[workflow_id].suspend()
 
     def get_resources(self, workflow_id, identity):
         return self._historians[workflow_id].get_resources(identity)

@@ -121,13 +121,11 @@ async def test_long_fast_race():
     history = Historian('test', long_fast_race, records)
     workflow = asyncio.create_task(history.run())
     await asyncio.sleep(1)
-    history.suspend()
+    await history.suspend()
     print('original', records)
     print('_history', history._history)
-    print('_pruned', history._pruned)
 
     workflow = asyncio.create_task(history.run())
-    print(history._pruned)
     workflow_pause.set()
     result = await workflow
     # Short result should be 3 (func called 3x)

@@ -6,7 +6,7 @@ from asyncio import TaskGroup, Task
 from contextvars import ContextVar
 from datetime import datetime
 from functools import wraps
-from typing import TypedDict, Any, Callable, Literal, Protocol
+from typing import TypedDict, Any, Callable, Literal, Protocol, Reversible
 
 # external replay:
 # - there are possibly multiple threads interacting with the same resource
@@ -141,29 +141,35 @@ def _get_id(item):
     return item
 
 
-def _prune(history) -> list[EventRecord]:
+def _prune(step_id: str, history: "History"):
     """
     Remove substep work
     Records whose step_ids are prefixed by the step_id of the step are substep work
     Keep external events that belong to resources created outside the step
     """
-    keepers: list[EventRecord | None] = list(history)
-    for pos, record in enumerate(history):
-        if record['type'] == 'end':
-            # Go back and remove all the associated records
-            for back_pos in range(pos - 1, -1, -1):
-                back_record = history[back_pos]
+    items = reversed(history)
+    to_delete = []
 
-                if back_record['step_id'].startswith(record['step_id']):
-                    # Found a sub-record of the step, we can delete it
-                    keepers[back_pos] = None
+    # Last record should be a step with the give step ID
+    record = next(items)
+    assert record['type'] == 'end', f'{record["type"]} != end'
+    assert record['step_id'] == step_id, f'{record["step_id"]} != {step_id}'
 
-                if back_record['step_id'] == record['step_id']:
-                    # Found the beginning of the step, we can stop searching
-                    break
+    try:
+        while record := next(items):
+            if record['step_id'].startswith(step_id):
+                # Found a sub-record of the step, we can delete it
+                to_delete.append(record)
 
-    return [record for record in keepers if record is not None]
+            if record['step_id'] == step_id:
+                # Found the beginning of the step, we can stop searching
+                break
 
+    except StopIteration:
+        pass
+
+    for record in to_delete:
+        history.remove(record)
 
 def _get_current_timestamp() -> str:
     return datetime.utcnow().isoformat()
@@ -177,14 +183,16 @@ def _create_resource_id(name: str, identity: str) -> str:
 historian_context = ContextVar('historian')
 
 
-class History(Protocol):
+class History(Protocol, Reversible):
     def append(self, item): ...
 
-    def insert(self, pos, item): ...
+    def remove(self, item): ...
 
     def __iter__(self): ...
 
-    def __getitem__(self, item): ...
+    def __reversed__(self): ...
+
+    def __getitem__(self, pos): ...
 
     def __len__(self): ...
 
@@ -202,32 +210,29 @@ class Historian:
 
         # These values are reset every time you call start_workflow
         # See _reset_replay() (called in run)
-        self._open_tasks: set[Task] = set()
+        self._open_tasks: list[Task] = []
         self._resources = {}
         self._prefix = {'external': []}
         self._unique_ids: set[str] = set()
+        self._existing_history = []
         self._replay = {}
-        self._record_replays = {}
-        self._replay_pos = -1
-        self._pruned = []
+        self._record_gates = {}
 
     def _reset_replay(self):
         logging.debug('Resetting replay')
+        self._existing_history = list(self._history)
         self._resources = {}
 
         self._prefix = {'external': []}
         self._unique_ids = set()
 
-        self._pruned = _prune(self._history)
-
         self._replay = {'external': None}
-        self._record_replays = {
+        self._record_gates = {
             _get_id(record): asyncio.Event()
-            for record in self._pruned
+            for record in self._history
         }
-        self._replay_pos = 0
 
-        self._open_tasks: set[Task] = set()
+        self._open_tasks: list[Task] = []
 
     def _get_task_name(self):
         try:
@@ -263,32 +268,30 @@ class Historian:
         def __exit__(self, exc_type, exc_val, exc_tb):
             self.on_close(self.current_record)
 
-    async def _task_records(self, task_name):
-        while self._replay_pos < len(self._pruned):
-            while self._replay_pos < len(self._pruned) and \
-                    (record := self._pruned[self._replay_pos])['task_id'] != task_name:
-
-                if (event := self._record_replays[_get_id(record)]).is_set():
-                    logging.debug(f'{task_name} found {record} completed')
+    async def _task_replay_records(self, task_id):
+        """Yield the tasks for this task ID"""
+        for record in self._existing_history:
+            # If the record belongs to another task, we need to wait
+            #  for that other task to finish with the record
+            #  before we move on
+            if record['task_id'] != task_id:
+                if (event := self._record_gates[_get_id(record)]).is_set():
+                    logging.debug(f'{task_id} found {record} completed')
                 else:
-                    logging.debug(f'{task_name} waiting on {record}')
+                    logging.debug(f'{task_id} waiting on {record}')
                 await event.wait()
 
-            if self._replay_pos == len(self._pruned):
-                return
+            else:  # task ID matches
+                def complete(r):
+                    logging.debug(f'{task_id} completing {r}')
+                    self._record_gates[_get_id(r)].set()
 
-            def advance(r):
-                self._replay_pos += 1
-                logging.debug(f'{task_name} completing {r}')
-                self._record_replays[_get_id(r)].set()
-
-            # only unset if replay_pos == len(self._pruned), which case returns
-            # noinspection PyUnboundLocalVariable
-            logging.debug(f'{self._get_task_name()} replaying {record}')
-            yield self._NextRecord(record, advance)
+                # noinspection PyUnboundLocalVariable
+                logging.debug(f'{self._get_task_name()} replaying {record}')
+                yield self._NextRecord(record, complete)
 
     async def _external_handler(self):
-        async for next_record in self._task_records('external'):
+        async for next_record in self._task_replay_records('external'):
             with next_record as record:
                 await self._replay_external_event(record)
 
@@ -309,7 +312,7 @@ class Historian:
 
         if (next_record := await self._next_record()) is not None:
             with next_record as record:
-                assert record['step_id'] == step_id, f'{record["step_id"]} vs {step_id}'
+                assert record['step_id'] == step_id, f'{record["step_id"]} != {step_id}'
                 if record['type'] == 'end':
                     # Rehydrate step from history
                     assert record['type'] == 'end'
@@ -329,15 +332,13 @@ class Historian:
                 step_id=step_id
             ))
 
+        prune_on_exit = True
         try:
             self._prefix[self._get_task_name()].append(unique_func_name)
 
             result = func(*args, **kwargs)
             if hasattr(result, '__await__'):
                 result = await result
-
-            self._prefix[self._get_task_name()].pop(-1)
-
             logging.debug(f'{self._get_task_name()} completing step {func_name} with {result}')
 
             self._history.append(StepEndRecord(
@@ -348,15 +349,36 @@ class Historian:
                 result=result,
                 exception=None
             ))
+
             return result
+
+        except asyncio.CancelledError as cancel:
+            if cancel.args and cancel.args[0] == SUSPENDED:
+                prune_on_exit = False
+                raise asyncio.CancelledError(SUSPENDED)
+            else:
+                logging.exception(f'{step_id} canceled')
+                self._history.append(StepEndRecord(
+                    type='end',
+                    timestamp=_get_current_timestamp(),
+                    task_id=self._get_task_name(),
+                    step_id=step_id,
+                    result=None,
+                    exception=ExceptionDetails(
+                        type=_get_type_name(cancel),
+                        args=cancel.args,
+                        details=traceback.format_exc()
+                    )
+                ))
+                raise
 
         except Exception as ex:
             logging.exception(f'Error in {step_id}')
             self._history.append(StepEndRecord(
                 type='end',
                 timestamp=_get_current_timestamp(),
-                task_id=self._get_task_name(),
                 step_id=step_id,
+                task_id=self._get_task_name(),
                 result=None,
                 exception=ExceptionDetails(
                     type=_get_type_name(ex),
@@ -364,8 +386,12 @@ class Historian:
                     details=traceback.format_exc()
                 )
             ))
-            self._prefix[self._get_task_name()].pop(-1)
             raise
+
+        finally:
+            if prune_on_exit:
+                _prune(step_id, self._history)
+            self._prefix[self._get_task_name()].pop(-1)
 
     async def record_external_event(self, name, identity, action, *args, **kwargs):
         """
@@ -445,10 +471,10 @@ class Historian:
 
         else:
             with next_record as record:
-                assert 'internal' == record['type']
+                assert 'internal' == record['type'], f'internal != {record["type"]}'
                 assert resource_id == record['resource_id']
                 assert action == record['action']
-                assert list(args) == record['args']
+                assert list(args) == list(record['args'])
                 assert kwargs == record['kwargs']
                 assert result == record['result']
 
@@ -559,8 +585,8 @@ class Historian:
         )
 
         self._prefix[task.get_name()] = [task.get_name()]
-        self._replay[task.get_name()] = self._task_records(task.get_name())
-        self._open_tasks.add(task)
+        self._replay[task.get_name()] = self._task_replay_records(task.get_name())
+        self._open_tasks.append(task)
         task.add_done_callback(lambda t: self._open_tasks.remove(t) if t in self._open_tasks else None)
 
         return task
@@ -572,16 +598,26 @@ class Historian:
         return result
 
     async def run(self, *args, **kwargs):
+        logging.debug(f'Running workflow {self.workflow_id}')
         self._reset_replay()
         async with asyncio.TaskGroup() as self._task_factory:
             self._task_factory.create_task(self._external_handler(), name=f'{self.workflow_id}.external_replay')
             return await self.start_task(self._run, *args, **kwargs, task_name=self.workflow_id)
 
-    def suspend(self):
-        for task in self._open_tasks:
-            if not task.cancelled() and not task.cancelling() and not task.done():
-                logging.debug(f'Cancelling task {task.get_name()}')
+    async def suspend(self):
+        # Cancelling these in reverse order is critical
+        # If a parent thread cancels, it will cancel a child.
+        # We want to be the one that cancels every task,
+        #  so we cancel the children before the parents.
+        for task in list(reversed(self._open_tasks)):
+            if not task.done() or task.cancelled() or task.cancelling():
+                logging.debug(f'Suspending task {task.get_name()}')
                 task.cancel(SUSPENDED)
+        for task in list(self._open_tasks):
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
     def get_resources(self, identity):
         # Get public resources first

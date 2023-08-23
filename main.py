@@ -54,7 +54,7 @@ async def main():
 
     await workflows.signal_workflow(workflow_id, 'input', None, 'put', 'Foo')
     await asyncio.sleep(0.1)
-    workflows.suspend_workflow(workflow_id)
+    await workflows.suspend_workflow(workflow_id)
 
     workflow_task = asyncio.create_task(workflows.run_workflow(workflow_id))
     await asyncio.sleep(0.1)
