@@ -38,5 +38,11 @@ async def test_persistence_basic(tmp_path: Path):
     await historian.suspend()
 
     pause.set()
+    history = PersistentHistory('test', storage)
+    historian = Historian(
+        'test',
+        simple_workflow,
+        history
+    )
     result = await historian.run()
     assert result == 14

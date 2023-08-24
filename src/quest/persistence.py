@@ -20,8 +20,8 @@ class BlobStorage(Protocol):
 
 
 class PersistentHistory(History):
-    def __init__(self, workflow_id: str, storage: BlobStorage):
-        self._workflow_id = workflow_id
+    def __init__(self, namespace: str, storage: BlobStorage):
+        self._namespace = namespace
         self._storage = storage
         # TODO - use linked list instead of array list
         # master stores head/tail keys
@@ -31,25 +31,25 @@ class PersistentHistory(History):
         self._items = []
         self._keys: list[str] = []
 
-        if storage.has_blob(workflow_id):
-            self._keys = storage.read_blob(workflow_id)
+        if storage.has_blob(namespace):
+            self._keys = storage.read_blob(namespace)
             for key in self._keys:
                 self._items.append(storage.read_blob(key))
 
     def _get_key(self, item) -> str:
-        return self._workflow_id + '.' + md5(repr(item).encode()).hexdigest()
+        return self._namespace + '.' + md5(repr(item).encode()).hexdigest()
 
     def append(self, item):
         self._items.append(item)
         self._keys.append(key := self._get_key(item))
         self._storage.write_blob(key, item)
-        self._storage.write_blob(self._workflow_id, self._keys)
+        self._storage.write_blob(self._namespace, self._keys)
 
     def remove(self, item):
         self._items.remove(item)
         self._keys.remove(key := self._get_key(item))
         self._storage.delete_blob(key)
-        self._storage.write_blob(self._workflow_id, self._keys)
+        self._storage.write_blob(self._namespace, self._keys)
 
     def __iter__(self):
         return iter(self._items)
