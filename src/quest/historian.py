@@ -196,50 +196,119 @@ class History(Protocol, Reversible):
 
 class Historian:
     def __init__(self, workflow_id: str, workflow: Callable, history: History):
+        # TODO - change nomenclature (away from workflow)? Maybe just use workflow.__name__?
         self.workflow_id = workflow_id
         self.workflow = workflow
 
         # These things need to be serialized
         self._history: History = history
 
-        # This is set in run
-        self._task_factory: TaskGroup | None = None
-
-        # These values are reset every time you call start_workflow
+        # The remaining properties are reset every time you call start_workflow
         # See _reset_replay() (called in run)
-        self._open_tasks: list[Task] = []
+
+        # If the application fails, this future will know.
+        # See also get_resources() and _run_with_exception_handling()
+        self._fatal_exception = asyncio.Future()
+
+        # These are the resources available to the outside world.
+        #  This could include values that can be accessed,
+        #  queues to push to, etc.
+        # See also external.py
         self._resources = {}
-        self._prefix = {'external': []}
+
+        # We keep track of all open tasks so we can properly suspend them
+        self._open_tasks: list[Task] = []
+
+        # The prefix tracks the call stack for each task
+        #  so we can create accurate, informative step and task IDs
+        self._prefix = {}
+
+        # When a function is called twice in the same stack frame,
+        #  the second call would have the same ID as the first.
+        #  Unique IDs keeps track of existing IDs so we can ensure
+        #  each new ID is unique. See _get_unique_id
         self._unique_ids: set[str] = set()
+
+        # Replay Started ensures that no one tries to access resources
+        #  until the resources have been rebuilt after resuming
+        # It makes sure the workflow has actually started running
+        # Then we wait until the replay has completed (see _replay_complete)
+        self._replay_started = asyncio.Event()
+
+        # The existing history is a copy of the initial history
+        #  This ensures that we only replay the pre-existing records
         self._existing_history = []
-        self._replay = {}
+
+        # Each task needs to replay its separate event records,
+        #  but the records are all interleaved.
+        #  We use _task_replay_records to create a stream of records
+        #  that belong to a specific task.
+        # _replay_records stores the generators for each task ID
+        # See also _next_record
+        self._replay_records = {}
+
+        # To ensure that past events are replayed in the exact order
+        #  they were created, a record gate exists for each record.
+        #  When a task finishes with a record, it opens the gate
+        #  which allows every task to move to the next record
         self._record_gates = {}
+
+        self._last_record_gate = None
 
     def _reset_replay(self):
         logging.debug('Resetting replay')
+
         self._existing_history = list(self._history)
         self._resources = {}
 
-        self._prefix = {'external': []}
+        # The workflow ID is used as the task name for the root task
+        self._prefix = {
+            self.workflow_id: [],
+            self._get_external_task_name(): [],
+        }
+
         self._unique_ids = set()
 
-        self._replay = {'external': None}
+        self._task_replays = {}
+
+        # We add the workflow ID and the external task name
+        #  so that the root task (see run()) and the external event handler
+        #  are both recognized as "belonging" to this historian
+        #  See also _get_task_name()
+        self._replay_records = {
+            self.workflow_id: None,
+            self._get_external_task_name(): None
+        }
+
         self._record_gates = {
             _get_id(record): asyncio.Event()
             for record in self._history
         }
 
+        for self._last_record_gate in self._record_gates.values():
+            pass  # i.e. when this loop finishes, _last_record_gate will be the last one
+
         self._open_tasks: list[Task] = []
+
+        self._replay_started.set()
+
+    async def _replay_complete(self):
+        if self._last_record_gate is not None:
+            await self._last_record_gate.wait()
+
+    def _get_external_task_name(self):
+        return f'{self.workflow_id}.external'
 
     def _get_task_name(self):
         try:
             name = asyncio.current_task().get_name()
-            if name in self._replay:
+            if name in self._replay_records:
                 return name
             else:
-                return 'external'
+                return self._get_external_task_name()
         except RuntimeError:
-            return 'external'
+            # TODO - is this catch necessary? It smells REALLY bad.
+            return self._get_external_task_name()
 
     def _get_prefixed_name(self, event_name: str) -> str:
         return '.'.join(self._prefix[self._get_task_name()]) + '.' + event_name
@@ -266,6 +335,9 @@ class Historian:
             self.on_close(self.current_record)
 
     async def _task_replay_records(self, task_id):
+        task_replay = asyncio.Event()
+        self._task_replays[task_id] = task_replay
+
         """Yield the tasks for this task ID"""
         for record in self._existing_history:
             # If the record belongs to another task, we need to wait
@@ -276,7 +348,7 @@ class Historian:
                     logging.debug(f'{task_id} found {record} completed')
                 else:
                     logging.debug(f'{task_id} waiting on {record}')
-                await event.wait()
+                    await event.wait()
 
             else:  # task ID matches
                 def complete(r):
@@ -287,20 +359,26 @@ class Historian:
                 logging.debug(f'{self._get_task_name()} replaying {record}')
                 yield self._NextRecord(record, complete)
 
+        logging.debug(f'Replay for {self._get_task_name()} complete')
+        task_replay.set()
+        await self._replay_complete()
+
     async def _external_handler(self):
-        async for next_record in self._task_replay_records('external'):
+        logging.debug(f'External event handler {self._get_task_name()} starting')
+        async for next_record in self._task_replay_records(self._get_external_task_name()):
             with next_record as record:
                 await self._replay_external_event(record)
+        logging.debug(f'External event handler {self._get_task_name()} completed')
 
     async def _next_record(self):
-        if self._replay[self._get_task_name()] is None:
+        if self._replay_records[self._get_task_name()] is None:
             return None
 
         try:
-            return await self._replay[self._get_task_name()].asend(None)
+            return await self._replay_records[self._get_task_name()].asend(None)
 
         except StopAsyncIteration:
-            self._replay[self._get_task_name()] = None
+            self._replay_records[self._get_task_name()] = None
             return None
 
     async def handle_step(self, func_name, func: Callable, *args, **kwargs):
@@ -424,7 +502,7 @@ class Historian:
         """
         When an external event is replayed, this method is called
         """
-        assert record['type'] == 'external'
+        assert record['type'] == 'external', str(record)
 
         result = getattr(
             self._resources[record['resource_id']]['resource'],
@@ -538,15 +616,16 @@ class Historian:
                     assert record['type'] == 'delete_resource'
                     assert record['resource_id'] == resource_id
 
-    def start_task(self, func, *args, task_name=None, **kwargs):
+    def start_task(self, func, *args, name=None, task_factory=asyncio.create_task, **kwargs):
         historian_context.set(self)
-        task_id = task_name or self._get_unique_id(func.__name__)
+        task_id = name or self._get_unique_id(func.__name__)
         logging.debug(f'{self._get_task_name()} has requested {task_id} start')
 
         @wraps(func)
         async def _func(*a, **kw):
+            logging.debug(f'Starting task {task_id}')
+
             if (next_record := await self._next_record()) is None:
-                logging.debug(f'Starting task {task_id}')
                 self._history.append(TaskEvent(
                     type='start_task',
                     timestamp=_get_current_timestamp(),
@@ -561,7 +640,6 @@ class Historian:
             result = await func(*a, **kw)
 
             if (next_record := await self._next_record()) is None:
-                logging.debug(f'Completing task {task_id}')
                 self._history.append(TaskEvent(
                     type='complete_task',
                     timestamp=_get_current_timestamp(),
@@ -574,35 +652,61 @@ class Historian:
                     assert record['type'] == 'complete_task'
                     assert record['task_id'] == task_id
 
+            logging.debug(f'Completing task {task_id}')
             return result
 
-        task = self._task_factory.create_task(
+        task = task_factory(
             _func(*args, **kwargs),
-            name=task_id,
+            name=task_id
         )
 
         self._prefix[task.get_name()] = [task.get_name()]
-        self._replay[task.get_name()] = self._task_replay_records(task.get_name())
+        self._replay_records[task.get_name()] = self._task_replay_records(task.get_name())
         self._open_tasks.append(task)
         task.add_done_callback(lambda t: self._open_tasks.remove(t) if t in self._open_tasks else None)
 
         return task
 
-    async def _run(self, *args, **kwargs):
+    async def _run_with_args(self, *args, **kwargs):
         args = await self.handle_step('args', lambda: args)
         kwargs = await self.handle_step('kwargs', lambda: kwargs)
         result = await self.handle_step(self.workflow.__name__, self.workflow, *args, **kwargs)
         return result
 
-    async def run(self, *args, **kwargs):
+    async def _run_with_exception_handling(self, *args, **kwargs):
+        try:
+            return await self._run_with_args(*args, **kwargs)
+        except Exception as ex:
+            self._fatal_exception.set_exception(ex)
+            raise
+
+    async def _run(self, *args, **kwargs):
+        historian_context.set(self)
         logging.debug(f'Running workflow {self.workflow_id}')
         self._reset_replay()
-        async with asyncio.TaskGroup() as self._task_factory:
-            self._task_factory.create_task(self._external_handler(), name=f'{self.workflow_id}.external_replay')
-            return await self.start_task(self._run, *args, **kwargs, task_name=self.workflow_id)
+        # We use a TaskGroup here to ensure that the external_replay task
+        #  exits when the main task fails
+        async with asyncio.TaskGroup() as _task_factory:
+            external_task = _task_factory.create_task(
+                self._external_handler(),
+                name=self._get_external_task_name()
+            )
+            self._open_tasks.append(external_task)
+            external_task.add_done_callback(lambda t: self._open_tasks.remove(t) if t in self._open_tasks else None)
+
+            return await self.start_task(
+                self._run_with_exception_handling,
+                *args, **kwargs,
+                name=f'{self.workflow_id}.main',
+                task_factory=_task_factory.create_task
+            )
+
+    def run(self, *args, **kwargs):
+        self._replay_started.clear()
+        return asyncio.create_task(self._run(*args, **kwargs), name=self.workflow_id)
 
     async def suspend(self):
-        # Cancelling these in reverse order is critical
+        # Cancelling these in reverse order is important
         # If a parent thread cancels, it will cancel a child.
         # We want to be the one that cancels every task,
         #  so we cancel the children before the parents.
@@ -610,13 +714,26 @@ class Historian:
             if not task.done() or task.cancelled() or task.cancelling():
                 logging.debug(f'Suspending task {task.get_name()}')
                 task.cancel(SUSPENDED)
+
+        # Once each task has been marked for cancellation
+        #  we await each task in order to allow the cancellation
+        #  to play out to completion.
         for task in list(self._open_tasks):
             try:
                 await task
             except asyncio.CancelledError:
                 pass
 
-    def get_resources(self, identity):
+    async def get_resources(self, identity):
+        # Wait until the replay is done.
+        # This ensures that all pre-existing resources have been rebuilt.
+        await self._replay_started.wait()
+        await self._replay_complete()
+
+        # If the application has failed, let the caller know
+        if self._fatal_exception.done():
+            await self._fatal_exception
+
         # Get public resources first
         resources = {
             entry['name']: {

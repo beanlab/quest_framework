@@ -6,6 +6,7 @@ import pytest
 from src.quest import step
 from src.quest.historian import Historian
 from src.quest.persistence import PersistentHistory, LocalFileSystemBlobStorage
+from utils import timeout
 
 
 @step
@@ -24,6 +25,7 @@ async def simple_workflow():
 
 
 @pytest.mark.asyncio
+@timeout(3)
 async def test_persistence_basic(tmp_path: Path):
     storage = LocalFileSystemBlobStorage(tmp_path)
     history = PersistentHistory('test', storage)
@@ -33,7 +35,7 @@ async def test_persistence_basic(tmp_path: Path):
         history
     )
 
-    workflow = asyncio.create_task(historian.run())
+    workflow = historian.run()
     await asyncio.sleep(0.01)
     await historian.suspend()
 

@@ -4,6 +4,7 @@ import pytest
 
 from src.quest.historian import Historian
 from src.quest.wrappers import task
+from utils import timeout
 
 stop = asyncio.Event()
 steps = []
@@ -16,6 +17,7 @@ async def workflow_will_stop():
 
 
 @pytest.mark.asyncio
+@timeout(3)
 async def test_cancel():
     historian = Historian(
         'test',
@@ -23,7 +25,7 @@ async def test_cancel():
         [],
     )
 
-    workflow = asyncio.create_task(historian.run())
+    workflow = historian.run()
     await asyncio.sleep(0.1)
     await historian.suspend()
     stop.set()
@@ -56,6 +58,7 @@ async def workflow_with_tasks():
 
 
 @pytest.mark.asyncio
+@timeout(3)
 async def test_task_cancel():
     historian = Historian(
         'test',
@@ -63,7 +66,7 @@ async def test_task_cancel():
         [],
     )
 
-    workflow = asyncio.create_task(historian.run())
+    workflow = historian.run()
     await asyncio.sleep(0.1)
     await historian.suspend()
     block.set()

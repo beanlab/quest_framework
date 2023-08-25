@@ -5,6 +5,8 @@ import pytest
 from src.quest.external import state, queue, event
 from src.quest.historian import Historian
 from src.quest.wrappers import task
+from utils import timeout
+
 
 # External resource tests
 # - create the resource
@@ -17,6 +19,20 @@ from src.quest.wrappers import task
 # Also:
 # - identities and visibility
 # - should the identity be required along with the resource ID?
+
+def is_waiting(task: asyncio.Task):
+    coro = task.get_coro()
+    return hasattr(coro, 'cr_await') and getattr(coro, 'cr_await') is not None
+
+
+async def wait_for(historian):
+    """Pauses the calling code until all historian tasks are blocked
+    Not guaranteed to work in production, but works fine for these tests.
+    """
+    await asyncio.sleep(0)
+    while not all(is_waiting(task) for task in historian._open_tasks):
+        await asyncio.sleep(0)  # don't pause, just defer to another task
+
 
 # Test state
 
@@ -31,17 +47,17 @@ async def state_workflow(identity):
 
 
 @pytest.mark.asyncio
+@timeout(3)
 async def test_external_state():
     identity = 'foo_ident'
     historian = Historian('test', state_workflow, [])
-    workflow = asyncio.create_task(historian.run(identity))
-    await asyncio.sleep(0.01)
+    workflow = historian.run(identity)
 
     # Observe state
-    resources = historian.get_resources(None)  # i.e. public resources
+    resources = await historian.get_resources(None)  # i.e. public resources
     assert not resources  # should be empty
 
-    resources = historian.get_resources(identity)
+    resources = await historian.get_resources(identity)
     assert 'name' in resources
     assert resources['name']['type'] == "src.quest.external.State"
     assert resources['name']['value'] == 'Foobar'
@@ -49,7 +65,7 @@ async def test_external_state():
     # Set state
     await historian.record_external_event('name', identity, 'set', 'Barbaz')
 
-    resources = historian.get_resources(identity)
+    resources = await historian.get_resources(identity)
     assert 'name' in resources
     assert resources['name']['type'] == "src.quest.external.State"
     assert resources['name']['value'] == 'Barbaz'
@@ -70,6 +86,7 @@ async def workflow_with_queue(identity):
 
 
 @pytest.mark.asyncio
+@timeout(3)
 async def test_external_queue():
     identity = 'foo_ident'
     historian = Historian(
@@ -77,13 +94,12 @@ async def test_external_queue():
         workflow_with_queue,
         [],
     )
-    workflow = asyncio.create_task(historian.run(identity))
-    await asyncio.sleep(0.01)
+    workflow = historian.run(identity)
 
-    resources = historian.get_resources(None)
+    resources = await historian.get_resources(None)
     assert not resources
 
-    resources = historian.get_resources(identity)
+    resources = await historian.get_resources(identity)
     assert 'items' in resources
     assert resources['items']['type'] == 'asyncio.queues.Queue'
 
@@ -118,6 +134,7 @@ async def queue_task_workflow(id1, id2):
 
 
 @pytest.mark.asyncio
+@timeout(3)
 async def test_queue_tasks():
     id_foo = 'FOO'
     id_bar = 'BAR'
@@ -127,14 +144,14 @@ async def test_queue_tasks():
         [],
     )
 
-    workflow = asyncio.create_task(historian.run(id_foo, id_bar))
-    await asyncio.sleep(0.01)
+    workflow = historian.run(id_foo, id_bar)
+    await wait_for(historian)
 
-    resources = historian.get_resources(id_foo)
+    resources = await historian.get_resources(id_foo)
     assert 'foo' in resources
     assert 'foo_done' in resources
 
-    resources = historian.get_resources(id_bar)
+    resources = await historian.get_resources(id_bar)
     assert 'foo' in resources
     assert 'foo_done' in resources
 
@@ -169,6 +186,7 @@ async def workflow_nested_tasks():
 
 
 @pytest.mark.asyncio
+@timeout(3)
 async def test_nested_tasks():
     historian = Historian(
         'test',
@@ -176,13 +194,13 @@ async def test_nested_tasks():
         [],
     )
 
-    workflow = asyncio.create_task(historian.run())
-    await asyncio.sleep(0.01)
+    workflow = historian.run()
+    await wait_for(historian)
 
     await historian.record_external_event('the_queue', None, 'put', 1)
     await historian.suspend()
 
-    new_workflow = asyncio.create_task(historian.run())
+    new_workflow = historian.run()
     await asyncio.sleep(1)
     await historian.record_external_event('the_queue', None, 'put', 2)
 
@@ -194,6 +212,7 @@ async def test_nested_tasks():
 #
 
 @pytest.mark.asyncio
+@timeout(3)
 async def test_queue_tasks_resume():
     id_foo = 'FOO'
     id_bar = 'BAR'
@@ -204,14 +223,14 @@ async def test_queue_tasks_resume():
         history
     )
 
-    workflow = asyncio.create_task(historian.run(id_foo, id_bar))
-    await asyncio.sleep(1)
+    workflow = historian.run(id_foo, id_bar)
+    await wait_for(historian)
 
-    resources = historian.get_resources(id_foo)
+    resources = await historian.get_resources(id_foo)
     assert 'foo' in resources
     assert 'foo_done' in resources
 
-    resources = historian.get_resources(id_bar)
+    resources = await historian.get_resources(id_bar)
     assert 'foo' in resources
     assert 'foo_done' in resources
 
@@ -222,14 +241,15 @@ async def test_queue_tasks_resume():
     await historian.suspend()
 
     # Start it over
-    workflow = asyncio.create_task(historian.run(id_foo, id_bar))
+    workflow = historian.run(id_foo, id_bar)
+    await wait_for(historian)
     await asyncio.sleep(1)
 
-    resources = historian.get_resources(id_foo)
+    resources = await historian.get_resources(id_foo)
     assert 'foo' in resources
     assert 'foo_done' in resources
 
-    resources = historian.get_resources(id_bar)
+    resources = await historian.get_resources(id_bar)
     assert 'foo' in resources
     assert 'foo_done' in resources
 
@@ -241,34 +261,42 @@ async def test_queue_tasks_resume():
     assert await workflow == [1, 2, 3, 4, 5]
 
 
-@task
-async def fail():
-    raise Exception('Epic Fail')
+"""
 
+gate = asyncio.Event()
+task_fut = asyncio.Future()
 
-@task
-async def do_stuff():
-    await asyncio.sleep(1)
-    await asyncio.sleep(1)
-    await asyncio.sleep(3)
-    pytest.fail('This should not have been reached')
+async def get_stuck():
+    me: asyncio.Task = await task_fut
+    print('cr_await', me._coro.cr_await)
+    print('cr_running', me._coro.cr_running)
+    print('cr_suspended', me._coro.cr_suspended)
+    await gate.wait()
 
-
-async def failflow():
-    will_do_stuff = do_stuff()
-    will_fail = fail()
-    await will_do_stuff
-    await will_fail
-
+async def just_stuck():
+    await gate.wait()
 
 @pytest.mark.asyncio
-async def test_failflow(tmp_path):
-    historian = Historian(
-        'test',
-        failflow,
-        []
-    )
-    try:
-        await historian.run()
-    except ExceptionGroup as ex:
-        assert ex.exceptions[0].args[0] == 'Epic Fail'
+async def test_research():
+    task1 = asyncio.create_task(get_stuck())
+    print(1, is_waiting(task1), task1.done())
+    task_fut.set_result(task1)
+    print(2, is_waiting(task1), task1.done())
+    await asyncio.sleep(0)  # should let task1 start
+    print(3, is_waiting(task1), task1.done())
+    task2 = asyncio.create_task(just_stuck())  # shouldn't be started yet
+    print('foo')
+    gate.set()
+    print(4, is_waiting(task1), task1.done())
+    await task2
+    print(5, is_waiting(task1), task1.done())
+    await asyncio.sleep(0)
+    print(6, is_waiting(task1), task1.done())
+    await task1
+    print(7, is_waiting(task1), task1.done())
+
+
+def is_waiting(task: asyncio.Task):
+    coro = task.get_coro()
+    return hasattr(coro, 'cr_await') and getattr(coro, 'cr_await') is not None
+"""

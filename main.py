@@ -5,10 +5,10 @@ import shutil
 import uuid
 from pathlib import Path
 
-from src.quest import step
+from src.quest import step, create_filesystem_historian
 from src.quest.external import state, queue
 from src.quest.lifecycle import WorkflowLifecycleManager, StatelessWorkflowFactory
-from src.quest.local_persistence import LocalJsonHistory
+from src.quest.persistence import PersistentHistory, LocalFileSystemBlobStorage
 
 logging.basicConfig(level=logging.DEBUG)
 INPUT_EVENT_NAME = 'input'
@@ -41,28 +41,27 @@ async def main():
 
     workflow_id = str(uuid.uuid4())
 
-    workflows = WorkflowLifecycleManager(
-        StatelessWorkflowFactory(register_user),
-        lambda wid: LocalJsonHistory(saved_state / "workflow_history" / wid)
+    historian = create_filesystem_historian(
+        saved_state, 'demo', register_user
     )
 
-    workflow_task = asyncio.create_task(workflows.run_workflow(workflow_id, 'Howdy'))
+    workflow_task = historian.run('Howdy')
     await asyncio.sleep(0.1)
 
-    resources = workflows.get_resources(workflow_id, None)
+    resources = await historian.get_resources(None)
     assert resources['prompt']['value'] == 'Name: '
 
-    await workflows.signal_workflow(workflow_id, 'input', None, 'put', 'Foo')
+    await historian.record_external_event('input', None, 'put', 'Foo')
     await asyncio.sleep(0.1)
-    await workflows.suspend_workflow(workflow_id)
+    await historian.suspend()
 
-    workflow_task = asyncio.create_task(workflows.run_workflow(workflow_id))
+    workflow_task = historian.run()
     await asyncio.sleep(0.1)
 
-    resources = workflows.get_resources(workflow_id, None)
+    resources = await historian.get_resources(None)
     assert resources['prompt']['value'] == 'Student ID: '
 
-    await workflows.signal_workflow(workflow_id, 'input', None, 'put', '123')
+    await historian.record_external_event('input', None, 'put', '123')
 
     assert await workflow_task == 'Name: Foo, ID: 123'
 

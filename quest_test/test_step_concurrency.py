@@ -5,6 +5,7 @@ import pytest
 from src.quest import step
 from src.quest.historian import Historian
 from src.quest.wrappers import task
+from utils import timeout
 
 
 @step
@@ -50,6 +51,7 @@ async def doubleflow(text):
 
 
 @pytest.mark.asyncio
+@timeout(3)
 async def test_step_tasks():
     historian = Historian(
         'test',
@@ -116,16 +118,17 @@ async def long_fast_race():
 
 
 @pytest.mark.asyncio
+@timeout(3)
 async def test_long_fast_race():
     records = []
     history = Historian('test', long_fast_race, records)
-    workflow = asyncio.create_task(history.run())
+    workflow = history.run()
     await asyncio.sleep(1)
     await history.suspend()
     print('original', records)
     print('_history', history._history)
 
-    workflow = asyncio.create_task(history.run())
+    workflow = history.run()
     workflow_pause.set()
     result = await workflow
     # Short result should be 3 (func called 3x)

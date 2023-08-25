@@ -60,6 +60,7 @@ class PersistentHistory(History):
 
 class LocalFileSystemBlobStorage(BlobStorage):
     def __init__(self, root_folder: Path):
+        root_folder.mkdir(parents=True, exist_ok=True)
         self._root = root_folder
 
     def _get_file(self, key: str) -> Path:

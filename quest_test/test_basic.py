@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from quest_test.test_basic_tasks import timeout
+from utils import timeout
 from src.quest import step
 from src.quest.historian import Historian
 
@@ -23,6 +23,7 @@ async def workflow(name):
 
 
 @pytest.mark.asyncio
+@timeout(3)
 async def test_basic_workflow():
     history = []
     historian = Historian(
@@ -70,6 +71,7 @@ async def longer_workflow(text):
 
 
 @pytest.mark.asyncio
+@timeout(3)
 async def test_resume():
     history = []
     historian = Historian(
@@ -78,8 +80,8 @@ async def test_resume():
         history
     )
 
-    workflow = asyncio.create_task(historian.run('abc'))
-    await asyncio.sleep(0.1)
+    workflow = historian.run('abc')
+    await asyncio.sleep(0.01)
     await historian.suspend()
 
     assert history  # should not be empty
@@ -127,6 +129,7 @@ async def nested_workflow(text1, text2):
 
 
 @pytest.mark.asyncio
+@timeout(3)
 async def test_nested_steps_resume():
     history = []
     historian = Historian(
@@ -135,7 +138,7 @@ async def test_nested_steps_resume():
         history
     )
 
-    workflow = asyncio.create_task(historian.run('abc', 'xyz'))
+    workflow = historian.run('abc', 'xyz')
     await asyncio.sleep(0.1)
     await historian.suspend()
 
@@ -169,12 +172,12 @@ async def test_resume_mid_step():
         []
     )
 
-    wtask = asyncio.create_task(historian.run(1))
+    wtask = historian.run(1)
     await asyncio.sleep(0.1)
     await historian.suspend()
     stop.set()
 
-    wtask = asyncio.create_task(historian.run(1))
+    wtask = historian.run(1)
     await asyncio.sleep(0.1)
 
     assert await wtask == 3
