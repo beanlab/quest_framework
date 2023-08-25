@@ -155,10 +155,17 @@ def _prune(step_id: str, history: "History"):
     assert record['type'] == 'end', f'{record["type"]} != end'
     assert record['step_id'] == step_id, f'{record["step_id"]} != {step_id}'
 
+    end_of_life_resources = set()
     try:
         while record := next(items):
             if record['step_id'].startswith(step_id):
                 # Found a sub-record of the step, we can delete it
+                # But if it is a resource scoped to this step, keep track of it first
+                if record['type'] == 'delete_resource':
+                    end_of_life_resources.add(record['resource_id'])
+                to_delete.append(record)
+
+            if record['type'] == 'external' and record['resource_id'] in end_of_life_resources:
                 to_delete.append(record)
 
             if record['step_id'] == step_id:
