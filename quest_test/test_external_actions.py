@@ -52,6 +52,7 @@ async def test_external_state():
     identity = 'foo_ident'
     historian = Historian('test', state_workflow, [])
     workflow = historian.run(identity)
+    await wait_for(historian)
 
     # Observe state
     resources = await historian.get_resources(None)  # i.e. public resources
@@ -95,6 +96,7 @@ async def test_external_queue():
         [],
     )
     workflow = historian.run(identity)
+    await wait_for(historian)
 
     resources = await historian.get_resources(None)
     assert not resources
