@@ -8,6 +8,9 @@ from datetime import datetime
 from functools import wraps
 from typing import TypedDict, Any, Callable, Literal, Protocol, Reversible
 
+QUEST_VERSIONS = "_quest_versions"
+GLOBAL_VERSION = "_global_version"
+
 # external replay:
 # - there are possibly multiple threads interacting with the same resource
 # - if a resource is published, external parties can interact with it
@@ -71,6 +74,15 @@ class ExceptionDetails(TypedDict):
     type: str
     args: tuple
     details: str
+
+
+class VersionRecord(TypedDict):
+    type: Literal['version']
+    timestamp: str
+    step_id: Literal['set_version']
+    task_id: str
+    version_name: str
+    version: str
 
 
 class StepStartRecord(TypedDict):
@@ -183,6 +195,18 @@ def _get_current_timestamp() -> str:
     return datetime.utcnow().isoformat()
 
 
+def _get_qualified_version(module_name, function_name, version_name: str) -> str:
+    """
+    A version is defined by the module and name of the function that is versioned.
+    If you move a function to a new module (or rename the module), it has become a new function.
+    If you change the function you are calling in a replay (i.e. its name has changed),
+    you may not get the expected results.
+
+    You've been warned.
+    """
+    return '.'.join([module_name, function_name, version_name])
+
+
 # Resource names should be unique to the workflow and identity
 def _create_resource_id(name: str, identity: str) -> str:
     return f'{name}|{identity}' if identity is not None else name
@@ -210,12 +234,24 @@ class Historian:
         # These things need to be serialized
         self._history: History = history
 
-        # The remaining properties are reset every time you call start_workflow
-        # See _reset_replay() (called in run)
+        # The remaining properties defined in __init__
+        # are reset every time you call start_workflow
+        # See _reset_replay() (called in _run)
 
         # If the application fails, this future will know.
         # See also get_resources() and _run_with_exception_handling()
         self._fatal_exception = asyncio.Future()
+
+        # Keep track of the versions of the workflow function
+        self._versions = {}
+
+        # Keep track of the discovered, unprocessed versions
+        # While the code runs, it finds functions that are versioned
+        # However, we only process the versions during live play
+        #  (not replay), so we need to save these until the replay is complete
+        # Then we add events to the history to record the new versions.
+        # As the workflow proceeds, it will now use the latest versions observed.
+        self._discovered_versions = {}
 
         # These are the resources available to the outside world.
         #  This could include values that can be accessed,
@@ -262,10 +298,13 @@ class Historian:
         #  the error is put here, leading to the replay failing
         self._record_gates: dict[str, asyncio.Future] = {}
 
-        self._last_record_gate = None
+        # noinspection PyTypeChecker
+        self._last_record_gate: asyncio.Future = None
 
     def _reset_replay(self):
         logging.debug('Resetting replay')
+
+        self._versions = {}
 
         self._existing_history = list(self._history)
         self._resources = {}
@@ -305,6 +344,8 @@ class Historian:
         if self._last_record_gate is not None:
             await self._last_record_gate
         logging.debug(f'{self.workflow_id} -- Replay Complete --')
+
+        self._process_discovered_versions()
 
     def _get_external_task_name(self):
         return f'{self.workflow_id}.external'
@@ -387,7 +428,10 @@ class Historian:
             logging.debug(f'External event handler {self._get_task_name()} starting')
             async for next_record in self._task_replay_records(self._get_external_task_name()):
                 with next_record as record:
-                    await self._replay_external_event(record)
+                    if record['type'] == 'external':
+                        await self._replay_external_event(record)
+                    elif record['type'] == 'version':
+                        self._replay_version(record)
             logging.debug(f'External event handler {self._get_task_name()} completed')
         except Exception:
             logging.exception('Error in _external_handler')
@@ -403,6 +447,44 @@ class Historian:
         except StopAsyncIteration:
             self._replay_records[self._get_task_name()] = None
             return None
+
+    def get_version(self, module_name, function_name, version_name=GLOBAL_VERSION):
+        return self._versions.get(_get_qualified_version(module_name, function_name, version_name), None)
+
+    def _discover_versions(self, function, versions: dict[str, str]):
+        self._discovered_versions.update({
+            _get_qualified_version(function.__module__, function.__qualname__, version_name): version
+            for version_name, version in versions.items()
+        })
+
+        # If the replay has already finished...
+        if self._last_record_gate is not None and self._last_record_gate.done():
+            self._process_discovered_versions()
+
+    def _process_discovered_versions(self):
+        for version_name, version in self._discovered_versions.items():
+            # These records are replayed by the external handler
+            self._record_version_event(version_name, version)
+        self._discovered_versions = {}
+
+    def _record_version_event(self, version_name, version):
+        if self._versions.get(version_name, None) == version:
+            return  # Version not changed
+
+        logging.debug(f'Version record: {version_name} = {version}')
+        self._versions[version_name] = version
+
+        self._history.append(VersionRecord(
+            type='version',
+            timestamp=_get_current_timestamp(),
+            step_id='set_version',
+            task_id=self._get_external_task_name(),  # the external task owns these
+            version_name=version_name,
+            version=version
+        ))
+
+    def _replay_version(self, record: VersionRecord):
+        self._versions[record['version_name']] = record['version']
 
     async def handle_step(self, func_name, func: Callable, *args, **kwargs):
         step_id = self._get_unique_id(func_name)

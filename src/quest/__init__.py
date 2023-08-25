@@ -6,6 +6,7 @@ from .wrappers import step, task
 from .external import state, queue, identity_queue, event
 from .historian import Historian
 from .persistence import LocalFileSystemBlobStorage, PersistentHistory
+from .versioning import version, get_version
 
 
 def create_filesystem_historian(save_folder: Path, historian_id: str, function: Callable) -> Historian:
