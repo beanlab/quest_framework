@@ -251,7 +251,9 @@ class Historian:
         #  they were created, a record gate exists for each record.
         #  When a task finishes with a record, it opens the gate
         #  which allows every task to move to the next record
-        self._record_gates = {}
+        # If something goes wrong while processing a record,
+        #  the error is put here, leading to the replay failing
+        self._record_gates: dict[str, asyncio.Future] = {}
 
         self._last_record_gate = None
 
@@ -281,8 +283,8 @@ class Historian:
         }
 
         self._record_gates = {
-            _get_id(record): asyncio.Event()
-            for record in self._history
+            _get_id(record): asyncio.Future()
+            for record in self._existing_history
         }
 
         for self._last_record_gate in self._record_gates.values():
@@ -294,7 +296,8 @@ class Historian:
 
     async def _replay_complete(self):
         if self._last_record_gate is not None:
-            await self._last_record_gate.wait()
+            await self._last_record_gate
+        logging.debug(f'{self.workflow_id} -- Replay Complete --')
 
     def _get_external_task_name(self):
         return f'{self.workflow_id}.external'
@@ -332,7 +335,7 @@ class Historian:
             return self.current_record
 
         def __exit__(self, exc_type, exc_val, exc_tb):
-            self.on_close(self.current_record)
+            self.on_close(self.current_record, exc_type, exc_val, exc_tb)
 
     async def _task_replay_records(self, task_id):
         task_replay = asyncio.Event()
@@ -344,16 +347,25 @@ class Historian:
             #  for that other task to finish with the record
             #  before we move on
             if record['task_id'] != task_id:
-                if (event := self._record_gates[_get_id(record)]).is_set():
-                    logging.debug(f'{task_id} found {record} completed')
+                if (gate := self._record_gates[_get_id(record)]).done():
+                    if gate.exception() is not None:
+                        logging.debug(f'{task_id} found {record} errored: {gate.exception()}')
+                    else:
+                        logging.debug(f'{task_id} found {record} completed')
                 else:
                     logging.debug(f'{task_id} waiting on {record}')
-                    await event.wait()
+                # We await either way so if the gate has an error we see it
+                await gate
 
             else:  # task ID matches
-                def complete(r):
-                    logging.debug(f'{task_id} completing {r}')
-                    self._record_gates[_get_id(r)].set()
+                def complete(r, exc_type, exc_val, exc_tb):
+                    if exc_type is not None:
+                        exc_info = "".join(traceback.format_exception(exc_type, exc_val, exc_tb))
+                        logging.error(f'Error while handling {r}: \n{exc_info}')
+                        self._record_gates[_get_id(r)].set_exception(exc_val)
+                    else:
+                        logging.debug(f'{task_id} completing {r}')
+                        self._record_gates[_get_id(r)].set_result(None)
 
                 # noinspection PyUnboundLocalVariable
                 logging.debug(f'{self._get_task_name()} replaying {record}')
@@ -364,11 +376,15 @@ class Historian:
         await self._replay_complete()
 
     async def _external_handler(self):
-        logging.debug(f'External event handler {self._get_task_name()} starting')
-        async for next_record in self._task_replay_records(self._get_external_task_name()):
-            with next_record as record:
-                await self._replay_external_event(record)
-        logging.debug(f'External event handler {self._get_task_name()} completed')
+        try:
+            logging.debug(f'External event handler {self._get_task_name()} starting')
+            async for next_record in self._task_replay_records(self._get_external_task_name()):
+                with next_record as record:
+                    await self._replay_external_event(record)
+            logging.debug(f'External event handler {self._get_task_name()} completed')
+        except Exception:
+            logging.exception('Error in _external_handler')
+            raise
 
     async def _next_record(self):
         if self._replay_records[self._get_task_name()] is None:
@@ -597,7 +613,7 @@ class Historian:
             # TODO - custom exception
 
         step_id = self._get_unique_id(resource_id + '.' + '__del__')
-        logging.debug(f'Removing {resource_id}')
+        logging.debug(f'{self._get_task_name()} Removing {resource_id}')
         resource_entry = self._resources.pop(resource_id)
 
         if not suspending:

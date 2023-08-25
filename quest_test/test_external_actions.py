@@ -4,7 +4,7 @@ import pytest
 
 from src.quest.external import state, queue, event
 from src.quest.historian import Historian
-from src.quest.wrappers import task
+from src.quest.wrappers import task, step
 from utils import timeout
 
 
@@ -261,6 +261,46 @@ async def test_queue_tasks_resume():
     await historian.record_external_event('foo_done', id_foo, 'set')
 
     assert await workflow == [1, 2, 3, 4, 5]
+
+
+@step
+async def get_value():
+    async with queue('the-queue', None) as q:
+        return int(await q.get())
+
+
+async def interactive_process_with_steps():
+    total = 0
+    total += await get_value()
+    total += await get_value()
+    return total
+
+
+@pytest.mark.asyncio
+@timeout(3)
+async def test_step_specific_external():
+    """
+    When an external event occurs on a resources that is specific to the step,
+    and the step history is pruned after the step completes,
+    then the external event on the now-obsolete resource must also be pruned.
+    """
+    history = []
+    historian = Historian('test', interactive_process_with_steps, history)
+    historian.run()
+    await asyncio.sleep(0.1)
+    resources = await historian.get_resources(None)
+    assert 'the-queue' in resources
+    await historian.record_external_event('the-queue', None, 'put', 1)
+    await asyncio.sleep(0.1)
+    await historian.suspend()
+
+    workflow = historian.run()
+    await asyncio.sleep(0.1)
+    resources = await historian.get_resources(None)
+    assert 'the-queue' in resources
+    await historian.record_external_event('the-queue', None, 'put', 2)
+
+    assert (await workflow) == 3
 
 
 """

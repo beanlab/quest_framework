@@ -7,8 +7,6 @@ from pathlib import Path
 
 from src.quest import step, create_filesystem_historian
 from src.quest.external import state, queue
-from src.quest.lifecycle import WorkflowLifecycleManager, StatelessWorkflowFactory
-from src.quest.persistence import PersistentHistory, LocalFileSystemBlobStorage
 
 logging.basicConfig(level=logging.DEBUG)
 INPUT_EVENT_NAME = 'input'
@@ -65,7 +63,7 @@ async def main():
 
     assert await workflow_task == 'Name: Foo, ID: 123'
 
-    for file in sorted((saved_state / "workflow_history" / workflow_id).iterdir()):
+    for file in sorted(saved_state.iterdir()):
         content = json.loads(file.read_text())
         print(json.dumps(content, indent=2))
 
