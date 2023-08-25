@@ -71,3 +71,9 @@ class LocalFileSystemBlobStorage(BlobStorage):
 
     def read_blob(self, key: str) -> Blob:
         return json.loads(self._get_file(key).read_text())
+
+    def has_blob(self, key: str) -> bool:
+        return self._get_file(key).exists()
+
+    def delete_blob(self, key: str):
+        self._get_file(key).unlink()
