@@ -344,6 +344,7 @@ class Historian:
         if self._last_record_gate is not None:
             await self._last_record_gate
         logging.debug(f'{self.workflow_id} -- Replay Complete --')
+        # TODO - log this only once?
 
         self._process_discovered_versions()
 
@@ -811,6 +812,7 @@ class Historian:
         return asyncio.create_task(self._run(*args, **kwargs), name=self.workflow_id)
 
     async def suspend(self):
+        logging.info(f'-- Suspending {self.workflow_id} --')
         # Cancelling these in reverse order is important
         # If a parent thread cancels, it will cancel a child.
         # We want to be the one that cancels every task,

@@ -6,7 +6,7 @@ from .historian import GLOBAL_VERSION, QUEST_VERSIONS, find_historian
 DEFAULT_VERSION = ''
 
 
-def version(global_version: str = None, **versions: dict[str, str]):
+def version(global_version: str = None, **versions: str):
     # IMPORTANT: named after the value of QUEST_VERSIONS: _quest_versions
     _quest_versions = dict(versions)
     if global_version is not None:
