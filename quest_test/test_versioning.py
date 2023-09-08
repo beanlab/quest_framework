@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from src.quest import queue, Historian, version, get_version, task
+from src.quest import queue, Historian, version, get_version, task, step
 
 V2 = '2023-08-25 append "2" to words'
 
@@ -138,6 +138,7 @@ async def test_named_versions():
     the task will resume from the ORIGINAL line version, not the new version.
 
     """
+
     @task
     async def get_numbers(name):
         async with queue('numbers', name) as nums:
@@ -258,3 +259,4 @@ async def test_named_versions():
         1, 1, 4,  # name 2
         1, 1, 5,  # name 3
     ]
+

@@ -77,12 +77,22 @@ class ExceptionDetails(TypedDict):
 
 
 class VersionRecord(TypedDict):
-    type: Literal['version']
+    type: Literal['set_version', 'after_version']
     timestamp: str
-    step_id: Literal['set_version']
+    step_id: Literal['version']
     task_id: str
     version_name: str
     version: str
+
+
+class ConfigurationRecord(TypedDict):
+    type: Literal['configuration']
+    timestamp: str
+    step_id: Literal['configuration']
+    task_id: str
+    function_name: str
+    args: list
+    kwargs: dict
 
 
 class StepStartRecord(TypedDict):
@@ -124,7 +134,7 @@ class ResourceAccessEvent(TypedDict):
     task_id: str
     resource_id: str
     action: str
-    args: tuple
+    args: list
     kwargs: dict
     result: Any
 
@@ -230,6 +240,7 @@ class Historian:
         # TODO - change nomenclature (away from workflow)? Maybe just use workflow.__name__?
         self.workflow_id = workflow_id
         self.workflow = workflow
+        self._configurations: list[tuple[Callable, list, dict]] = []
 
         # These things need to be serialized
         self._history: History = history
@@ -241,6 +252,9 @@ class Historian:
         # If the application fails, this future will know.
         # See also get_resources() and _run_with_exception_handling()
         self._fatal_exception = asyncio.Future()
+
+        # Keep track of configuration position during the replay
+        self._configuration_pos = 0
 
         # Keep track of the versions of the workflow function
         self._versions = {}
@@ -304,6 +318,8 @@ class Historian:
     def _reset_replay(self):
         logging.debug('Resetting replay')
 
+        self._configuration_pos = 0
+
         self._versions = {}
 
         self._existing_history = list(self._history)
@@ -343,6 +359,7 @@ class Historian:
     async def _replay_complete(self):
         if self._last_record_gate is not None:
             await self._last_record_gate
+
         logging.debug(f'{self.workflow_id} -- Replay Complete --')
         # TODO - log this only once?
 
@@ -433,6 +450,9 @@ class Historian:
                         await self._replay_external_event(record)
                     elif record['type'] == 'version':
                         self._replay_version(record)
+                    elif record['type'] == 'configuration':
+                        await self._run_configuration(record)
+
             logging.debug(f'External event handler {self._get_task_name()} completed')
         except Exception:
             logging.exception('Error in _external_handler')
@@ -448,6 +468,17 @@ class Historian:
         except StopAsyncIteration:
             self._replay_records[self._get_task_name()] = None
             return None
+
+    async def _run_configuration(self, config_record: ConfigurationRecord):
+        config_function, args, kwargs = self._configurations[self._configuration_pos]
+        logging.debug(f'Running configuration: {config_function.__name__}(*{args}, **{kwargs})')
+
+        assert config_record['function_name'] == config_function.__name__, str(config_record)
+        assert config_record['args'] == args, str(config_record)
+        assert config_record['kwargs'] == kwargs, str(config_record)
+
+        await config_function(*args, **kwargs)
+        self._configuration_pos += 1
 
     def get_version(self, module_name, function_name, version_name=GLOBAL_VERSION):
         return self._versions.get(_get_qualified_version(module_name, function_name, version_name), None)
@@ -476,9 +507,9 @@ class Historian:
         self._versions[version_name] = version
 
         self._history.append(VersionRecord(
-            type='version',
+            type='set_version',
             timestamp=_get_current_timestamp(),
-            step_id='set_version',
+            step_id='version',
             task_id=self._get_external_task_name(),  # the external task owns these
             version_name=version_name,
             version=version
@@ -486,6 +517,39 @@ class Historian:
 
     def _replay_version(self, record: VersionRecord):
         self._versions[record['version_name']] = record['version']
+
+    # TODO - keep or discard?
+    async def _after_version(self, module_name, func_name, version_name, version):
+        version_name = _get_qualified_version(module_name, func_name, version_name)
+        logging.debug(f'{self._get_task_name()} is waiting for version {version_name}=={version}')
+
+        found = False
+        for record in self._existing_history:
+            if record['type'] == 'version' \
+                    and record['version_name'] == version_name \
+                    and record['version'] == version:
+                found = True
+                await self._record_gates[_get_id(record)]
+
+        if not found:
+            logging.error(f'{self._get_task_name()} did not find version {version_name}=={version}')
+            raise Exception(f'{self._get_task_name()} did not find version {version_name}=={version}')
+
+        if (next_record := await self._next_record()) is not None:
+            with next_record as record:
+                assert record['type'] == 'after_version', str(record)
+                assert record['version_name'] == version_name, str(record)
+                assert record['version'] == version, str(record)
+
+        else:
+            self._history.append(VersionRecord(
+                type='after_version',
+                timestamp=_get_current_timestamp(),
+                step_id='version',
+                task_id=self._get_task_name(),
+                version_name=version_name,
+                version=version
+            ))
 
     async def handle_step(self, func_name, func: Callable, *args, **kwargs):
         step_id = self._get_unique_id(func_name)
@@ -597,7 +661,7 @@ class Historian:
             task_id=self._get_task_name(),
             resource_id=resource_id,
             action=action,
-            args=args,
+            args=list(args),
             kwargs=kwargs,
             result=result
         ))
@@ -645,7 +709,7 @@ class Historian:
                 task_id=self._get_task_name(),
                 resource_id=resource_id,
                 action=action,
-                args=args,
+                args=list(args),
                 kwargs=kwargs,
                 result=result
             ))
@@ -789,7 +853,9 @@ class Historian:
     async def _run(self, *args, **kwargs):
         historian_context.set(self)
         logging.debug(f'Running workflow {self.workflow_id}')
+        self._add_new_configurations()
         self._reset_replay()
+
         # We use a TaskGroup here to ensure that the external_replay task
         #  exits when the main task fails
         async with asyncio.TaskGroup() as _task_factory:
@@ -810,6 +876,43 @@ class Historian:
     def run(self, *args, **kwargs):
         self._replay_started.clear()
         return asyncio.create_task(self._run(*args, **kwargs), name=self.workflow_id)
+
+    def configure(self, config_function, *args, **kwargs):
+        """
+        Configuration happens when the application is run, before the run function is called.
+        Here we inject a configuration event into the history,
+        which is processed by the external task
+        """
+        self._configurations.append((config_function, list(args), kwargs))
+
+    def _add_new_configurations(self):
+        config_records = [
+            record
+            for record in self._history
+            if record['type'] == 'configuration'
+        ]
+
+        # We should have a configuration to replay for each record in the past
+        assert len(config_records) <= len(self._configurations)
+
+        for record, (config_function, args, kwargs) in zip(config_records, self._configurations):
+            assert record['function_name'] == config_function.__name__
+            assert record['args'] == args
+            assert record['kwargs'] == kwargs
+
+        # Add new configuration records
+        for config_function, args, kwargs in self._configurations[len(config_records):]:
+            logging.debug(f'Adding new configuration: {config_function.__name__}(*{args}, **{kwargs}')
+
+            self._history.append(ConfigurationRecord(
+                type='configuration',
+                timestamp=_get_current_timestamp(),
+                step_id='configuration',
+                task_id=self._get_external_task_name(),  # the external task owns these
+                function_name=config_function.__name__,
+                args=args,
+                kwargs=kwargs
+            ))
 
     async def suspend(self):
         logging.info(f'-- Suspending {self.workflow_id} --')

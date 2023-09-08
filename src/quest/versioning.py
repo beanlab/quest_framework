@@ -31,19 +31,38 @@ def version(global_version: str = None, **versions: str):
     return decorator
 
 
-def get_version(version_name=GLOBAL_VERSION):
+def _get_qualified_version(version_name):
     outer_frame = inspect.currentframe()
     while outer_frame is not None:
         if outer_frame.f_code.co_name == '_quest_versioned_function' and \
                 version_name in outer_frame.f_locals.get(QUEST_VERSIONS):
             module_name = outer_frame.f_locals.get('func').__module__
             func_name = outer_frame.f_locals.get('func').__qualname__
-            return find_historian().get_version(module_name, func_name, version_name) or DEFAULT_VERSION
+            return module_name, func_name, version_name
 
         # This function didn't have it, so move up the stack
         outer_frame = outer_frame.f_back
 
-    # If I haven't found it by now, then that version is not defined
+    return None, None, None
+
+
+def get_version(version_name=GLOBAL_VERSION):
+    module_name, func_name, version_name = _get_qualified_version(version_name)
+    if version_name is not None:
+        return find_historian().get_version(module_name, func_name, version_name) or DEFAULT_VERSION
+
+    # If I haven't found a version in the stack, then that version is not defined
     # The default version is "", which sorts BEFORE all other strings
     # i.e. version "" is older than any other version
     return DEFAULT_VERSION
+
+
+# noinspection PyProtectedMember
+# TODO - keep or discard?
+async def after_version(version=None, **versions):
+    if version is not None:
+        versions[GLOBAL_VERSION] = version
+
+    for version_name, version in versions.items():
+        module_name, func_name, version_name = _get_qualified_version(version_name)
+        await find_historian()._after_version(module_name, func_name, version_name, version)
