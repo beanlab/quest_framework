@@ -10,10 +10,10 @@ class State:
     def __init__(self, value):
         self._value = value
 
-    def get(self):
+    async def get(self):
         return self._value
 
-    def set(self, value):
+    async def set(self, value):
         self._value = value
 
     def value(self):

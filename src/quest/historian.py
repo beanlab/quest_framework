@@ -79,9 +79,8 @@ class ExceptionDetails(TypedDict):
 class VersionRecord(TypedDict):
     type: Literal['set_version', 'after_version']
     timestamp: str
-    step_id: Literal['version']
+    step_id: str  # stores the version name
     task_id: str
-    version_name: str
     version: str
 
 
@@ -128,7 +127,7 @@ class ResourceLifecycleEvent(TypedDict):
 
 
 class ResourceAccessEvent(TypedDict):
-    type: Literal['external', 'internal']
+    type: Literal['external', 'internal_start', 'internal_end']
     timestamp: str
     step_id: str
     task_id: str
@@ -146,7 +145,13 @@ class TaskEvent(TypedDict):
     task_id: str  # the name of the task created/completed
 
 
-EventRecord = StepStartRecord | StepEndRecord | ResourceAccessEvent | TaskEvent
+EventRecord = StepStartRecord \
+              | StepEndRecord \
+              | ResourceAccessEvent \
+              | TaskEvent \
+              | VersionRecord \
+              | ConfigurationRecord \
+              | ResourceLifecycleEvent
 
 
 def _get_type_name(obj):
@@ -226,9 +231,9 @@ historian_context = ContextVar('historian')
 
 
 class History(Protocol, Reversible):
-    def append(self, item): ...
+    def append(self, item: EventRecord): ...
 
-    def remove(self, item): ...
+    def remove(self, item: EventRecord): ...
 
     def __iter__(self): ...
 
@@ -448,8 +453,10 @@ class Historian:
                 with next_record as record:
                     if record['type'] == 'external':
                         await self._replay_external_event(record)
-                    elif record['type'] == 'version':
+
+                    elif record['type'] == 'set_version':
                         self._replay_version(record)
+
                     elif record['type'] == 'configuration':
                         await self._run_configuration(record)
 
@@ -481,7 +488,10 @@ class Historian:
         self._configuration_pos += 1
 
     def get_version(self, module_name, function_name, version_name=GLOBAL_VERSION):
-        return self._versions.get(_get_qualified_version(module_name, function_name, version_name), None)
+        version = self._versions.get(_get_qualified_version(module_name, function_name, version_name), None)
+        logging.debug(
+            f'{self._get_task_name()} get_version({module_name}, {function_name}, {version_name} returned "{version}"')
+        return version
 
     def _discover_versions(self, function, versions: dict[str, str]):
         self._discovered_versions.update({
@@ -509,14 +519,14 @@ class Historian:
         self._history.append(VersionRecord(
             type='set_version',
             timestamp=_get_current_timestamp(),
-            step_id='version',
+            step_id=version_name,
             task_id=self._get_external_task_name(),  # the external task owns these
-            version_name=version_name,
             version=version
         ))
 
     def _replay_version(self, record: VersionRecord):
-        self._versions[record['version_name']] = record['version']
+        logging.debug(f'{self._get_task_name()} setting version {record["step_id"]} = "{record["version"]}"')
+        self._versions[record['step_id']] = record['version']
 
     # TODO - keep or discard?
     async def _after_version(self, module_name, func_name, version_name, version):
@@ -547,7 +557,6 @@ class Historian:
                 timestamp=_get_current_timestamp(),
                 step_id='version',
                 task_id=self._get_task_name(),
-                version_name=version_name,
                 version=version
             ))
 
@@ -692,10 +701,31 @@ class Historian:
         """
         resource_id = _create_resource_id(name, identity)
         step_id = self._get_unique_id(resource_id + '.' + action)
-        logging.debug(f'{self._get_task_name()} calling {step_id} with {args} and {kwargs}')
 
         resource = self._resources[resource_id]['resource']
         function = getattr(resource, action)
+
+        if (next_record := await self._next_record()) is None:
+            self._history.append(ResourceAccessEvent(
+                type='internal_start',
+                timestamp=_get_current_timestamp(),
+                step_id=step_id,
+                task_id=self._get_task_name(),
+                resource_id=resource_id,
+                action=action,
+                args=list(args),
+                kwargs=kwargs,
+                result=None
+            ))
+        else:
+            with next_record as record:
+                assert 'internal_start' == record['type'], str(record)
+                assert resource_id == record['resource_id'], str(record)
+                assert action == record['action'], str(record)
+                assert list(args) == list(record['args']), str(record)
+                assert kwargs == record['kwargs'], str(record)
+
+        logging.debug(f'{self._get_task_name()} calling {step_id} with {args} and {kwargs}')
         if inspect.iscoroutinefunction(function):
             result = await function(*args, **kwargs)
         else:
@@ -703,7 +733,7 @@ class Historian:
 
         if (next_record := await self._next_record()) is None:
             self._history.append(ResourceAccessEvent(
-                type='internal',
+                type='internal_end',
                 timestamp=_get_current_timestamp(),
                 step_id=step_id,
                 task_id=self._get_task_name(),
@@ -716,7 +746,7 @@ class Historian:
 
         else:
             with next_record as record:
-                assert 'internal' == record['type'], f'internal != {record["type"]}'
+                assert 'internal_end' == record['type'], f'internal != {record["type"]}'
                 assert resource_id == record['resource_id']
                 assert action == record['action']
                 assert list(args) == list(record['args'])
@@ -883,6 +913,9 @@ class Historian:
         Here we inject a configuration event into the history,
         which is processed by the external task
         """
+        if not callable(config_function):
+            raise Exception(f'First argument to configure must be a callable. Received {config_function}.')
+
         self._configurations.append((config_function, list(args), kwargs))
 
     def _add_new_configurations(self):

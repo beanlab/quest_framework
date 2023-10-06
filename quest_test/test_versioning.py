@@ -1,8 +1,7 @@
 import asyncio
 
 import pytest
-
-from src.quest import queue, Historian, version, get_version, task, step
+from src.quest import queue, Historian, version, get_version, task, step, state
 
 V2 = '2023-08-25 append "2" to words'
 
@@ -49,7 +48,7 @@ async def test_versioning():
     assert (await result) == ['foo', 'bar', 'baz2']
 
 
-CASING_V2 = '2023-08-25 title case'
+CASING_V2 = '2023-08-26 title case'
 
 
 @pytest.mark.asyncio
@@ -72,6 +71,8 @@ async def test_multi_versioning():
     # Application shuts down
     await historian.suspend()
 
+    # "foo" should be preserved as-is
+
     # New version of application is deployed
     # Make word upper and append '2'
     async def fix_case(word):
@@ -84,8 +85,10 @@ async def test_multi_versioning():
             while len(phrase) < 3:
                 word = await words.get()
                 if get_version() < V2:
+                    # i.e. "foo" gets replayed this way
                     phrase.append(word)
                 else:
+                    # new words will go this way
                     phrase.append(await fix_case(word) + '2')
         return phrase
 
@@ -93,14 +96,20 @@ async def test_multi_versioning():
     result = historian.run()
     await asyncio.sleep(0.1)
     await historian.record_external_event('words', None, 'put', 'bar')
+    await asyncio.sleep(0.01)
+    await historian.suspend()
+
+    # "bar" should become "BAR2"
 
     # Yet another version of application is deployed
     # Use title-case instead of upper
     @version(CASING_V2)
     async def fix_case(word: str) -> str:
         if get_version() < CASING_V2:
+            # 'bar' is replayed here ('foo' never reaches this function)
             return word.upper()
         else:
+            # new words run through this code
             return word.title()
 
     @version(V2)
@@ -119,6 +128,7 @@ async def test_multi_versioning():
     result = historian.run()
     await asyncio.sleep(0.1)
     await historian.record_external_event('words', None, 'put', 'baz')
+    await asyncio.sleep(0.1)
 
     assert (await result) == ['foo', 'BAR2', 'Baz2']
 
@@ -259,4 +269,3 @@ async def test_named_versions():
         1, 1, 4,  # name 2
         1, 1, 5,  # name 3
     ]
-

@@ -36,19 +36,17 @@ async def wait_for(historian):
 
 # Test state
 
-name_event = asyncio.Event()
-
-
-async def state_workflow(identity):
-    async with state('name', identity, 'Foobar') as name:
-        assert await name.get() == 'Foobar'
-        await name_event.wait()
-        assert await name.get() == 'Barbaz'
-
-
 @pytest.mark.asyncio
 @timeout(3)
 async def test_external_state():
+    name_event = asyncio.Event()
+
+    async def state_workflow(identity):
+        async with state('name', identity, 'Foobar') as name:
+            assert await name.get() == 'Foobar'
+            await name_event.wait()
+            assert await name.get() == 'Barbaz'
+
     identity = 'foo_ident'
     historian = Historian('test', state_workflow, [])
     workflow = historian.run(identity)

@@ -4,7 +4,7 @@ from hashlib import md5
 from pathlib import Path
 from typing import Protocol, Union
 
-from .historian import History
+from .historian import History, EventRecord
 
 Blob = Union[dict, list, str, int, bool, float]
 
@@ -36,16 +36,16 @@ class PersistentHistory(History):
             for key in self._keys:
                 self._items.append(storage.read_blob(key))
 
-    def _get_key(self, item) -> str:
-        return self._namespace + '.' + md5(repr(item).encode()).hexdigest()
+    def _get_key(self, item: EventRecord) -> str:
+        return self._namespace + '.' + md5((item['timestamp'] + item['step_id'] + item['type']).encode()).hexdigest()
 
-    def append(self, item):
+    def append(self, item: EventRecord):
         self._items.append(item)
         self._keys.append(key := self._get_key(item))
         self._storage.write_blob(key, item)
         self._storage.write_blob(self._namespace, self._keys)
 
-    def remove(self, item):
+    def remove(self, item: EventRecord):
         self._items.remove(item)
         self._keys.remove(key := self._get_key(item))
         self._storage.delete_blob(key)
