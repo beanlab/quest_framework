@@ -45,3 +45,7 @@ Eventually, the old code paths will no longer replay and the supporting code can
     - Is there any way to know when an old version of the framework is no longer in any client's history?
       - Not practically. So versioned framework code might persist forever...
       - But such changes might be rare enough we can tolerate that?
+- Manager
+  - The event loop pattern is very common
+  - We need a way to fire off a workflow and resume it if it hasn't finished yet
+    - But not need to track the state outside the workflow
