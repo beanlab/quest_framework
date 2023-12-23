@@ -1,6 +1,16 @@
 import asyncio
+from typing import Protocol, Callable
 
-from historian import Historian, History
+from .historian import Historian, History
+from .persistence import BlobStorage
+
+
+class HistoryFactory(Protocol):
+    def __call__(self, workflow_id: str) -> History: ...
+
+
+class WorkflowFactory(Protocol):
+    def __call__(self, workflow_type: str) -> Callable: ...
 
 
 class WorkflowManager:
@@ -9,33 +19,41 @@ class WorkflowManager:
     It remembers which tasks are still active and resumes them on replay
     """
 
-    def __init__(self, open_workflows: History, history_factory, workflow_factory):
-        self._history_factory = history_factory
-        self._workflow_factory = workflow_factory
-        self._workflow_data = open_workflows
+    def __init__(self, namespace: str, storage: BlobStorage, create_history: HistoryFactory, create_workflow: WorkflowFactory):
+        self._namespace = namespace
+        self._storage = storage
+        self._create_history = create_history
+        self._create_workflow = create_workflow
+        self._workflow_data = []
         self._workflows: dict[str, Historian] = {}
         self._workflow_tasks: dict[str, asyncio.Task] = {}
 
     async def __aenter__(self):
         """Load the workflows and get them running again"""
-        for wid, wname, args, kwargs in self._workflow_data:
-            self.start_workflow(wid, wname, *args, **kwargs)
+        if self._storage.has_blob(self._namespace):
+            self._workflow_data = self._storage.read_blob(self._namespace)
+
+        for wtype, wid, args, kwargs in self._workflow_data:
+            self.start_workflow(wtype, wid, *args, **kwargs)
+
+        return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Save whatever state is necessary before exiting"""
+        self._storage.write_blob(self._namespace, self._workflow_data)
         for wid, historian in self._workflows.items():
             await historian.suspend()
 
     def _get_workflow(self, workflow_id: str):
         return self._workflows[workflow_id]  # TODO check for key, throw error
 
-    def start_workflow(self, workflow_id: str, workflow_name: str, *workflow_args, **workflow_kwargs):
+    def start_workflow(self, workflow_type: str, workflow_id: str, *workflow_args, **workflow_kwargs):
         """Start the workflow"""
-        self._workflow_data.append((workflow_id, workflow_name, workflow_args, workflow_kwargs))
+        self._workflow_data.append((workflow_type, workflow_id, workflow_args, workflow_kwargs))
 
-        workflow_function = self._workflow_factory[workflow_name].create()
+        workflow_function = self._create_workflow(workflow_type)
 
-        history = self._history_factory.create_history(workflow_id)
+        history = self._create_history(workflow_id)
         historian: Historian = Historian(workflow_id, workflow_function, history)
         self._workflows[workflow_id] = historian
 

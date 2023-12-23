@@ -77,3 +77,20 @@ class LocalFileSystemBlobStorage(BlobStorage):
 
     def delete_blob(self, key: str):
         self._get_file(key).unlink()
+
+
+class InMemoryBlobStorage(BlobStorage):
+    def __init__(self):
+        self._data = {}
+
+    def write_blob(self, key: str, blob: Blob):
+        self._data[key] = blob
+
+    def read_blob(self, key: str) -> Blob:
+        return self._data[key]
+
+    def has_blob(self, key: str) -> bool:
+        return key in self._data
+
+    def delete_blob(self, key: str):
+        del self._data[key]
