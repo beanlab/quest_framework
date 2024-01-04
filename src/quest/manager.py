@@ -19,7 +19,8 @@ class WorkflowManager:
     It remembers which tasks are still active and resumes them on replay
     """
 
-    def __init__(self, namespace: str, storage: BlobStorage, create_history: HistoryFactory, create_workflow: WorkflowFactory):
+    def __init__(self, namespace: str, storage: BlobStorage, create_history: HistoryFactory,
+                 create_workflow: WorkflowFactory):
         self._namespace = namespace
         self._storage = storage
         self._create_history = create_history
@@ -33,8 +34,8 @@ class WorkflowManager:
         if self._storage.has_blob(self._namespace):
             self._workflow_data = self._storage.read_blob(self._namespace)
 
-        for wtype, wid, args, kwargs in self._workflow_data:
-            self.start_workflow(wtype, wid, *args, **kwargs)
+        for wtype, wid, args, kwargs, background in self._workflow_data:
+            self._start_workflow(wtype, wid, args, kwargs, background=background)
 
         return self
 
@@ -47,10 +48,15 @@ class WorkflowManager:
     def _get_workflow(self, workflow_id: str):
         return self._workflows[workflow_id]  # TODO check for key, throw error
 
-    def start_workflow(self, workflow_type: str, workflow_id: str, *workflow_args, **workflow_kwargs):
-        """Start the workflow"""
-        self._workflow_data.append((workflow_type, workflow_id, workflow_args, workflow_kwargs))
+    def _remove_workflow(self, workflow_id: str):
+        self._workflows.pop(workflow_id)
+        self._workflow_tasks.pop(workflow_id)
+        data = next(d for d in self._workflow_data if d[1] == workflow_id)
+        self._workflow_data.remove(data)
 
+    def _start_workflow(self,
+                        workflow_type: str, workflow_id: str, workflow_args, workflow_kwargs,
+                        background=False):
         workflow_function = self._create_workflow(workflow_type)
 
         history = self._create_history(workflow_id)
@@ -58,13 +64,24 @@ class WorkflowManager:
         self._workflows[workflow_id] = historian
 
         self._workflow_tasks[workflow_id] = (task := historian.run(*workflow_args, **workflow_kwargs))
-        task.add_done_callback(lambda t: self._remove_workflow(workflow_id))
+        if background:
+            task.add_done_callback(lambda t: self._remove_workflow(workflow_id))
 
-    def _remove_workflow(self, workflow_id: str):
-        self._workflows.pop(workflow_id)
-        self._workflow_tasks.pop(workflow_id)
-        data = next(d for d in self._workflow_data if d[0] == workflow_id)
-        self._workflow_data.remove(data)
+    def start_workflow(self, workflow_type: str, workflow_id: str, *workflow_args, **workflow_kwargs):
+        """Start the workflow"""
+        self._workflow_data.append((workflow_type, workflow_id, workflow_args, workflow_kwargs, False))
+        self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs)
+
+    def start_workflow_background(self, workflow_type: str, workflow_id: str, *workflow_args, **workflow_kwargs):
+        """Start the workflow"""
+        self._workflow_data.append((workflow_type, workflow_id, workflow_args, workflow_kwargs, True))
+        self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs, background=True)
+
+    def has_workflow(self, workflow_id: str) -> bool:
+        return workflow_id in self._workflows
+
+    def get_workflow(self, workflow_id: str) -> asyncio.Task:
+        return self._workflow_tasks[workflow_id]
 
     async def suspend_workflow(self, workflow_id: str):
         await self._get_workflow(workflow_id).suspend()
