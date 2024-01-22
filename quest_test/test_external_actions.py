@@ -5,7 +5,7 @@ import pytest
 from src.quest.external import state, queue, event
 from src.quest.historian import Historian
 from src.quest.wrappers import task, step
-from utils import timeout
+from quest_test.utils import timeout
 
 
 # External resource tests

@@ -6,7 +6,7 @@ import pytest
 from src.quest import step
 from src.quest.historian import Historian
 from src.quest.persistence import PersistentHistory, LocalFileSystemBlobStorage
-from utils import timeout
+from quest_test.utils import timeout
 
 
 @step
