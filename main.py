@@ -4,40 +4,31 @@ import logging
 import shutil
 import uuid
 from pathlib import Path
-from quest import event, signal, WorkflowManager
-from quest.json_seralizers import JsonMetadataSerializer, JsonEventSerializer, StatelessWorkflowSerializer
-from quest.workflow import Status
+
+from src.quest import step, create_filesystem_historian
+from src.quest.external import state, queue
 
 logging.basicConfig(level=logging.DEBUG)
 INPUT_EVENT_NAME = 'input'
 
 
-class RegisterUserFlow:
+@step
+async def display(text: str):
+    print(text)
 
-    @event
-    async def throw_error(self):
-        raise Exception("This is a test")
 
-    @event
-    async def display(self, text: str):
-        print(text)
+@step
+async def get_input(prompt: str):
+    async with state('prompt', None, prompt), queue('input', None) as input:
+        await display(prompt)
+        return await input.get()
 
-    @signal(INPUT_EVENT_NAME)
-    async def get_input(self, test): ...
 
-    async def get_name(self):
-        await self.display('Name: ')
-        return await self.get_input("this works")
-
-    async def get_student_id(self):
-        await self.display('Student ID: ')
-        return await self.get_input()
-
-    async def __call__(self, welcome_message):
-        await self.display(welcome_message)
-        name = await self.get_name()
-        sid = await self.get_student_id()
-        return f'Name: {name}, ID: {sid}'
+async def register_user(welcome_message):
+    await display(welcome_message)
+    name = await get_input('Name: ')
+    sid = await get_input('Student ID: ')
+    return f'Name: {name}, ID: {sid}'
 
 
 async def main():
@@ -46,31 +37,35 @@ async def main():
     # Remove data
     shutil.rmtree(saved_state, ignore_errors=True)
 
-    workflow_manager = WorkflowManager(
-        JsonMetadataSerializer(saved_state),
-        JsonEventSerializer(saved_state / 'workflow_state'),
-        {'RegisterUserFlow': StatelessWorkflowSerializer(RegisterUserFlow)}
-    )
-
     workflow_id = str(uuid.uuid4())
 
-    async with workflow_manager:
-        result = await workflow_manager.start_async_workflow(workflow_id, RegisterUserFlow(), 'Howdy')
-        assert result is not None
-        assert result.status == Status.AWAITING_SIGNAL
+    historian = create_filesystem_historian(
+        saved_state, 'demo', register_user
+    )
 
-        print('---')
-        result = await workflow_manager.signal_async_workflow(workflow_id, INPUT_EVENT_NAME, "Foo")
-        assert result is not None
-        assert result.status == Status.AWAITING_SIGNAL
+    workflow_task = historian.run('Howdy')
+    await asyncio.sleep(0.1)
 
-    async with workflow_manager:
-        print('---')
-        result = await workflow_manager.signal_async_workflow(workflow_id, INPUT_EVENT_NAME, '123')
-        print('---')
-        assert result is not None
-        assert result.status == Status.COMPLETED
-        print(json.dumps(workflow_manager.workflows[workflow_id]._events._state, indent=2))
+    resources = await historian.get_resources(None)
+    assert resources['prompt']['value'] == 'Name: '
+
+    await historian.record_external_event('input', None, 'put', 'Foo')
+    await asyncio.sleep(0.1)
+    await historian.suspend()
+
+    workflow_task = historian.run()
+    await asyncio.sleep(0.1)
+
+    resources = await historian.get_resources(None)
+    assert resources['prompt']['value'] == 'Student ID: '
+
+    await historian.record_external_event('input', None, 'put', '123')
+
+    assert await workflow_task == 'Name: Foo, ID: 123'
+
+    for file in sorted(saved_state.iterdir()):
+        content = json.loads(file.read_text())
+        print(json.dumps(content, indent=2))
 
 
 if __name__ == '__main__':
