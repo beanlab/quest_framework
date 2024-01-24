@@ -4,7 +4,7 @@ import logging
 import traceback
 from asyncio import TaskGroup, Task
 from contextvars import ContextVar
-from datetime import datetime
+from datetime import datetime, UTC
 from functools import wraps
 from typing import TypedDict, Any, Callable, Literal, Protocol, Reversible
 
@@ -207,7 +207,7 @@ def _prune(step_id: str, history: "History"):
 
 
 def _get_current_timestamp() -> str:
-    return datetime.utcnow().isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _get_qualified_version(module_name, function_name, version_name: str) -> str:
