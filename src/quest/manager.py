@@ -34,8 +34,13 @@ class WorkflowManager:
         if self._storage.has_blob(self._namespace):
             self._workflow_data = self._storage.read_blob(self._namespace)
 
+        has_workflow = False
         for wtype, wid, args, kwargs, background in self._workflow_data:
+            has_workflow = True
             self._start_workflow(wtype, wid, args, kwargs, background=background)
+
+        if has_workflow:
+            await self._prompt_workflow()
 
         return self
 
@@ -44,6 +49,9 @@ class WorkflowManager:
         self._storage.write_blob(self._namespace, self._workflow_data)
         for wid, historian in self._workflows.items():
             await historian.suspend()
+
+    async def _prompt_workflow():
+        await asyncio.sleep(0.1)
 
     def _get_workflow(self, workflow_id: str):
         return self._workflows[workflow_id]  # TODO check for key, throw error
@@ -67,15 +75,17 @@ class WorkflowManager:
         if background:
             task.add_done_callback(lambda t: self._remove_workflow(workflow_id))
 
-    def start_workflow(self, workflow_type: str, workflow_id: str, *workflow_args, **workflow_kwargs):
+    async def start_workflow(self, workflow_type: str, workflow_id: str, *workflow_args, **workflow_kwargs):
         """Start the workflow"""
         self._workflow_data.append((workflow_type, workflow_id, workflow_args, workflow_kwargs, False))
         self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs)
+        await self._prompt_workflow()
 
-    def start_workflow_background(self, workflow_type: str, workflow_id: str, *workflow_args, **workflow_kwargs):
+    async def start_workflow_background(self, workflow_type: str, workflow_id: str, *workflow_args, **workflow_kwargs):
         """Start the workflow"""
         self._workflow_data.append((workflow_type, workflow_id, workflow_args, workflow_kwargs, True))
         self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs, background=True)
+        await self._prompt_workflow()
 
     def has_workflow(self, workflow_id: str) -> bool:
         return workflow_id in self._workflows
@@ -90,4 +100,14 @@ class WorkflowManager:
         return await self._get_workflow(workflow_id).get_resources(identity)
 
     async def send_event(self, workflow_id: str, name: str, identity, action, *args, **kwargs):
-        return await self._get_workflow(workflow_id).record_external_event(name, identity, action, *args, **kwargs)
+        result = await self._get_workflow(workflow_id).record_external_event(name, identity, action, *args, **kwargs)
+        await self._prompt_workflow()
+        return result
+    
+    async def execute_updates(self, actions: list[Callable]):
+        """Execute updates that affect the running workflow.
+        Updates are executed in the order provided. The workflow
+        is given the chance to rn inbetween each update."""
+        for action in actions:
+            action()
+            await self._prompt_workflow()
