@@ -35,8 +35,7 @@ async def test_manager():
         return 7 + arg
 
     async with WorkflowManager('test-manager', storage, create_history, lambda w_type: workflow) as manager:
-        manager.start_workflow('workflow', 'wid1', 4)
-        await asyncio.sleep(0.1)
+        await manager.start_workflow('workflow', 'wid1', 4)
         # Now pause the manager and all workflows
 
     assert 'wid1' in histories
@@ -45,8 +44,7 @@ async def test_manager():
 
     async with WorkflowManager('test-manager', storage, create_history, lambda w_type: workflow) as manager:
         # At this point, all workflows should be resumed
-        pause.set()
-        await asyncio.sleep(0.1)
+        await manager.execute_updates([lambda: pause.set()])
         result = await manager.get_workflow('wid1')
         assert result == 11
 
@@ -86,10 +84,8 @@ async def test_manager_events():
                 total += message
 
     async with WorkflowManager('test-manager', storage, create_history, lambda w_type: workflow) as manager:
-        manager.start_workflow('workflow', 'wid1', 1)
-        await asyncio.sleep(0.1)
+        await manager.start_workflow('workflow', 'wid1', 1)
         await manager.send_event('wid1', 'messages', None, 'put', 2)
-        await asyncio.sleep(0.1)
         # Now pause the manager and all workflows
 
     assert 'wid1' in histories
@@ -98,7 +94,6 @@ async def test_manager_events():
 
     async with WorkflowManager('test-manager', storage, create_history, lambda w_type: workflow) as manager:
         # At this point, all workflows should be resumed
-        await asyncio.sleep(0.1)
         await manager.send_event('wid1', 'messages', None, 'put', 3)
         await manager.send_event('wid1', 'messages', None, 'put', 0)  # i.e. end the workflow
         result = await manager.get_workflow('wid1')
@@ -141,10 +136,8 @@ async def test_manager_background():
                 total += message
 
     async with WorkflowManager('test-manager', storage, create_history, lambda w_type: workflow) as manager:
-        manager.start_workflow_background('workflow', 'wid1', 1)
-        await asyncio.sleep(0.1)
+        await manager.start_workflow_background('workflow', 'wid1', 1)
         await manager.send_event('wid1', 'messages', None, 'put', 2)
-        await asyncio.sleep(0.1)
         # Now pause the manager and all workflows
 
     assert 'wid1' in histories
@@ -153,10 +146,8 @@ async def test_manager_background():
 
     async with WorkflowManager('test-manager', storage, create_history, lambda w_type: workflow) as manager:
         # At this point, all workflows should be resumed
-        await asyncio.sleep(0.1)
         await manager.send_event('wid1', 'messages', None, 'put', 3)
         await manager.send_event('wid1', 'messages', None, 'put', 0)  # i.e. end the workflow
-        await asyncio.sleep(0.1)  # workflow now finishes and removes itself
         assert not manager.has_workflow('wid1')
         assert total == 6
 
