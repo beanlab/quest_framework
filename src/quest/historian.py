@@ -613,6 +613,11 @@ class Historian:
 
             return result
 
+        # TODO: this is where you would catch the keyboard interrupt exception (or others)
+            # do NOT record anything about the exception happening
+            # suspend the workflow so that it stops execution here
+            # re-raise the keyboard interrupt exception that you received so that the upper layers of the program will quit. 
+
         except asyncio.CancelledError as cancel:
             if cancel.args and cancel.args[0] == SUSPENDED:
                 prune_on_exit = False
