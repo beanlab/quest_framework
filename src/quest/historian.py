@@ -611,17 +611,16 @@ class Historian:
                 exception=None
             ))
 
-            return result
-
-        # TODO: this is where you would catch the keyboard interrupt exception (or others)
-            # do NOT record anything about the exception happening
-            # suspend the workflow so that it stops execution here
-            # re-raise the keyboard interrupt exception that you received so that the upper layers of the program will quit. 
+            return result 
 
         except asyncio.CancelledError as cancel:
             if cancel.args and cancel.args[0] == SUSPENDED:
                 prune_on_exit = False
                 raise asyncio.CancelledError(SUSPENDED)
+            elif isinstance(cancel.__context__, KeyboardInterrupt):
+                await self.suspend()
+                prune_on_exit = False
+                raise KeyboardInterrupt 
             else:
                 logging.exception(f'{step_id} canceled')
                 self._history.append(StepEndRecord(
@@ -656,7 +655,7 @@ class Historian:
 
         finally:
             if prune_on_exit:
-                _prune(step_id, self._history)
+                _prune(step_id, self._history) # TODO: _prune has issues when a keyboard interrupt has been raised.  
             self._prefix[self._get_task_name()].pop(-1)
 
     async def record_external_event(self, name, identity, action, *args, **kwargs):
