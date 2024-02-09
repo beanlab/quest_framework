@@ -638,6 +638,8 @@ class Historian:
                 ))
                 raise
 
+        # TODO: what if you don't need to anticipate a Keyboard Interrupt in the asycnio.Cancelled handler? Condsider removing that block
+            # and seeing what happens
         except KeyboardInterrupt as interrupt:
             prune_on_exit = False
             await self.suspend()
