@@ -618,7 +618,8 @@ class Historian:
                 prune_on_exit = False
                 raise asyncio.CancelledError(SUSPENDED)
             elif isinstance(cancel.__context__, KeyboardInterrupt):
-                await self.suspend()
+                # pass the exception on to the next handler
+                # await self.suspend()
                 prune_on_exit = False
                 raise KeyboardInterrupt 
             else:
@@ -636,6 +637,11 @@ class Historian:
                     )
                 ))
                 raise
+
+        except KeyboardInterrupt as interrupt:
+            prune_on_exit = False
+            await self.suspend()
+            raise KeyboardInterrupt
 
         except Exception as ex:
             logging.exception(f'Error in {step_id}')
@@ -975,8 +981,11 @@ class Historian:
         for task in list(self._open_tasks):
             try:
                 await task
-            except asyncio.CancelledError:
+            except KeyboardInterrupt:
+                print("ahahah go it")
+            except asyncio.CancelledError as cancel:
                 pass
+
 
     async def get_resources(self, identity):
         # Wait until the replay is done.
