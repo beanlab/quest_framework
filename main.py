@@ -45,7 +45,7 @@ async def main():
 
     try:
         workflow_task = historian.run('Howdy')
-        await asyncio.sleep(3)
+        await asyncio.sleep(4)
 
         resources = await historian.get_resources(None)
         assert resources['prompt']['value'] == 'Name: '
