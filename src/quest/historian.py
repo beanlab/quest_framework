@@ -617,11 +617,11 @@ class Historian:
             if cancel.args and cancel.args[0] == SUSPENDED:
                 prune_on_exit = False
                 raise asyncio.CancelledError(SUSPENDED)
-            elif isinstance(cancel.__context__, KeyboardInterrupt):
+            # elif isinstance(cancel.__context__, KeyboardInterrupt):
                 # pass the exception on to the next handler
                 # await self.suspend()
-                prune_on_exit = False
-                raise KeyboardInterrupt 
+                # prune_on_exit = False
+                # raise KeyboardInterrupt 
             else:
                 logging.exception(f'{step_id} canceled')
                 self._history.append(StepEndRecord(
@@ -640,10 +640,10 @@ class Historian:
 
         # TODO: what if you don't need to anticipate a Keyboard Interrupt in the asycnio.Cancelled handler? Condsider removing that block
             # and seeing what happens
-        except KeyboardInterrupt as interrupt:
-            prune_on_exit = False
-            await self.suspend()
-            raise KeyboardInterrupt
+        # except KeyboardInterrupt as interrupt:
+        #     prune_on_exit = False
+        #     await self.suspend()
+        #     raise KeyboardInterrupt
 
         except Exception as ex:
             logging.exception(f'Error in {step_id}')
