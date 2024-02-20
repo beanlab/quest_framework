@@ -43,31 +43,25 @@ async def main():
         saved_state, 'demo', register_user
     )
 
-    try:
-        workflow_task = historian.run('Howdy')
-        await asyncio.sleep(4)
+    workflow_task = historian.run('Howdy')
+    await asyncio.sleep(4)
 
-        resources = await historian.get_resources(None)
-        assert resources['prompt']['value'] == 'Name: '
+    resources = await historian.get_resources(None)
+    assert resources['prompt']['value'] == 'Name: '
 
-        await historian.record_external_event('input', None, 'put', 'Foo')
-        await asyncio.sleep(0.1)
-        await historian.suspend()
+    await historian.record_external_event('input', None, 'put', 'Foo')
+    await asyncio.sleep(0.1)
+    await historian.suspend()
 
-        workflow_task = historian.run()
-        await asyncio.sleep(0.1)
+    workflow_task = historian.run()
+    await asyncio.sleep(0.1)
 
-        resources = await historian.get_resources(None)
-        assert resources['prompt']['value'] == 'Student ID: '
+    resources = await historian.get_resources(None)
+    assert resources['prompt']['value'] == 'Student ID: '
 
-        await historian.record_external_event('input', None, 'put', '123')
+    await historian.record_external_event('input', None, 'put', '123')
 
-        assert await workflow_task == 'Name: Foo, ID: 123'
-    
-    except KeyboardInterrupt as cancel:
-        print("This process has been cancelled.")
-        if isinstance(cancel.__context__, KeyboardInterrupt):
-            print("The cancellation context was a Keyboard Interrupt.")
+    assert await workflow_task == 'Name: Foo, ID: 123'
 
     for file in sorted(saved_state.iterdir()):
         content = json.loads(file.read_text())
@@ -75,4 +69,7 @@ async def main():
 
 
 if __name__ == '__main__':
+    loop = asyncio.new_event_loop()
+    loop.run_until_complete(main)
+
     asyncio.run(main())
