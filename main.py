@@ -4,6 +4,7 @@ import logging
 import shutil
 import uuid
 from pathlib import Path
+import signal
 
 from src.quest import step, create_filesystem_historian
 from src.quest.external import state, queue
@@ -70,6 +71,18 @@ async def main():
 
 if __name__ == '__main__':
     loop = asyncio.new_event_loop()
-    loop.run_until_complete(main)
+    # signals = (signal.SIGINT, signal.SIGTERM) # do we also want signal.SIGHUP ?
 
-    asyncio.run(main())
+    def shutdown_sequence(the_loop, context):
+        print("Custom excetpion handler reached.");
+        print("Calling default exception handler:");
+        # loop.default_exception_handler()(the_loop, context);
+    
+
+    loop.set_exception_handler(shutdown_sequence);
+
+    try:
+        loop.run_until_complete(main())
+    finally:
+        loop.stop()
+        loop.close()
