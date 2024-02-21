@@ -36,37 +36,43 @@ async def main():
     saved_state = Path('saved-state')
 
     # Remove data
-    shutil.rmtree(saved_state, ignore_errors=True)
+    # shutil.rmtree(saved_state, ignore_errors=True)
 
     workflow_id = str(uuid.uuid4())
 
-    historian = create_filesystem_historian(
-        saved_state, 'demo', register_user
-    )
+    try:
+        historian = create_filesystem_historian(
+            saved_state, 'demo', register_user
+        )
 
-    workflow_task = historian.run('Howdy')
-    await asyncio.sleep(4)
+        workflow_task = historian.run('Howdy')
+        await asyncio.sleep(4)
 
-    resources = await historian.get_resources(None)
-    assert resources['prompt']['value'] == 'Name: '
+        resources = await historian.get_resources(None)
+        assert resources['prompt']['value'] == 'Name: '
 
-    await historian.record_external_event('input', None, 'put', 'Foo')
-    await asyncio.sleep(0.1)
-    await historian.suspend()
+        await historian.record_external_event('input', None, 'put', 'Foo')
+        await asyncio.sleep(0.1)
+        await historian.suspend()
 
-    workflow_task = historian.run()
-    await asyncio.sleep(0.1)
+        workflow_task = historian.run()
+        await asyncio.sleep(0.1)
 
-    resources = await historian.get_resources(None)
-    assert resources['prompt']['value'] == 'Student ID: '
+        resources = await historian.get_resources(None)
+        assert resources['prompt']['value'] == 'Student ID: '
 
-    await historian.record_external_event('input', None, 'put', '123')
+        await historian.record_external_event('input', None, 'put', '123')
 
-    assert await workflow_task == 'Name: Foo, ID: 123'
+        assert await workflow_task == 'Name: Foo, ID: 123'
 
-    for file in sorted(saved_state.iterdir()):
-        content = json.loads(file.read_text())
-        print(json.dumps(content, indent=2))
+    except asyncio.CancelledError as ex:
+        print("EXCEPTION RECEIVED");
+        # close the loop or something? 
+
+    # finally:
+    #     for file in sorted(saved_state.iterdir()):
+    #         content = json.loads(file.read_text())
+    #         print(json.dumps(content, indent=2))
 
 
 if __name__ == '__main__':
@@ -74,12 +80,25 @@ if __name__ == '__main__':
     # signals = (signal.SIGINT, signal.SIGTERM) # do we also want signal.SIGHUP ?
 
     def shutdown_sequence(the_loop, context):
-        print("Custom excetpion handler reached.");
-        print("Calling default exception handler:");
-        # loop.default_exception_handler()(the_loop, context);
+        print("Custom exception handler reached.");
+        print("TASKS:");
+        tasks = [
+            t for t in asyncio.all_tasks()
+            if t is not asyncio.current_task()];
+
+        for task in tasks:
+            print(task);
+            task.cancel();
+    
+        # raise Exception("Coming from SIGINT handler");
+        
+        # await asyncio.gather(*tasks, return_exceptions=True);
+        # asyncio.get_running_loop().stop();
     
 
-    loop.set_exception_handler(shutdown_sequence);
+    # loop.set_exception_handler(shutdown_sequence);
+    # loop.add_signal_handler(signal.CTRL_C_EVENT, shutdown_sequence);
+    signal.signal(signal.SIGINT, shutdown_sequence);
 
     try:
         loop.run_until_complete(main())

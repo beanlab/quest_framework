@@ -618,7 +618,7 @@ class Historian:
                 prune_on_exit = False
                 raise asyncio.CancelledError(SUSPENDED)
             else:
-                logging.exception(f'{step_id} canceled')
+                # logging.exception(f'{step_id} canceled')
                 self._history.append(StepEndRecord(
                     type='end',
                     timestamp=_get_current_timestamp(),
