@@ -4,7 +4,8 @@ from typing import Callable
 from .context import these
 from .wrappers import step, task
 from .external import state, queue, identity_queue, event
-from .historian import Historian, History
+from .historian import Historian
+from .history import History
 from .persistence import LocalFileSystemBlobStorage, PersistentHistory
 from .versioning import version, get_version
 from .manager import WorkflowManager, WorkflowFactory
