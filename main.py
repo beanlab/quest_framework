@@ -66,8 +66,9 @@ async def main():
         assert await workflow_task == 'Name: Foo, ID: 123'
 
     except asyncio.CancelledError as ex:
-        print("EXCEPTION RECEIVED");
-        # close the loop or something? 
+        print("asyncio.CancelledError EXCEPTION RECEIVED");
+    except KeyboardInterrupt as ex:
+        print("KeyboardInterrupt EXCEPTION RECEIVED")
 
     # finally:
     #     for file in sorted(saved_state.iterdir()):
@@ -79,8 +80,7 @@ if __name__ == '__main__':
     loop = asyncio.new_event_loop()
     # signals = (signal.SIGINT, signal.SIGTERM) # do we also want signal.SIGHUP ?
 
-    def shutdown_sequence(the_loop, context):
-        print("Custom exception handler reached.");
+    async def shutdown_sequence(the_loop):
         print("TASKS:");
         tasks = [
             t for t in asyncio.all_tasks()
@@ -90,15 +90,22 @@ if __name__ == '__main__':
             print(task);
             task.cancel();
     
-        # raise Exception("Coming from SIGINT handler");
-        
-        # await asyncio.gather(*tasks, return_exceptions=True);
-        # asyncio.get_running_loop().stop();
+        # reassign the default exception handler?
+    
+    def handle_signal(loop, context):
+        print("Custom exception handler reached.");
+        print("Shutting down...");
+        asyncio.create_task(shutdown_sequence(loop));
     
 
     # loop.set_exception_handler(shutdown_sequence);
-    # loop.add_signal_handler(signal.CTRL_C_EVENT, shutdown_sequence);
-    signal.signal(signal.SIGINT, shutdown_sequence);
+    # loop.add_signal_handler(signal.CTRL_C_EVENT, shutdown_sequence); 
+
+    # NOTES: 
+    # look at trying to catch some exceptions in the Workflow Manager in the __aexit__ functions. The SIGINT will cause it to leave its contedxt and then __aexit__ could handle it gracefully
+    # try again with the handle_step exception handling: don't record anything if it was caused by a KeyboardInterrupt (or is a KeyboardInterrupt) 
+
+    # signal.signal(signal.SIGINT, handle_signal); # this was working, aside from the fact that I was still at the point of recording the exception to the json
 
     try:
         loop.run_until_complete(main())

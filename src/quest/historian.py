@@ -617,8 +617,12 @@ class Historian:
             if cancel.args and cancel.args[0] == SUSPENDED:
                 prune_on_exit = False
                 raise asyncio.CancelledError(SUSPENDED)
+            elif isinstance(cancel.__context__, KeyboardInterrupt):
+                prune_on_exit = False;
+                raise KeyboardInterrupt;
             else:
                 # logging.exception(f'{step_id} canceled')
+                logging.debug("Recording the asyncio.CancelledError in the json records");
                 self._history.append(StepEndRecord(
                     type='end',
                     timestamp=_get_current_timestamp(),
@@ -632,6 +636,11 @@ class Historian:
                     )
                 ))
                 raise
+
+        except KeyboardInterrupt as interrupt:
+            prune_on_exit = False;
+            # do I need to self.suspend() ?
+            raise KeyboardInterrupt;
 
         except Exception as ex:
             logging.exception(f'Error in {step_id}')
