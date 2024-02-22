@@ -980,8 +980,6 @@ class Historian:
         for task in list(self._open_tasks):
             try:
                 await task
-            except KeyboardInterrupt:
-                print("ahahah go it")
             except asyncio.CancelledError as cancel:
                 pass
 

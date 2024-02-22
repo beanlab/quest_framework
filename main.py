@@ -70,16 +70,16 @@ async def main():
     except KeyboardInterrupt as ex:
         print("KeyboardInterrupt EXCEPTION RECEIVED")
 
-    # finally:
-    #     for file in sorted(saved_state.iterdir()):
-    #         content = json.loads(file.read_text())
-    #         print(json.dumps(content, indent=2))
+    finally:
+        for file in sorted(saved_state.iterdir()):
+            content = json.loads(file.read_text())
+            print(json.dumps(content, indent=2))
 
 
 if __name__ == '__main__':
     loop = asyncio.new_event_loop()
-    # signals = (signal.SIGINT, signal.SIGTERM) # do we also want signal.SIGHUP ?
 
+    # TODO: remove these since they aren't used
     async def shutdown_sequence(the_loop):
         print("TASKS:");
         tasks = [
@@ -90,25 +90,24 @@ if __name__ == '__main__':
             print(task);
             task.cancel();
     
-        # reassign the default exception handler?
-    
     def handle_signal(loop, context):
         print("Custom exception handler reached.");
         print("Shutting down...");
         asyncio.create_task(shutdown_sequence(loop));
-    
-
-    # loop.set_exception_handler(shutdown_sequence);
-    # loop.add_signal_handler(signal.CTRL_C_EVENT, shutdown_sequence); 
 
     # NOTES: 
     # look at trying to catch some exceptions in the Workflow Manager in the __aexit__ functions. The SIGINT will cause it to leave its contedxt and then __aexit__ could handle it gracefully
     # try again with the handle_step exception handling: don't record anything if it was caused by a KeyboardInterrupt (or is a KeyboardInterrupt) 
-
-    # signal.signal(signal.SIGINT, handle_signal); # this was working, aside from the fact that I was still at the point of recording the exception to the json
 
     try:
         loop.run_until_complete(main())
     finally:
         loop.stop()
         loop.close()
+
+# TODO NEXT: the only issue is that an assertion error is being recorded. Could I was an event or context
+            # variable to indicate when a KeyboardInterrupt has been thrown? Maybe I could do this in a signal
+            # handler, rather than in the first place that the exception is caught. That way, I could check if 
+            # the event is set before executing the code for any recording of json files. At that point, no
+            # exceptions handlers would record anything because the entire program would know that Ctrl+C was
+            # fired and that it wasn't an actual error.
