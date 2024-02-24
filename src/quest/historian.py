@@ -328,6 +328,9 @@ class Historian:
         # noinspection PyTypeChecker
         self._last_record_gate: asyncio.Future = None
 
+    def temp(self, event):
+        workflow_aborted = event
+
     def _reset_replay(self):
         logging.debug('Resetting replay')
 
@@ -626,21 +629,22 @@ class Historian:
                 # workflow_aborted.set()
                 raise KeyboardInterrupt
             else:
-                logging.exception(f'{step_id} canceled')
-                prune_on_exit = True
-                self._history.append(StepEndRecord(
-                    type='end',
-                    timestamp=_get_current_timestamp(),
-                    task_id=self._get_task_name(),
-                    step_id=step_id,
-                    result=None,
-                    exception=ExceptionDetails(
-                        type=_get_type_name(cancel),
-                        args=cancel.args,
-                        details=traceback.format_exc()
-                    )
-                ))
-                raise
+                if not workflow_aborted.is_set():
+                    logging.exception(f'{step_id} canceled')
+                    prune_on_exit = True
+                    self._history.append(StepEndRecord(
+                        type='end',
+                        timestamp=_get_current_timestamp(),
+                        task_id=self._get_task_name(),
+                        step_id=step_id,
+                        result=None,
+                        exception=ExceptionDetails(
+                            type=_get_type_name(cancel),
+                            args=cancel.args,
+                            details=traceback.format_exc()
+                        )
+                    ))
+                    raise
 
         except KeyboardInterrupt as interrupt:
             # prune_on_exit = False
@@ -648,23 +652,24 @@ class Historian:
             raise KeyboardInterrupt
 
         except Exception as ex:
-            logging.exception(f'Error in {step_id}')
-            self._history.append(StepEndRecord(
-                type='end',
-                timestamp=_get_current_timestamp(),
-                step_id=step_id,
-                task_id=self._get_task_name(),
-                result=None,
-                exception=ExceptionDetails(
-                    type=_get_type_name(ex),
-                    args=ex.args,
-                    details=traceback.format_exc()
-                )
-            ))
-            raise
+            if not workflow_aborted.is_set():
+                logging.exception(f'Error in {step_id}')
+                self._history.append(StepEndRecord(
+                    type='end',
+                    timestamp=_get_current_timestamp(),
+                    step_id=step_id,
+                    task_id=self._get_task_name(),
+                    result=None,
+                    exception=ExceptionDetails(
+                        type=_get_type_name(ex),
+                        args=ex.args,
+                        details=traceback.format_exc()
+                    )
+                ))
+                raise
 
         finally:
-            if prune_on_exit:
+            if prune_on_exit and not workflow_aborted.is_set():
                 _prune(step_id, self._history)  
             self._prefix[self._get_task_name()].pop(-1)
 

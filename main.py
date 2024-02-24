@@ -32,7 +32,7 @@ async def register_user(welcome_message):
     return f'Name: {name}, ID: {sid}'
 
 
-async def main():
+async def main(event):
     saved_state = Path('saved-state')
 
     # Remove data
@@ -44,6 +44,7 @@ async def main():
         saved_state, 'demo', register_user
     )
 
+    historian.temp(event)
     workflow_task = historian.run('Howdy')
     await asyncio.sleep(4)
 
@@ -72,6 +73,8 @@ async def main():
 if __name__ == '__main__':
     loop = asyncio.new_event_loop()
 
+    event = asyncio.Event()
+
     # TODO: remove these since they aren't used
     async def shutdown_sequence(the_loop):
         print("TASKS:");
@@ -84,12 +87,15 @@ if __name__ == '__main__':
             task.cancel();
     
     def handle_signal(loop, context):
+        event.set()
         print("Custom exception handler reached.");
-        print("Shutting down...");
-        asyncio.create_task(shutdown_sequence(loop));
+        # print("Shutting down...");
+        # asyncio.create_task(shutdown_sequence(loop));
+
+    signal.signal(signal.SIGINT, handle_signal)
 
     try:
-        loop.run_until_complete(main())
+        loop.run_until_complete(main(event))
     finally:
         loop.stop()
         loop.close()
