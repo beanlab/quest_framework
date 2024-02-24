@@ -328,8 +328,11 @@ class Historian:
         # noinspection PyTypeChecker
         self._last_record_gate: asyncio.Future = None
 
-    def temp(self, event):
-        workflow_aborted = event
+    def _assignWorkflowAbortEvent(interruptEvent: asyncio.Event):
+        """
+        Static method used for providing signal handler event outside of developer implementation
+        """
+        workflow_aborted = interruptEvent
 
     def _reset_replay(self):
         logging.debug('Resetting replay')

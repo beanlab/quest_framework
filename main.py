@@ -32,7 +32,7 @@ async def register_user(welcome_message):
     return f'Name: {name}, ID: {sid}'
 
 
-async def main(event):
+async def main():
     saved_state = Path('saved-state')
 
     # Remove data
@@ -44,7 +44,6 @@ async def main(event):
         saved_state, 'demo', register_user
     )
 
-    historian.temp(event)
     workflow_task = historian.run('Howdy')
     await asyncio.sleep(4)
 
@@ -70,19 +69,27 @@ async def main(event):
         print(json.dumps(content, indent=2))
 
 
-if __name__ == '__main__':
-    loop = asyncio.new_event_loop()
-
-    event = asyncio.Event()
+def assignSignalHandlers():
+    sigintEvent = asyncio.Event()
     
-    def handle_signal(loop, context):
-        event.set()
+    def handle_sigint(loop, context):
+        sigintEvent.set()
         logging.debug("Custom exception handler reached.")
 
-    signal.signal(signal.SIGINT, handle_signal)
+    signal.signal(signal.SIGINT, handle_sigint)
+    
+    import src.quest.historian as Hist
+    Hist.Historian._assignWorkflowAbortEvent(sigintEvent)
+
+if __name__ == '__main__':
+    assignSignalHandlers()
+    loop = asyncio.new_event_loop()
+
+    # TODO: the SIGINT now doesn't actually do anything! We need to get historian.suspend() to fire in order for the current setup to be meaningful
 
     try:
-        loop.run_until_complete(main(event))
+        loop.run_until_complete(main())
+
     finally:
         loop.stop()
         loop.close()
