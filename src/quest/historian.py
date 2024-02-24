@@ -228,6 +228,7 @@ def _create_resource_id(name: str, identity: str) -> str:
 
 
 historian_context = ContextVar('historian')
+workflow_aborted = asyncio.Event()
 
 
 class History(Protocol, Reversible):
@@ -592,8 +593,9 @@ class Historian:
                 task_id=self._get_task_name(),
                 step_id=step_id
             ))
+        
+        prune_on_exit = False
 
-        prune_on_exit = True
         try:
             self._prefix[self._get_task_name()].append(unique_func_name)
 
@@ -611,18 +613,21 @@ class Historian:
                 exception=None
             ))
 
+            prune_on_exit = True
+
             return result 
 
         except asyncio.CancelledError as cancel:
             if cancel.args and cancel.args[0] == SUSPENDED:
-                prune_on_exit = False
+                # prune_on_exit = False
                 raise asyncio.CancelledError(SUSPENDED)
             elif isinstance(cancel.__context__, KeyboardInterrupt):
-                prune_on_exit = False;
-                raise KeyboardInterrupt;
+                # prune_on_exit = False
+                # workflow_aborted.set()
+                raise KeyboardInterrupt
             else:
-                # logging.exception(f'{step_id} canceled')
-                logging.debug("Recording the asyncio.CancelledError in the json records");
+                logging.exception(f'{step_id} canceled')
+                prune_on_exit = True
                 self._history.append(StepEndRecord(
                     type='end',
                     timestamp=_get_current_timestamp(),
@@ -638,9 +643,9 @@ class Historian:
                 raise
 
         except KeyboardInterrupt as interrupt:
-            prune_on_exit = False;
-            # do I need to self.suspend() ?
-            raise KeyboardInterrupt;
+            # prune_on_exit = False
+            # workflow_aborted.set()
+            raise KeyboardInterrupt
 
         except Exception as ex:
             logging.exception(f'Error in {step_id}')
@@ -660,7 +665,7 @@ class Historian:
 
         finally:
             if prune_on_exit:
-                _prune(step_id, self._history) # TODO: _prune has issues when a keyboard interrupt has been raised.  
+                _prune(step_id, self._history)  
             self._prefix[self._get_task_name()].pop(-1)
 
     async def record_external_event(self, name, identity, action, *args, **kwargs):
