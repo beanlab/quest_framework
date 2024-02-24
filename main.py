@@ -86,10 +86,3 @@ if __name__ == '__main__':
     finally:
         loop.stop()
         loop.close()
-
-# TODO NEXT: the only issue is that an assertion error is being recorded. Could I was an event or context
-            # variable to indicate when a KeyboardInterrupt has been thrown? Maybe I could do this in a signal
-            # handler, rather than in the first place that the exception is caught. That way, I could check if 
-            # the event is set before executing the code for any recording of json files. At that point, no
-            # exceptions handlers would record anything because the entire program would know that Ctrl+C was
-            # fired and that it wasn't an actual error.

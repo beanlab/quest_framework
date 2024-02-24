@@ -622,7 +622,6 @@ class Historian:
 
         except asyncio.CancelledError as cancel:
             if cancel.args and cancel.args[0] == SUSPENDED:
-                # prune_on_exit = False
                 raise asyncio.CancelledError(SUSPENDED)
             elif isinstance(cancel.__context__, KeyboardInterrupt):
                 raise KeyboardInterrupt
@@ -642,16 +641,15 @@ class Historian:
                             details=traceback.format_exc()
                         )
                     ))
-                    raise
+                raise
 
-        except KeyboardInterrupt as interrupt:
-            # prune_on_exit = False
-            # workflow_aborted.set()
-            raise KeyboardInterrupt
+        # except KeyboardInterrupt as interrupt:
+            # raise KeyboardInterrupt
 
         except Exception as ex:
             if not workflow_aborted.is_set():
                 logging.exception(f'Error in {step_id}')
+                prune_on_exit = True
                 self._history.append(StepEndRecord(
                     type='end',
                     timestamp=_get_current_timestamp(),
@@ -664,7 +662,7 @@ class Historian:
                         details=traceback.format_exc()
                     )
                 ))
-                raise
+            raise
 
         finally:
             if prune_on_exit and not workflow_aborted.is_set():
