@@ -625,8 +625,6 @@ class Historian:
                 # prune_on_exit = False
                 raise asyncio.CancelledError(SUSPENDED)
             elif isinstance(cancel.__context__, KeyboardInterrupt):
-                # prune_on_exit = False
-                # workflow_aborted.set()
                 raise KeyboardInterrupt
             else:
                 if not workflow_aborted.is_set():

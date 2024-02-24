@@ -74,23 +74,10 @@ if __name__ == '__main__':
     loop = asyncio.new_event_loop()
 
     event = asyncio.Event()
-
-    # TODO: remove these since they aren't used
-    async def shutdown_sequence(the_loop):
-        print("TASKS:");
-        tasks = [
-            t for t in asyncio.all_tasks()
-            if t is not asyncio.current_task()];
-
-        for task in tasks:
-            print(task);
-            task.cancel();
     
     def handle_signal(loop, context):
         event.set()
-        print("Custom exception handler reached.");
-        # print("Shutting down...");
-        # asyncio.create_task(shutdown_sequence(loop));
+        logging.debug("Custom exception handler reached.")
 
     signal.signal(signal.SIGINT, handle_signal)
 
