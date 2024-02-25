@@ -649,7 +649,7 @@ class Historian:
                     ))
                 raise
 
-        except KeyboardInterrupt as interrupt:
+        except KeyboardInterrupt:
             workflow_aborted.set()
             await self.suspend()
             raise KeyboardInterrupt
