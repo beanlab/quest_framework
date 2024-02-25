@@ -229,6 +229,7 @@ def _create_resource_id(name: str, identity: str) -> str:
 
 historian_context = ContextVar('historian')
 workflow_aborted = asyncio.Event()
+suspending = asyncio.Event()
 
 
 class History(Protocol, Reversible):
@@ -627,6 +628,8 @@ class Historian:
             if cancel.args and cancel.args[0] == SUSPENDED:
                 raise asyncio.CancelledError(SUSPENDED)
             elif isinstance(cancel.__context__, KeyboardInterrupt):
+                workflow_aborted.set()
+                await self.suspend()
                 raise KeyboardInterrupt
             else:
                 if not workflow_aborted.is_set():
@@ -646,8 +649,10 @@ class Historian:
                     ))
                 raise
 
-        # except KeyboardInterrupt as interrupt:
-            # raise KeyboardInterrupt
+        except KeyboardInterrupt as interrupt:
+            workflow_aborted.set()
+            await self.suspend()
+            raise KeyboardInterrupt
 
         except Exception as ex:
             if not workflow_aborted.is_set():
@@ -670,7 +675,8 @@ class Historian:
         finally:
             if prune_on_exit and not workflow_aborted.is_set():
                 _prune(step_id, self._history)  
-            self._prefix[self._get_task_name()].pop(-1)
+            if len(self._prefix[self._get_task_name()]) > 0:
+                self._prefix[self._get_task_name()].pop(-1)
 
     async def record_external_event(self, name, identity, action, *args, **kwargs):
         """
@@ -973,25 +979,28 @@ class Historian:
             ))
 
     async def suspend(self):
-        logging.info(f'-- Suspending {self.workflow_id} --')
-        # Cancelling these in reverse order is important
-        # If a parent thread cancels, it will cancel a child.
-        # We want to be the one that cancels every task,
-        #  so we cancel the children before the parents.
-        for task in list(reversed(self._open_tasks)):
-            if not task.done() or task.cancelled() or task.cancelling():
-                logging.debug(f'Suspending task {task.get_name()}')
-                task.cancel(SUSPENDED)
+        if not suspending.is_set():
+            suspending.set()
+            logging.info(f'-- Suspending {self.workflow_id} --')
+            # Cancelling these in reverse order is important
+            # If a parent thread cancels, it will cancel a child.
+            # We want to be the one that cancels every task,
+            #  so we cancel the children before the parents.
+            for task in list(reversed(self._open_tasks)):
+                if not task.done() or task.cancelled() or task.cancelling():
+                    logging.debug(f'Suspending task {task.get_name()}')
+                    task.cancel(SUSPENDED)
 
-        # Once each task has been marked for cancellation
-        #  we await each task in order to allow the cancellation
-        #  to play out to completion.
-        for task in list(self._open_tasks):
-            try:
-                await task
-            except asyncio.CancelledError as cancel:
-                pass
-
+            # Once each task has been marked for cancellation
+            #  we await each task in order to allow the cancellation
+            #  to play out to completion.
+            for task in list(self._open_tasks):
+                try:
+                    await task
+                except asyncio.CancelledError as cancel:
+                    pass
+            
+            suspending.clear()
 
     async def get_resources(self, identity):
         # Wait until the replay is done.

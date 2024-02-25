@@ -72,9 +72,10 @@ async def main():
 def assignSignalHandlers():
     sigintEvent = asyncio.Event()
     
-    def handle_sigint(loop, context):
+    def handle_sigint():
         sigintEvent.set()
         logging.debug("Custom exception handler reached.")
+        # raise KeyboardInterrupt # not helpful since it is raised in main
 
     signal.signal(signal.SIGINT, handle_sigint)
     
@@ -82,7 +83,7 @@ def assignSignalHandlers():
     Hist.Historian._assignWorkflowAbortEvent(sigintEvent)
 
 if __name__ == '__main__':
-    assignSignalHandlers()
+    # assignSignalHandlers()
     loop = asyncio.new_event_loop()
 
     # TODO: the SIGINT now doesn't actually do anything! We need to get historian.suspend() to fire in order for the current setup to be meaningful
