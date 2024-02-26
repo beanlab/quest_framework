@@ -72,9 +72,9 @@ async def main():
     if "-r" in args:
         shutil.rmtree(game_state, ignore_errors=True)
         print("Previous JSON files have been removed.")
+        args.remove("-r")
 
     if(args[1] == "-h"):
-        workflow_id = "the_guessing_game"
         historian = create_filesystem_historian(game_state, "Guessing_Game", game_loop)
         task = historian.run()
         await task
@@ -90,7 +90,8 @@ async def main():
             return histories[wid]
         
         async with WorkflowManager('number-game', storage, create_history, lambda wkflw: game_loop) as manager:
-            await manager.start_workflow('workflow', 'game1', 0)
+            manager.start_workflow('workflow', 'game1', 0)
+            await asyncio.sleep(.1)
             print('with statement is finishing')
 
 
