@@ -19,6 +19,9 @@ from src.quest.persistence import InMemoryBlobStorage, LocalFileSystemBlobStorag
     # Typing "q" at the terminal stops the game, exits the game loop, and completes the workflow function. Of course,
     # typing Ctrl + C will kill the program where it stands and allow you to resume where you left off.
 
+# You will need a launch.json file to start the program with the correct arguments. For running, a CLI example is as follows:
+    # python ./numGuessGame.py -r -w
+
 @step
 async def getGuess():
     print("Enter your guess:")
@@ -93,12 +96,6 @@ async def main():
             manager.start_workflow('workflow', 'game1', 0)
             await asyncio.sleep(.1)
             print('with statement is finishing')
-
-
-    # the apparent advantage of using the workflow manager is that completed workflows are forgotten
-        # i.e., if I keyboard interrupt and throw a Ctrl+C exception, that terminations the workflow,
-        # which means that next time I start the program, I just start fresh on a new copy of the work flow.
-    
     
 if __name__ == '__main__':
     loop = asyncio.new_event_loop()
