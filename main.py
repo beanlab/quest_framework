@@ -45,13 +45,13 @@ async def main():
     )
 
     workflow_task = historian.run('Howdy')
-    await asyncio.sleep(4)
+    await asyncio.sleep(1)
 
     resources = await historian.get_resources(None)
     assert resources['prompt']['value'] == 'Name: '
 
     await historian.record_external_event('input', None, 'put', 'Foo')
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(4)
     await historian.suspend()
 
     workflow_task = historian.run()
