@@ -67,7 +67,7 @@ class LocalFileSystemBlobStorage(BlobStorage):
         return self._root / (key + '.json')
 
     def write_blob(self, key: str, blob: Blob):
-        self._get_file(key).write_text(json.dumps(blob))
+        self._get_file(key).write_text(json.dumps(blob, indent=2))
 
     def read_blob(self, key: str) -> Blob:
         return json.loads(self._get_file(key).read_text())
