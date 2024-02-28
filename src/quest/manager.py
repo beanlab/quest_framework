@@ -19,6 +19,8 @@ class WorkflowManager:
     It remembers which tasks are still active and resumes them on replay
     """
 
+# change workflow_data to a dictrionary. Store the whole tuple against the workflow ID as a key. 
+    # when the whole workflow concludes, delete the workflow from workflow data
     def __init__(self, namespace: str, storage: BlobStorage, create_history: HistoryFactory,
                  create_workflow: WorkflowFactory):
         self._namespace = namespace
