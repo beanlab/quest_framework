@@ -52,9 +52,6 @@ class WorkflowManager:
         self._workflows.pop(workflow_id)
         self._workflow_tasks.pop(workflow_id)
         del self._workflow_data[workflow_id]
-        # TODO: remove
-        # data = next(d for d in self._workflow_data if d[1] == workflow_id)
-        # self._workflow_data.remove(data)
 
     def _start_workflow(self,
                         workflow_type: str, workflow_id: str, workflow_args, workflow_kwargs,
@@ -66,8 +63,8 @@ class WorkflowManager:
         self._workflows[workflow_id] = historian
 
         self._workflow_tasks[workflow_id] = (task := historian.run(*workflow_args, **workflow_kwargs))
-        if background:
-            task.add_done_callback(lambda t: self._remove_workflow(workflow_id))
+        # if background: TODO: remove
+        task.add_done_callback(lambda t: self._remove_workflow(workflow_id))
 
     def start_workflow(self, workflow_type: str, workflow_id: str, *workflow_args, **workflow_kwargs):
         """Start the workflow"""
