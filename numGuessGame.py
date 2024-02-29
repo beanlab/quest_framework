@@ -57,9 +57,9 @@ async def game_loop(*args, **kwargs):
     return "Game loop completed"
 
 def usage():
-    print("USAGE: Please specify which method with which to run the game.")
-    print("\"-w\" to use Workflow Manager, or \"-h\" to run directly on the historian.")
-    print("Specifying \"-r\" with any other flag, or none, will refresh the history.")
+    print("\nUSAGE: Please specify which method with which to run the game.")
+    print("\n\t\"-w\" to use Workflow Manager, or \"-h\" to run directly on the historian.")
+    print("\n\tSpecifying \"-r\" with any other flag, or none, will refresh the history.\n")
     exit(1)
 
 async def main():
@@ -93,7 +93,7 @@ async def main():
             return histories[wid]
         
         async with WorkflowManager('number-game', storage, create_history, lambda wkflw: game_loop) as manager:
-            manager.start_workflow('workflow', 'game1', False, 0)
+            myJob: asyncio.Task = manager.start_workflow('workflow', 'game1', True, 0)
             await asyncio.sleep(.1)
             print('with statement is finishing')
     

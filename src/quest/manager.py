@@ -49,6 +49,8 @@ class WorkflowManager:
         return self._workflows[workflow_id]  # TODO check for key, throw error
 
     def _remove_workflow(self, workflow_id: str):
+        # TODO: when using numGuessGame.py, quiting the game will exit the program, 
+            # but does not trigger _remove_workflow, even if delete_on_finish = True
         self._workflows.pop(workflow_id)
         self._workflow_tasks.pop(workflow_id)
         del self._workflow_data[workflow_id]
@@ -63,13 +65,22 @@ class WorkflowManager:
         self._workflows[workflow_id] = historian
 
         self._workflow_tasks[workflow_id] = (task := historian.run(*workflow_args, **workflow_kwargs))
+
         if delete_on_finish:
             task.add_done_callback(lambda t: self._remove_workflow(workflow_id))
 
-    def start_workflow(self, workflow_type: str, workflow_id: str, delete_on_finish: bool,*workflow_args, **workflow_kwargs):
+    def start_workflow(self, workflow_type: str, workflow_id: str, 
+                       delete_on_finish: bool,*workflow_args, **workflow_kwargs) -> asyncio.Task:
+        
         """Start the workflow"""
-        self._workflow_data[workflow_id] = (workflow_type, workflow_id, workflow_args, workflow_kwargs, delete_on_finish)
-        self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs, delete_on_finish)
+        if workflow_id not in self._workflow_data.keys():
+            self._workflow_data[workflow_id] = (workflow_type, workflow_id, workflow_args, workflow_kwargs, delete_on_finish)
+            self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs, delete_on_finish)
+        
+        if not delete_on_finish:
+            return self._get_workflow(workflow_id)
+        else:
+            return None
 
     def has_workflow(self, workflow_id: str) -> bool:
         return workflow_id in self._workflows
