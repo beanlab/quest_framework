@@ -93,7 +93,7 @@ async def main():
             return histories[wid]
         
         async with WorkflowManager('number-game', storage, create_history, lambda wkflw: game_loop) as manager:
-            manager.start_workflow('workflow', 'game1', 0)
+            manager.start_workflow_background('workflow', 'game1', 0)
             await asyncio.sleep(.1)
             print('with statement is finishing')
     

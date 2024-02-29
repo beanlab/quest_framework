@@ -36,7 +36,7 @@ async def main():
     saved_state = Path('saved-state')
 
     # Remove data
-    # shutil.rmtree(saved_state, ignore_errors=True)
+    shutil.rmtree(saved_state, ignore_errors=True)
 
     workflow_id = str(uuid.uuid4())
 
@@ -70,7 +70,7 @@ async def main():
 
 if __name__ == '__main__':
     loop = asyncio.new_event_loop()
-# Todo: see if you can get running with asycnio.run(main())
+    
     try:
         loop.run_until_complete(main())
 
