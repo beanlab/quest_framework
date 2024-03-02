@@ -56,7 +56,7 @@ async def game_loop(*args, **kwargs):
     while((res := await play_game()) != -1):
         print(res)
     print("Adios from the game loop!")
-    return "Game loop completed"
+    return "Game loop successfully completed"
 
 def usage():
     print("\nUSAGE: Please specify which method with which to run the game.")
