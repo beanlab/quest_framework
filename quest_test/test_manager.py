@@ -5,7 +5,8 @@ import pytest
 
 from src.quest import PersistentHistory, queue
 from src.quest.manager import WorkflowManager
-from src.quest.persistence import InMemoryBlobStorage
+from pathlib import Path
+from src.quest.persistence import InMemoryBlobStorage, LocalFileSystemBlobStorage
 
 
 @pytest.mark.asyncio
@@ -35,7 +36,7 @@ async def test_manager():
         return 7 + arg
 
     async with WorkflowManager('test-manager', storage, create_history, lambda w_type: workflow) as manager:
-        manager.start_workflow('workflow', 'wid1', 4)
+        manager.start_workflow('workflow', 'wid1', False, 4)
         await asyncio.sleep(0.1)
         # Now pause the manager and all workflows
 
@@ -86,7 +87,7 @@ async def test_manager_events():
                 total += message
 
     async with WorkflowManager('test-manager', storage, create_history, lambda w_type: workflow) as manager:
-        manager.start_workflow('workflow', 'wid1', 1)
+        manager.start_workflow('workflow', 'wid1', False, 1)
         await asyncio.sleep(0.1)
         await manager.send_event('wid1', 'messages', None, 'put', 2)
         await asyncio.sleep(0.1)
@@ -110,7 +111,7 @@ async def test_manager_events():
 
 @pytest.mark.asyncio
 async def test_manager_background():
-    storage = InMemoryBlobStorage()
+    storage = LocalFileSystemBlobStorage(Path('test-state'))
     histories = {}
 
     def create_history(wid: str):
@@ -141,7 +142,7 @@ async def test_manager_background():
                 total += message
 
     async with WorkflowManager('test-manager', storage, create_history, lambda w_type: workflow) as manager:
-        manager.start_workflow_background('workflow', 'wid1', 1)
+        manager.start_workflow('workflow', 'wid1', True, 1)
         await asyncio.sleep(0.1)
         await manager.send_event('wid1', 'messages', None, 'put', 2)
         await asyncio.sleep(0.1)
@@ -155,6 +156,7 @@ async def test_manager_background():
         # At this point, all workflows should be resumed
         await asyncio.sleep(0.1)
         await manager.send_event('wid1', 'messages', None, 'put', 3)
+        assert manager.has_workflow('wid1')
         await manager.send_event('wid1', 'messages', None, 'put', 0)  # i.e. end the workflow
         await asyncio.sleep(0.1)  # workflow now finishes and removes itself
         assert not manager.has_workflow('wid1')

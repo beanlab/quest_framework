@@ -7,3 +7,4 @@ __pycache__/
 /quest_test/event_tests/.pytest_cache
 .vscode/
 game-state/
+test-state/

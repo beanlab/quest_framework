@@ -21,6 +21,8 @@ from src.quest.persistence import InMemoryBlobStorage, LocalFileSystemBlobStorag
 
 # You will need a launch.json file to start the program with the correct arguments. For running, a CLI example is as follows:
     # python ./numGuessGame.py -r -w
+    # When you debug, you'll need to make sure there are the correct command line arguments. This should be pretty easy in a Jetbrains
+        # IDE, but you'll need to provide a launch.json file for VS Code.
 
 @step
 async def getGuess():
