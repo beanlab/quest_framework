@@ -72,7 +72,9 @@ class WorkflowManager:
     def start_workflow(self, workflow_type: str, workflow_id: str, 
                        delete_on_finish: bool,*workflow_args, **workflow_kwargs) -> asyncio.Task:
         
-        """Start the workflow"""
+        """Start the workflow.
+            Returns the asyncio.Task associated with the workflow.
+            This allows the workflow to be awaited and the result retrieved."""
         if workflow_id not in self._workflow_data.keys():
             self._workflow_data[workflow_id] = (workflow_type, workflow_id, workflow_args, workflow_kwargs, delete_on_finish)
             self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs, delete_on_finish)

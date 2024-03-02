@@ -79,11 +79,13 @@ async def main():
         if len(args) < 2:
             exit(0)
 
+    result = "<PROGRAM RESULT>"
+
     if(args[1] == "-h"):
         historian = create_filesystem_historian(game_state, "Guessing_Game", game_loop)
         task = historian.run()
         await task
-        print(f'RESULT: {task.result()}')
+        result = task.result()
 
     elif(args[1] == "-w"):
         storage = LocalFileSystemBlobStorage(game_state)
@@ -97,18 +99,16 @@ async def main():
         async with WorkflowManager('number-game', storage, create_history, lambda wkflw: game_loop) as manager:
             myJob: asyncio.Task = manager.start_workflow('workflow', 'game1', False, 0)
             await myJob
-            print(f"INNER RESULT IS:\n{myJob.result()}")
-            await asyncio.sleep(.1)
-            print('with statement is finishing')
+            result = myJob.result()
     
-    # return "Completed without exception"
+    return result
 
 if __name__ == '__main__':
     loop = asyncio.new_event_loop()
 
     try:
         result = loop.run_until_complete(main())
-        print(f"RESULT:\n{result}")
+        print(f"Result returned by the program was:\n{result}")
 
     finally:
         loop.close()
