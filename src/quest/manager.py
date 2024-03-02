@@ -77,7 +77,7 @@ class WorkflowManager:
             self._workflow_data[workflow_id] = (workflow_type, workflow_id, workflow_args, workflow_kwargs, delete_on_finish)
             self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs, delete_on_finish)
         
-        return self._get_workflow(workflow_id)
+        return self._workflow_tasks[workflow_id]
 
     def has_workflow(self, workflow_id: str) -> bool:
         return workflow_id in self._workflows
