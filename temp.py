@@ -68,17 +68,47 @@ async def test_manager_background():
     print("test_manager_background() completed successfully with no assertion failures.")
 
 # TODO: this should become its own test file
-    # TODO: declare global events for setting in-between interrupts (I would expect to need at least 2)
-    # TODO: create @step that throws a KeyboardInterrupt
 
-async def createInterrupt():
-    # TODO: use a send_message type pattern (see the test_manager_background function) to tell the workflow
-        # when to throw the KeyboardInterrupt
-    pass    
+# global events to be set  by the workflow and indicate how for the workflow progressed
+three_events: list[asyncio.Event] = [asyncio.Event(), asyncio.Event(), asyncio.Event()]
+
+@step
+async def throwExceptionOnTrigger(current_iteration, iteration_to_trigger):
+    if(current_iteration == iteration_to_trigger):
+        raise KeyboardInterrupt
+
+async def createInterrupt(iteration_to_trigger):
+    current_iteration: int = 0
+    # try:
+    while(current_iteration < 3):
+        await throwExceptionOnTrigger(current_iteration, iteration_to_trigger)
+        three_events[current_iteration].set()
+        current_iteration += 1
+    # except KeyboardInterrupt:
+    #     pass
+
+    return current_iteration
 
 async def test_interrupt_handling():
     test_state = Path("test-state-(temp)")
+
+    # test against historian
+    print("Testing interrupts on filesystem Historian:")
+
+    # test interrupt on first iteration
     historian = create_filesystem_historian(test_state, "Interrupt_Testing", createInterrupt)
+    try:
+        task: asyncio.Task = historian.run(0)
+        await task
+    except asyncio.exceptions.CancelledError as ex:
+        pass
+    assert task.result() == 0
+    for an_event in three_events:
+        assert not an_event.is_set()
+    
+    print("\t- Interrupt on first iteration successfully passed.")
+
+    # test interrupt on second iteration
 
 
     # write the test for Ctrl+C here
@@ -94,7 +124,17 @@ async def test_interrupt_handling():
 
 
 # asyncio.run(test_manager_background())
-# TODO: we do need to figure out how this applies to SIGTERM.  
-asyncio.run(test_interrupt_handling())
+# TODO: we do need to figure out how this applies to SIGTERM. 
+if __name__ == '__main__': 
+    loop = asyncio.new_event_loop()
+    
+    try:
+        loop.run_until_complete(test_interrupt_handling())
+
+    except Exception as ex:
+        print(f"Caught exception {ex.__class__}")
+
+    finally:
+        loop.close()
 
 
