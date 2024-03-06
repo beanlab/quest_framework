@@ -352,26 +352,38 @@ async def test_resource_stream():
         if index == 0:
             assert 'phrase' in resources
             assert resources['phrase']['value'] == 'woot'
+
         elif index == 1:
             assert 'phrase' in resources
             assert resources['phrase']['value'] == 'wootwootwoot'
-        elif index == 2:
+
+        elif index == 2:  # queue created
             assert 'phrase' in resources
             assert resources['phrase']['value'] == 'wootwootwoot'
             assert 'messages' in resources
+
             await historian.record_external_event('messages', None, 'put', 'quuz')
-        elif index == 3:
+
+        elif index == 3:  # queue.get()
             assert 'phrase' in resources
             assert resources['phrase']['value'] == 'wootwootwootquux'
             assert 'messages' in resources
+
         elif index == 4:
             assert 'phrase' in resources
             assert resources['phrase']['value'] == 'wootwootwootquux'
-            assert 'messages' not in resources
+            assert 'messages' in resources
+
         elif index == 5:
             assert 'phrase' in resources
-            assert resources['phrase']['value'] == 'all done'
+            assert resources['phrase']['value'] == 'wootwootwootquux'
+            assert 'messages' not in resources
+
         elif index == 6:
+            assert 'phrase' in resources
+            assert resources['phrase']['value'] == 'all done'
+
+        elif index == 7:
             assert not resources  # i.e. empty
 
 

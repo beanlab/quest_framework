@@ -84,3 +84,4 @@ class Historian:
                     assert record['type'] == 'delete_resource'
                     assert record['resource_id'] == resource_id
 
+    # TODO - internal (and external?) events
