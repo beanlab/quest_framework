@@ -2,11 +2,14 @@ import asyncio
 import inspect
 import logging
 import traceback
-from asyncio import TaskGroup, Task
+from asyncio import Task
 from contextvars import ContextVar
 from datetime import datetime
 from functools import wraps
-from typing import TypedDict, Any, Callable, Literal, Protocol, Reversible
+from typing import Callable
+from .history import History
+from .types import ConfigurationRecord, VersionRecord, StepStartRecord, StepEndRecord, \
+    ExceptionDetails, ResourceAccessEvent, ResourceEntry, ResourceLifecycleEvent, TaskEvent
 
 QUEST_VERSIONS = "_quest_versions"
 GLOBAL_VERSION = "_global_version"
@@ -68,90 +71,6 @@ GLOBAL_VERSION = "_global_version"
 # I need to look for resources that are open in each branch and match the relevant events
 
 SUSPENDED = '__WORKFLOW_SUSPENDED__'
-
-
-class ExceptionDetails(TypedDict):
-    type: str
-    args: tuple
-    details: str
-
-
-class VersionRecord(TypedDict):
-    type: Literal['set_version', 'after_version']
-    timestamp: str
-    step_id: str  # stores the version name
-    task_id: str
-    version: str
-
-
-class ConfigurationRecord(TypedDict):
-    type: Literal['configuration']
-    timestamp: str
-    step_id: Literal['configuration']
-    task_id: str
-    function_name: str
-    args: list
-    kwargs: dict
-
-
-class StepStartRecord(TypedDict):
-    type: Literal['start']
-    timestamp: str
-    step_id: str
-    task_id: str
-
-
-class StepEndRecord(TypedDict):
-    type: Literal['end']
-    timestamp: str
-    step_id: str
-    task_id: str
-    result: Any
-    exception: Any | None
-
-
-class ResourceEntry(TypedDict):
-    name: str
-    identity: str | None
-    type: str
-    resource: Any
-
-
-class ResourceLifecycleEvent(TypedDict):
-    type: Literal['create_resource', 'delete_resource']
-    timestamp: str
-    step_id: str
-    task_id: str
-    resource_id: str
-    resource_type: str
-
-
-class ResourceAccessEvent(TypedDict):
-    type: Literal['external', 'internal_start', 'internal_end']
-    timestamp: str
-    step_id: str
-    task_id: str
-    resource_id: str
-    action: str
-    args: list
-    kwargs: dict
-    result: Any
-
-
-class TaskEvent(TypedDict):
-    type: Literal['start_task', 'complete_task']
-    timestamp: str
-    step_id: str
-    task_id: str  # the name of the task created/completed
-
-
-EventRecord = StepStartRecord \
-              | StepEndRecord \
-              | ResourceAccessEvent \
-              | TaskEvent \
-              | VersionRecord \
-              | ConfigurationRecord \
-              | ResourceLifecycleEvent
 
 
 def _get_type_name(obj):
@@ -230,14 +149,11 @@ def _create_resource_id(name: str, identity: str) -> str:
 historian_context = ContextVar('historian')
 
 
-class History(Protocol, Reversible):
-    def append(self, item: EventRecord): ...
-
-    def remove(self, item: EventRecord): ...
-
-    def __iter__(self): ...
-
-    def __reversed__(self): ...
+def get_function_name(func):
+    if hasattr(func, '__name__'):  # regular functions
+        return func.__name__
+    else:  # Callable classes
+        return func.__class__.__name__
 
 
 class Historian:
@@ -478,9 +394,9 @@ class Historian:
 
     async def _run_configuration(self, config_record: ConfigurationRecord):
         config_function, args, kwargs = self._configurations[self._configuration_pos]
-        logging.debug(f'Running configuration: {config_function.__name__}(*{args}, **{kwargs})')
+        logging.debug(f'Running configuration: {get_function_name(config_function)}(*{args}, **{kwargs})')
 
-        assert config_record['function_name'] == config_function.__name__, str(config_record)
+        assert config_record['function_name'] == get_function_name(config_function), str(config_record)
         assert config_record['args'] == args, str(config_record)
         assert config_record['kwargs'] == kwargs, str(config_record)
 
@@ -818,7 +734,7 @@ class Historian:
 
     def start_task(self, func, *args, name=None, task_factory=asyncio.create_task, **kwargs):
         historian_context.set(self)
-        task_id = name or self._get_unique_id(func.__name__)
+        task_id = name or self._get_unique_id(get_function_name(func))
         logging.debug(f'{self._get_task_name()} has requested {task_id} start')
 
         @wraps(func)
@@ -870,7 +786,7 @@ class Historian:
     async def _run_with_args(self, *args, **kwargs):
         args = await self.handle_step('args', lambda: args)
         kwargs = await self.handle_step('kwargs', lambda: kwargs)
-        result = await self.handle_step(self.workflow.__name__, self.workflow, *args, **kwargs)
+        result = await self.handle_step(get_function_name(self.workflow), self.workflow, *args, **kwargs)
         return result
 
     async def _run_with_exception_handling(self, *args, **kwargs):
@@ -929,20 +845,20 @@ class Historian:
         assert len(config_records) <= len(self._configurations)
 
         for record, (config_function, args, kwargs) in zip(config_records, self._configurations):
-            assert record['function_name'] == config_function.__name__
+            assert record['function_name'] == get_function_name(config_function)
             assert record['args'] == args
             assert record['kwargs'] == kwargs
 
         # Add new configuration records
         for config_function, args, kwargs in self._configurations[len(config_records):]:
-            logging.debug(f'Adding new configuration: {config_function.__name__}(*{args}, **{kwargs}')
+            logging.debug(f'Adding new configuration: {get_function_name(config_function)}(*{args}, **{kwargs}')
 
             self._history.append(ConfigurationRecord(
                 type='configuration',
                 timestamp=_get_current_timestamp(),
                 step_id='configuration',
                 task_id=self._get_external_task_name(),  # the external task owns these
-                function_name=config_function.__name__,
+                function_name=get_function_name(config_function),
                 args=args,
                 kwargs=kwargs
             ))
