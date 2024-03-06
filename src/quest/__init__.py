@@ -1,3 +1,5 @@
+import os
+import json
 from pathlib import Path
 from typing import Callable
 
@@ -31,3 +33,14 @@ def create_filesystem_manager(
         return PersistentHistory(wid, LocalFileSystemBlobStorage(save_folder / namespace / wid))
 
     return WorkflowManager(namespace, storage, create_history, factory)
+
+def print_directory_json(folder: Path):
+    for file in sorted(folder.iterdir()):
+        if os.path.isdir(file):
+            print_directory_json(file)
+        else:
+            print(f"Current Directory: {folder.name}")
+            content = json.loads(file.read_text())
+            print(json.dumps(content, indent=2))
+            print("\n")
+
