@@ -58,6 +58,38 @@ class PersistentHistory(History):
     def __reversed__(self):
         return reversed(self._items)
 
+#------------------------------------------
+class HistoryItem():
+    def __init__(self):
+        self.prev: HistoryItem = None
+        self.next: HistoryItem = None
+        self.item = None
+
+class PersistentHistory2(History):
+    def __init__(self, namespace:str, storage: BlobStorage):
+        self._namespace = namespace
+        self._storage = storage
+        self._keys: list[str] = []
+        self._nodes: dict[str, HistoryItem]
+
+        self._head: HistoryItem = None
+        self._tail: HistoryItem = None
+
+    def _get_key(self, item: EventRecord):
+        pass
+
+    def append(self, item: EventRecord):
+        pass
+
+    def __iter__(self):
+        # generate an array of the items starting from self._head using the next attribute
+        pass
+
+    def __reversed__(self):
+        # generate an array of the items starting from self._tail using the prev attribute
+        pass
+
+#-------------------------------------------
 
 class LocalFileSystemBlobStorage(BlobStorage):
     def __init__(self, root_folder: Path):
