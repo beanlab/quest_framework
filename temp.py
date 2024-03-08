@@ -7,76 +7,93 @@ from src.quest import PersistentHistory, queue
 from src.quest.manager import WorkflowManager
 from src.quest.persistence import InMemoryBlobStorage, LocalFileSystemBlobStorage
 
-# global events to be set  by the workflow and indicate how for the workflow progressed
+# global events to be set by the workflow and indicate how far the workflow progressed
 three_events: list[asyncio.Event] = [asyncio.Event(), asyncio.Event(), asyncio.Event()]
 
 # directory for storage of json files
 test_state = Path("test-state-(temp)")
 
-# broadly used constant
+# broadly used constant and variables
 MAX_ITERATIONS = 3
+SUCCESSFULL_COMPLETION = "workflow completed without exception"
+
+class Trigger():
+    def __init__(self):
+        self.iteration_trigger = 0
+    
+    def get_trigger(self):
+        return self.iteration_trigger
+    
+    def set_trigger(self, new_val: int):
+        self.iteration_trigger = new_val
+
+ITERATION_TRIGGER: Trigger = Trigger()
 
 @step
-async def throwExceptionOnTrigger(current_iteration, iteration_to_trigger):
-    if(current_iteration == iteration_to_trigger):
+async def throwExceptionOnTrigger(current_iteration):
+    if(current_iteration == ITERATION_TRIGGER.get_trigger()):
         raise KeyboardInterrupt
 
-async def createInterrupt(iteration_to_trigger):
-    current_iteration: int = 0
+async def createInterrupt():
+    current_iteration: int = 1
 
-    while(current_iteration < 3):
-        await throwExceptionOnTrigger(current_iteration, iteration_to_trigger)
-        three_events[current_iteration].set()
+    while(current_iteration <= MAX_ITERATIONS):
+        three_events[current_iteration - 1].set()
+        await throwExceptionOnTrigger(current_iteration)
         current_iteration += 1
 
-    return current_iteration
-
-async def test_interrupt_handling(iterations):
+async def run_faulty_workflow():
     # test against historian
-    print("Testing interrupts on filesystem Historian:")
+    # print("Testing interrupts on filesystem Historian:")
 
     # test interrupt on first iteration
     historian = create_filesystem_historian(test_state, "Interrupt_Testing", createInterrupt)
 
-    try:
-        task: asyncio.Task = historian.run(0)
-        await task
-    except asyncio.exceptions.CancelledError as ex:
-        pass
-    assert task.result() == 0
-    for an_event in three_events:
-        assert not an_event.is_set()
-    
-    print("\t- Interrupt on first iteration successfully passed.")
+    task: asyncio.Task = historian.run()
+    await task
 
-    # test interrupt on second iteration
-
-
+    return SUCCESSFULL_COMPLETION
     # write the test for Ctrl+C here
         # it might be worth writing essentially the same test twice, but one using the
             # Historian directly, and the other running on top of a WorkflowManager so
             # that we can not only confirm the Historian handling it correctly, but also
             # that the WorkflowManager will function correctly with it. 
 
+def test_manager_background():
+    # clean up files before the test
+    shutil.rmtree(test_state, ignore_errors=True)
 
-# TODO: we do need to figure out how this applies to SIGTERM. 
-if __name__ == '__main__': 
-    # the below code is basically what should go in the test function since this is where we'll do assertions and restart the test routine
-    loop = asyncio.new_event_loop()
-    
-    iteration = 0
+    iteration = 1
+    while(iteration <= MAX_ITERATIONS + 1):
+        # reset the events
+        for event in three_events:
+            event.clear()
 
-    while(iteration < MAX_ITERATIONS):
-
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
         try:
+            ITERATION_TRIGGER.set_trigger(iteration)
             print(f"Iteration number {iteration}")
-            loop.run_until_complete(test_interrupt_handling(iteration))
+            result = loop.run_until_complete(run_faulty_workflow())
 
         except Exception as ex:
-            # print(f"Caught exception {ex.__class__}")
-            iteration = iteration + 1
+            for i in range(iteration):
+                assert three_events[i].is_set()
+
             continue
 
+        finally:
+            loop.stop()
+            loop.close()
+            iteration = iteration + 1
 
-    # clean up files after the test
-    shutil.rmtree(test_state, ignore_errors=True)
+        # no exceptions were thrown (4 was passed) all events should be set
+        for event in three_events:
+            assert event.is_set()
+
+        assert result == SUCCESSFULL_COMPLETION
+        continue
+
+if __name__ == '__main__': 
+    test_manager_background()
