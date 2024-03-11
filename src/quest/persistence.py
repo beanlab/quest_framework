@@ -59,10 +59,10 @@ class PersistentHistory(History):
         return reversed(self._items)
 
 #------------------------------------------
-class HistoryItem():
+class HistoryNode():
     def __init__(self):
-        self.prev: HistoryItem = None
-        self.next: HistoryItem = None
+        self.prev: HistoryNode = None
+        self.next: HistoryNode = None
         self.item = None
 
 class PersistentHistory2(History):
@@ -70,12 +70,21 @@ class PersistentHistory2(History):
         self._namespace = namespace
         self._storage = storage
         self._keys: list[str] = []
-        self._nodes: dict[str, HistoryItem]
+        self._nodes: dict[str, HistoryNode]
 
-        self._head: HistoryItem = None
-        self._tail: HistoryItem = None
+        self._head: HistoryNode = None
+        self._tail: HistoryNode = None
+
+        if storage.has_blob(namespace):
+            self._keys = storage.read_blob(namespace) # these are keys for the json files
+            for key in self._keys:
+                self._insert_item(storage.read_blob(key))
 
     def _get_key(self, item: EventRecord):
+        pass
+
+    def _insert_item(self, item: Blob):
+        """Inserts blob into the linked list of HistoryNodes"""
         pass
 
     def append(self, item: EventRecord):
