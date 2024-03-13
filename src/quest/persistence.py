@@ -78,24 +78,48 @@ class PersistentHistory2(History):
         if storage.has_blob(namespace):
             self._keys = storage.read_blob(namespace) # these are keys for the json files
             for key in self._keys:
-                self._insert_item(storage.read_blob(key))
+                self._insert_node(key, storage.read_blob(key)) # TODO: is this the correct string to pass in?
 
     def _get_key(self, item: EventRecord):
-        pass
+        return self._namespace + '.' + md5((item['timestamp'] + item['step_id'] + item['type']).encode()).hexdigest()
 
-    def _insert_item(self, item: Blob):
+    def _insert_node(self, nodeKey: str, item: Blob):
         """Inserts blob into the linked list of HistoryNodes"""
-        pass
+        newNode: HistoryNode = HistoryNode()
+        newNode.item = item
+        newNode.prev = self._tail
+
+        if(self._tail != None):
+            self._tail.next = newNode
+        else:
+            self._head = newNode
+
+        self._tail = newNode
+
+        self._nodes[nodeKey] = newNode
+
+    def _remove_node(self, nodeKey: str):
+        # TODO NEXT: remove the node from the list before deleting it from self._keys
+        del self._keys[nodeKey] # TODO: should I be key checking here first? Probably
 
     def append(self, item: EventRecord):
-        pass
+        key = self._get_key(item)
+        self._insert_node(key, item)
+        self._storage.write_blob(key, item)
+        self._storage.write_blob(self._namespace, self._keys)
+
+    def remove(self, item: EventRecord):
+        key = self._get_key(item)
+        self._remove_node(key)
+        self._storage.delete_blob(key)
+        self._storage.write_blob(self._namespace, self._keys)
 
     def __iter__(self):
-        # generate an array of the items starting from self._head using the next attribute
+        # iterate over the linked list and yield at each one, moving from self._head to self._tail
         pass
 
     def __reversed__(self):
-        # generate an array of the items starting from self._tail using the prev attribute
+        # iterate over the linked list and yield at each one, moving from self._tail to self._head
         pass
 
 #-------------------------------------------
