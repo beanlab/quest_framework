@@ -20,7 +20,7 @@ class BlobStorage(Protocol):
     def delete_blob(self, key: str): ...
 
 
-class PersistentHistory(History):
+class PersistentHistory1(History):
     def __init__(self, namespace: str, storage: BlobStorage):
         self._namespace = namespace
         self._storage = storage
@@ -65,19 +65,19 @@ class HistoryNode():
         self.next: HistoryNode = None
         self.item = None
 
-class PersistentHistory2(History):
+class PersistentHistory(History):
     def __init__(self, namespace:str, storage: BlobStorage):
         self._namespace = namespace
         self._storage = storage
-        self._keys: list[str] = []
-        self._nodes: dict[str, HistoryNode]
+        # self._keys: list[str] = []
+        self._nodes: dict[str, HistoryNode] = {}
 
         self._head: HistoryNode = None
         self._tail: HistoryNode = None
 
         if storage.has_blob(namespace):
-            self._keys = storage.read_blob(namespace) # these are keys for the json files
-            for key in self._keys:
+            keys = storage.read_blob(namespace) # these are keys for the json files
+            for key in keys:
                 self.append(storage.read_blob(key))
 
     def _get_key(self, item: EventRecord):
@@ -100,7 +100,7 @@ class PersistentHistory2(History):
 
     def _remove_node(self, nodeKey: str):
         # TODO: should I be key checking here first? Probably
-        toDelete: HistoryNode = self._keys[nodeKey]
+        toDelete: HistoryNode = self._nodes[nodeKey]
 
         if toDelete.prev is not None:
             toDelete.prev.next = toDelete.next
@@ -114,41 +114,41 @@ class PersistentHistory2(History):
         if toDelete == self._tail:
             self._tail == toDelete.prev
 
-        del self._keys[nodeKey]
+        del self._nodes[nodeKey]
 
     def append(self, item: EventRecord):
         key = self._get_key(item)
         self._insert_node(key, item)
         self._storage.write_blob(key, item)
-        self._storage.write_blob(self._namespace, self._keys)
+        self._storage.write_blob(self._namespace, list(self._nodes.keys()))
 
     def remove(self, item: EventRecord):
         key = self._get_key(item)
         self._remove_node(key)
         self._storage.delete_blob(key)
-        self._storage.write_blob(self._namespace, self._keys)
+        self._storage.write_blob(self._namespace, list(self._nodes.keys()))
+
+    class HistoryIterator():
+        def __init__(self, currentNode: HistoryNode, direction: str):
+            self.current: HistoryNode = currentNode
+            self.direction = direction
+
+        def __next__(self):
+            if self.current == None:
+                raise StopIteration
+            else:
+                result = self.current
+                if self.direction == 'prev':
+                    self.current = self.current.prev
+                else:
+                    self.current = self.current.next
+                return result.item
 
     def __iter__(self):
-        current = self._head
-        if current == None:
-            raise StopIteration
-        else:
-            current = current.next
-            while(current != None):
-                yield current
-                current = current.next
-            raise StopIteration
-
+        return self.HistoryIterator(self._head, 'next')
+    
     def __reversed__(self):
-        current = self._tail
-        if current == None:
-            raise StopIteration
-        else:
-            current = current.prev
-            while(current != None):
-                yield current
-                current = current.prev
-            raise StopIteration
+        return self.HistoryIterator(self._tail, 'prev')
 
 #-------------------------------------------
 
