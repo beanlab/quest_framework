@@ -24,8 +24,9 @@ class HistoryNode():
         self.prev: HistoryNode = None
         self.next: HistoryNode = None
         self.item = None
+
 class PersistentHistory(History):
-    def __init__(self, namespace:str, storage: BlobStorage):
+    def __init__(self, namespace: str, storage: BlobStorage):
         self._namespace = namespace
         self._storage = storage
         self._nodes: dict[str, HistoryNode] = {}
@@ -34,11 +35,11 @@ class PersistentHistory(History):
         self._tail: HistoryNode = None
 
         if storage.has_blob(namespace):
-            keys = storage.read_blob(namespace) # these are keys for the json files
+            keys = storage.read_blob(namespace)
             for key in keys:
                 self.append(storage.read_blob(key))
 
-    def _get_key(self, item: EventRecord):
+    def _get_key(self, item: EventRecord) -> str:
         return self._namespace + '.' + md5((item['timestamp'] + item['step_id'] + item['type']).encode()).hexdigest()
 
     def _insert_node(self, nodeKey: str, item: Blob):
