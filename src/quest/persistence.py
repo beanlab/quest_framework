@@ -70,7 +70,7 @@ class PersistentHistory(History):
             self._head = toDelete.next
 
         if toDelete == self._tail:
-            self._tail == toDelete.prev
+            self._tail = toDelete.prev
 
         del self._nodes[nodeKey]
 
