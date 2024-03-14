@@ -835,11 +835,16 @@ class Historian:
         self._configurations.append((config_function, list(args), kwargs))
 
     def _add_new_configurations(self):
-        config_records = [
-            record
-            for record in self._history
-            if record['type'] == 'configuration'
-        ]
+        # config_records = [
+        #     record
+        #     for record in self._history
+        #     if record['type'] == 'configuration'
+        # ]
+
+        config_records = []
+        for record in self._history:
+            if record['type'] == 'configuration':
+                config_records.append(record)
 
         # We should have a configuration to replay for each record in the past
         assert len(config_records) <= len(self._configurations)
