@@ -78,7 +78,7 @@ class PersistentHistory2(History):
         if storage.has_blob(namespace):
             self._keys = storage.read_blob(namespace) # these are keys for the json files
             for key in self._keys:
-                self._insert_node(key, storage.read_blob(key)) # TODO: is this the correct string to pass in?
+                self.append(storage.read_blob(key))
 
     def _get_key(self, item: EventRecord):
         return self._namespace + '.' + md5((item['timestamp'] + item['step_id'] + item['type']).encode()).hexdigest()
@@ -99,8 +99,22 @@ class PersistentHistory2(History):
         self._nodes[nodeKey] = newNode
 
     def _remove_node(self, nodeKey: str):
-        # TODO NEXT: remove the node from the list before deleting it from self._keys
-        del self._keys[nodeKey] # TODO: should I be key checking here first? Probably
+        # TODO: should I be key checking here first? Probably
+        toDelete: HistoryNode = self._keys[nodeKey]
+
+        if toDelete.prev is not None:
+            toDelete.prev.next = toDelete.next
+
+        if toDelete.next is not None:
+            toDelete.next.prev = toDelete.prev
+
+        if toDelete == self._head:
+            self._head = toDelete.next
+
+        if toDelete == self._tail:
+            self._tail == toDelete.prev
+
+        del self._keys[nodeKey]
 
     def append(self, item: EventRecord):
         key = self._get_key(item)
@@ -115,12 +129,26 @@ class PersistentHistory2(History):
         self._storage.write_blob(self._namespace, self._keys)
 
     def __iter__(self):
-        # iterate over the linked list and yield at each one, moving from self._head to self._tail
-        pass
+        current = self._head
+        if current == None:
+            raise StopIteration
+        else:
+            current = current.next
+            while(current != None):
+                yield current
+                current = current.next
+            raise StopIteration
 
     def __reversed__(self):
-        # iterate over the linked list and yield at each one, moving from self._tail to self._head
-        pass
+        current = self._tail
+        if current == None:
+            raise StopIteration
+        else:
+            current = current.prev
+            while(current != None):
+                yield current
+                current = current.prev
+            raise StopIteration
 
 #-------------------------------------------
 
