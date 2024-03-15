@@ -4,7 +4,8 @@ from hashlib import md5
 from pathlib import Path
 from typing import Protocol, Union
 
-from .historian import History, EventRecord
+from .history import History
+from .types import EventRecord
 
 Blob = Union[dict, list, str, int, bool, float]
 

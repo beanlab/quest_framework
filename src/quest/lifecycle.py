@@ -1,6 +1,7 @@
 from typing import Protocol, TypeVar
 
-from src.quest.historian import Historian, History
+from .historian import Historian
+from .history import History
 
 WT = TypeVar('WT')
 
