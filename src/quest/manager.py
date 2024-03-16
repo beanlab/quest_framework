@@ -92,4 +92,9 @@ class WorkflowManager:
         return await self._get_workflow(workflow_id).get_resources(identity)
 
     async def send_event(self, workflow_id: str, name: str, identity, action, *args, **kwargs):
-        return await self._get_workflow(workflow_id).record_external_event(name, identity, action, *args, **kwargs)
+        workflow_task = self._workflow_tasks[workflow_id]
+        
+        if not workflow_task.done():
+            return await self._get_workflow(workflow_id).record_external_event(name, identity, action, *args, **kwargs)
+        
+        return None

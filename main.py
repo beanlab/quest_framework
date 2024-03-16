@@ -16,8 +16,10 @@ async def main():
     def get_workflow(arg: str):
         return game_loop
 
+    # initial partial run of workflows
     async with create_filesystem_manager(saved_state, workflow_namespace_root, get_workflow) as manager:
-        
+        print("\nInitial run of workflows:\n")
+
         # create and start two workflows
         workflow_1 = f'{workflow_namespace_root}-{workflow_number}'
         workflow_number = workflow_number + 1
@@ -44,7 +46,9 @@ async def main():
         await asyncio.sleep(0.1)
         # leave the context
 
+    # completion of workflows
     async with create_filesystem_manager(saved_state, workflow_namespace_root, get_workflow) as manager:
+        print("\nExiting, resuming, and completing workflows:\n")
         manager.start_workflow('multi-guess', workflow_1, False, workflow_1, '-w', '-r')
         manager.start_workflow('multi-guess', workflow_2, False, workflow_2, '-w', '-r')
         manager.start_workflow('multi-guess', workflow_3, False, workflow_3, '-w', '-r')
@@ -65,6 +69,28 @@ async def main():
         await wk1
         await wk2
         await wk3
+
+        print(wk1.result())
+        print(wk2.result())
+        print(wk3.result())
+
+    # attempt to start previously completed workflows - should cause no errors and output final result again
+    async with create_filesystem_manager(saved_state, workflow_namespace_root, get_workflow) as manager:
+        print("\nAttempting to restart completed workflows:\n")
+        manager.start_workflow('multi-guess', workflow_1, False, workflow_1, '-w', '-r')
+        manager.start_workflow('multi-guess', workflow_2, False, workflow_2, '-w', '-r')
+        manager.start_workflow('multi-guess', workflow_3, False, workflow_3, '-w', '-r')
+
+        wk1 = manager.get_workflow(workflow_1)
+        wk2 = manager.get_workflow(workflow_2)
+        wk3 = manager.get_workflow(workflow_3)
+        await wk1
+        await wk2
+        await wk3
+
+        print(wk1.result())
+        print(wk2.result())
+        print(wk3.result())
         
 if __name__ == '__main__':
     loop = asyncio.new_event_loop()
