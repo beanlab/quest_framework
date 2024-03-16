@@ -22,9 +22,10 @@ async def main():
         workflow_1 = f'{workflow_namespace_root}-{workflow_number}'
         workflow_number = workflow_number + 1
         workflow_2 = f'{workflow_namespace_root}-{workflow_number}'
-        manager.start_workflow('multi-guess', workflow_1, False, ['-w', '-r'])
+        
+        manager.start_workflow('multi-guess', workflow_1, False, workflow_1, '-w', '-r', workflow_name=workflow_1)
         await asyncio.sleep(0.1)
-        manager.start_workflow('multi-guess', workflow_2, False, ['-w', '-r'])
+        manager.start_workflow('multi-guess', workflow_2, False, workflow_2, '-w', '-r', workflow_name=workflow_2)
 
         # advance the first workflow once
         await asyncio.sleep(0.1)
@@ -33,7 +34,8 @@ async def main():
         # start a third workflow
         workflow_number = workflow_number + 1
         workflow_3 = f'{workflow_namespace_root}-{workflow_number}'
-        manager.start_workflow('multi-guess', workflow_3, False, ['-w', '-r'])
+        manager.start_workflow('multi-guess', workflow_3, False, workflow_3, '-w', '-r', workflow_name=workflow_3)
+        await asyncio.sleep(0.1)
 
         # advance the third workflow twice
         await manager.send_event(workflow_3, 'guess', None, 'put', 7)
@@ -41,11 +43,11 @@ async def main():
         await manager.send_event(workflow_3, 'guess', None, 'put', 9)
         await asyncio.sleep(0.1)
         # leave the context
-        
+
     async with create_filesystem_manager(saved_state, workflow_namespace_root, get_workflow) as manager:
-        manager.start_workflow('multi-guess', workflow_1, False, ['-w', '-r'])
-        manager.start_workflow('multi-guess', workflow_2, False, ['-w', '-r'])
-        manager.start_workflow('multi-guess', workflow_3, False, ['-w', '-r'])
+        manager.start_workflow('multi-guess', workflow_1, False, workflow_1, '-w', '-r', workflow_name=workflow_1)
+        manager.start_workflow('multi-guess', workflow_2, False, workflow_2, '-w', '-r', workflow_name=workflow_2)
+        manager.start_workflow('multi-guess', workflow_3, False, workflow_3, '-w', '-r', workflow_name=workflow_3)
 
         # TODO: this is where you'll check assertions about the states of the games
 
