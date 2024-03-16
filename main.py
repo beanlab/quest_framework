@@ -21,6 +21,12 @@ async def main():
     await asyncio.sleep(0.1)
     await historian.record_external_event('guess', None, 'put', '5')
     await asyncio.sleep(0.1)
+    await historian.record_external_event('guess', None, 'put', '10')
+    await asyncio.sleep(0.1)
+    await historian.record_external_event('guess', None, 'put', '6')
+    await asyncio.sleep(0.1)
+    await historian.record_external_event('guess', None, 'put', '25')
+    await asyncio.sleep(0.1)
 
     await workflow_task
     print(workflow_task.result())
@@ -34,4 +40,10 @@ async def main():
     #     print(result)
         
 if __name__ == '__main__':
-    asyncio.run(main())
+    loop = asyncio.new_event_loop()
+    
+    try:
+        loop.run_until_complete(main())
+
+    finally:
+        loop.close()
