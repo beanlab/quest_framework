@@ -17,20 +17,55 @@ async def main():
         return game_loop
 
     async with create_filesystem_manager(saved_state, workflow_namespace_root, get_workflow) as manager:
+        
+        # create and start two workflows
         workflow_1 = f'{workflow_namespace_root}-{workflow_number}'
-        # workflow_1 = 'demo'
+        workflow_number = workflow_number + 1
+        workflow_2 = f'{workflow_namespace_root}-{workflow_number}'
         manager.start_workflow('multi-guess', workflow_1, False, ['-w', '-r'])
         await asyncio.sleep(0.1)
-        await manager.send_event(workflow_1, 'guess', None, 'put', 5)
+        manager.start_workflow('multi-guess', workflow_2, False, ['-w', '-r'])
+
+        # advance the first workflow once
         await asyncio.sleep(0.1)
         await manager.send_event(workflow_1, 'guess', None, 'put', 5)
+        
+        # start a third workflow
+        workflow_number = workflow_number + 1
+        workflow_3 = f'{workflow_namespace_root}-{workflow_number}'
+        manager.start_workflow('multi-guess', workflow_3, False, ['-w', '-r'])
+
+        # advance the third workflow twice
+        await manager.send_event(workflow_3, 'guess', None, 'put', 7)
         await asyncio.sleep(0.1)
-        await manager.send_event(workflow_1, 'guess', None, 'put', 5)
+        await manager.send_event(workflow_3, 'guess', None, 'put', 9)
+        await asyncio.sleep(0.1)
+        # leave the context
+        
+    async with create_filesystem_manager(saved_state, workflow_namespace_root, get_workflow) as manager:
+        manager.start_workflow('multi-guess', workflow_1, False, ['-w', '-r'])
+        manager.start_workflow('multi-guess', workflow_2, False, ['-w', '-r'])
+        manager.start_workflow('multi-guess', workflow_3, False, ['-w', '-r'])
+
+        # TODO: this is where you'll check assertions about the states of the games
+
         await asyncio.sleep(0.1)
         await manager.send_event(workflow_1, 'guess', None, 'put', 'q')
         await asyncio.sleep(0.1)
-        result = await manager.get_workflow(workflow_1)
-        print(f'Result: {result}')
+        await manager.send_event(workflow_2, 'guess', None, 'put', 'q')
+        await asyncio.sleep(0.1)
+        await manager.send_event(workflow_3, 'guess', None, 'put', 'q')
+        await asyncio.sleep(0.1)
+
+        wk1 = manager.get_workflow(workflow_1)
+        wk2 = manager.get_workflow(workflow_2)
+        wk3 = manager.get_workflow(workflow_3)
+        await wk1
+        await wk2
+        await wk3
+
+        # result = await manager.get_workflow(workflow_1)
+        # print(f'Result: {result}')
         
 if __name__ == '__main__':
     loop = asyncio.new_event_loop()
