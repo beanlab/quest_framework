@@ -8,7 +8,7 @@ from src.quest import PersistentHistory
 from src.quest.manager import WorkflowManager
 from src.quest.persistence import LocalFileSystemBlobStorage
 
-from demos.multiGuessSource import game_loop
+from demos.multiGuessTerminal import game_loop
 
 def usage():
     print("\nUSAGE: Please specify which method with which to run the game.")
