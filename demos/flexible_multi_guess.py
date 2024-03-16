@@ -16,10 +16,9 @@ def usage():
     print("\n\tSpecifying \"-r\" with any other flag, or none, will refresh the history.\n")
     exit(1)
 
-async def run_flexible_multi_guess():
+async def run_flexible_multi_guess(args: list[str]):
     game_state = Path("game-state")
     options = ["-w", "-h", "-r"]
-    args = sys.argv
 
     if len(args) < 2:
         usage()

@@ -1,0 +1,14 @@
+{
+  "multi-guess-game-1": [
+    "multi-guess",
+    "multi-guess-game-1",
+    [
+      [
+        "-w",
+        "-r"
+      ]
+    ],
+    {},
+    false
+  ]
+}
