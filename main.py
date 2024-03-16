@@ -2,14 +2,14 @@ import asyncio
 from pathlib import Path
 import shutil
 
-from demos.multiGuessQueue import game_loop
+from demos.singleGuessQueue import game_loop
 from src.quest import create_filesystem_manager, create_filesystem_historian
 
 async def main():
     saved_state = Path('saved-state-main.py')
 
     # Remove data
-    # shutil.rmtree(saved_state, ignore_errors=True)
+    shutil.rmtree(saved_state, ignore_errors=True)
     workflow_namespace_root = 'multi-guess-game'
     workflow_number = 1
 
@@ -55,8 +55,15 @@ async def main():
 
         # TODO: this is where you'll check assertions about the states of the games
 
-        await asyncio.sleep(0.1)
-        await manager.send_event(workflow_1, 'guess', None, 'put', 'q')
+        # complete game 1 naturally instead of quitting it
+        guess = 1
+        while(guess <= 50):
+            await asyncio.sleep(0.1)
+            send = await manager.send_event(workflow_1, 'guess', None, 'put', guess)
+            guess = guess + 1
+            if send == False:
+                break
+
         await asyncio.sleep(0.1)
         await manager.send_event(workflow_2, 'guess', None, 'put', 'q')
         await asyncio.sleep(0.1)
@@ -82,15 +89,15 @@ async def main():
 
         await asyncio.sleep(0.1)
         send = await manager.send_event(workflow_1, 'guess', None, 'put', 17)
-        assert send == None
+        assert send == False
 
         await asyncio.sleep(0.1)
         send = await manager.send_event(workflow_2, 'guess', None, 'put', 17)
-        assert send == None
+        assert send == False
 
         await asyncio.sleep(0.1)
         send = await manager.send_event(workflow_3, 'guess', None, 'put', 17)
-        assert send == None
+        assert send == False
 
         wk1 = manager.get_workflow(workflow_1)
         wk2 = manager.get_workflow(workflow_2)

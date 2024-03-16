@@ -3,7 +3,9 @@ from src.quest import step
 from src.quest.external import state, queue
 
 # This version of multi guess is only different in that it accepts queue input,
-    # rather than input from the blocking console
+    # rather than input from the blocking console.
+    # Also, it breaks out of the game loop after a single correct guess so that
+        # test inputs can terminate with passing the 'q' guess
 
 @step
 async def getGuess(*args):
@@ -33,7 +35,8 @@ async def play_game(workflow_name):
         return -1
     else:
         message = f'You guessed it! The number was {rNum}'
-        return message
+        print(message)
+        return -1 # this line and the line above are short cuts so that a correct guess will terminate the workflow, just to make testing easier 
 
 async def game_loop(*args, **kwargs):
     workflow_name = args[0]
