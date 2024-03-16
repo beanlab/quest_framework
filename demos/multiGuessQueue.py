@@ -36,7 +36,6 @@ async def play_game(workflow_name):
         return message
 
 async def game_loop(*args, **kwargs):
-    # workflow_name = kwargs['workflow_name']
     workflow_name = args[0]
     print(f"{workflow_name}: type q to quit the game.")
     while((res := await play_game(workflow_name)) != -1):
