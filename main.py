@@ -9,7 +9,7 @@ async def main():
     saved_state = Path('saved-state-main.py')
 
     # Remove data
-    shutil.rmtree(saved_state, ignore_errors=True)
+    # shutil.rmtree(saved_state, ignore_errors=True)
     workflow_namespace_root = 'multi-guess-game'
     workflow_number = 1
 
@@ -61,7 +61,6 @@ async def main():
         await manager.send_event(workflow_2, 'guess', None, 'put', 'q')
         await asyncio.sleep(0.1)
         await manager.send_event(workflow_3, 'guess', None, 'put', 'q')
-        await asyncio.sleep(0.1)
 
         wk1 = manager.get_workflow(workflow_1)
         wk2 = manager.get_workflow(workflow_2)
@@ -80,6 +79,18 @@ async def main():
         manager.start_workflow('multi-guess', workflow_1, False, workflow_1, '-w', '-r')
         manager.start_workflow('multi-guess', workflow_2, False, workflow_2, '-w', '-r')
         manager.start_workflow('multi-guess', workflow_3, False, workflow_3, '-w', '-r')
+
+        await asyncio.sleep(0.1)
+        send = await manager.send_event(workflow_1, 'guess', None, 'put', 17)
+        assert send == None
+
+        await asyncio.sleep(0.1)
+        send = await manager.send_event(workflow_2, 'guess', None, 'put', 17)
+        assert send == None
+
+        await asyncio.sleep(0.1)
+        send = await manager.send_event(workflow_3, 'guess', None, 'put', 17)
+        assert send == None
 
         wk1 = manager.get_workflow(workflow_1)
         wk2 = manager.get_workflow(workflow_2)
