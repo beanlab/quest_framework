@@ -53,7 +53,9 @@ async def main():
         manager.start_workflow('multi-guess', workflow_2, False, workflow_2, '-w', '-r')
         manager.start_workflow('multi-guess', workflow_3, False, workflow_3, '-w', '-r')
 
-        # TODO: this is where you'll check assertions about the states of the games
+        # TODO: this is where you'll check assertions about the states of the games. How do I do that?
+        await asyncio.sleep(0.1)
+        
 
         # complete game 1 naturally instead of quitting it
         guess = 1

@@ -5,12 +5,12 @@ from src.quest.external import state, queue
 # This version of multi guess is only different in that it accepts queue input,
     # rather than input from the blocking console.
     # Also, it breaks out of the game loop after a single correct guess so that
-        # test inputs can terminate with passing the 'q' guess
+        # test inputs can terminate without passing the 'q' guess
 
 @step
 async def getGuess(*args):
     print(f"{args[0]}: Enter your guess:")
-    async with state('guess-prompt', None, "Enter your guess:"), queue('guess', None) as input:
+    async with queue('guess', None) as input:
         guess = await input.get()
     print(f"{args[0]}: Guess was {guess}")
     
@@ -35,8 +35,9 @@ async def play_game(workflow_name):
         return -1
     else:
         message = f'You guessed it! The number was {rNum}'
-        print(message)
-        return -1 # this line and the line above are short cuts so that a correct guess will terminate the workflow, just to make testing easier 
+        async with state('valid-guess', None, message):
+            print(message)
+        return -1
 
 async def game_loop(*args, **kwargs):
     workflow_name = args[0]
