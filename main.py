@@ -64,10 +64,20 @@ async def main():
             if send == False:
                 break
 
+        # make sure that the workflow task actually completed once the number was correctly guessed
+        assert manager.get_workflow(workflow_1).done() == True
+
         await asyncio.sleep(0.1)
         await manager.send_event(workflow_2, 'guess', None, 'put', 'q')
+
+        await asyncio.sleep(0.1)
+        assert manager.get_workflow(workflow_2).done() == True
+
         await asyncio.sleep(0.1)
         await manager.send_event(workflow_3, 'guess', None, 'put', 'q')
+        
+        await asyncio.sleep(0.1)
+        assert manager.get_workflow(workflow_3).done() == True
 
         wk1 = manager.get_workflow(workflow_1)
         wk2 = manager.get_workflow(workflow_2)
