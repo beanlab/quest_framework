@@ -20,18 +20,19 @@ async def getGuess(*args):
 
 @step
 async def getNum():
-    # return random.randint(1, 50)
-    return 3
+    return random.randint(1, 50)
 
 @step
 async def play_game(workflow_name):
     rNum = await getNum()
-    async with state('valid-guess', None, rNum):
+    async with state('valid-guess', None, rNum), state('current-guess', None, None) as current_guess:
         guess = await getGuess(workflow_name)
+        await current_guess.set(guess)
         while(guess != rNum and guess != -1):
             response = f'{workflow_name}: lower than {guess}' if guess > rNum else f'{workflow_name}: higher than {guess}'
             print(response)
             guess = await getGuess(workflow_name)
+            await current_guess.set(guess)
 
         if(guess == -1):
             return -1

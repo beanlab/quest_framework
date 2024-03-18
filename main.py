@@ -32,6 +32,10 @@ async def main():
         # advance the first workflow once
         await asyncio.sleep(0.1)
         await manager.send_event(workflow_1, 'guess', None, 'put', 5)
+        await asyncio.sleep(0.1)
+
+        resources = await manager.get_resources(workflow_1, None)
+        assert resources['current-guess']['value'] == 5
         
         # start a third workflow
         workflow_number = workflow_number + 1
