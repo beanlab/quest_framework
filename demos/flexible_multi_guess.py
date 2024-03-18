@@ -19,28 +19,27 @@ def usage():
 async def run_flexible_multi_guess(args: list[str]):
     game_state = Path("game-state")
     options = ["-w", "-h", "-r"]
-
-    if len(args) < 2:
+    if len(args) < 1:
         usage()
-    elif args[1] not in options:
+    elif args[0] not in options:
         usage()
 
     if "-r" in args:
         shutil.rmtree(game_state, ignore_errors=True)
         print("Previous JSON files have been removed.")
         args.remove("-r")
-        if len(args) < 2:
+        if len(args) < 1:
             exit(0)
 
     result = "<PROGRAM RESULT>"
 
-    if(args[1] == "-h"):
+    if(args[0] == "-h"):
         historian = create_filesystem_historian(game_state, "Guessing_Game", game_loop)
         task = historian.run()
         await task
         result = task.result()
 
-    elif(args[1] == "-w"):
+    elif(args[0] == "-w"):
         storage = LocalFileSystemBlobStorage(game_state)
         histories = {}
 
