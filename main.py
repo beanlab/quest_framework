@@ -56,7 +56,6 @@ async def main():
         # TODO: this is where you'll check assertions about the states of the games. How do I do that?
         await asyncio.sleep(0.1)
 
-
         # complete game 1 naturally instead of quitting it
         guess = 1
         while(guess <= 50):
@@ -64,18 +63,25 @@ async def main():
             send = await manager.send_event(workflow_1, 'guess', None, 'put', guess)
             guess = guess + 1
             await asyncio.sleep(0.1)
-            if 'valid-guess' in await manager.get_resources(workflow_1, None):
+
+            # check if we made a valid guess
+            resources = await manager.get_resources(workflow_1, None)
+            if 'valid-guess' in resources and resources['valid-guess']['value'] == guess:
+                await manager.send_event(workflow_1, 'guess', None, 'put', 'q')
+                await asyncio.sleep(0.1)
                 break
 
-        # make sure that the workflow task actually completed once the number was correctly guessed
+        # make sure that the workflow_1 task actually completed once the number was correctly guessed
         assert manager.get_workflow(workflow_1).done() == True
 
+        # kill and assert workflow_2
         await asyncio.sleep(0.1)
         await manager.send_event(workflow_2, 'guess', None, 'put', 'q')
 
         await asyncio.sleep(0.1)
         assert manager.get_workflow(workflow_2).done() == True
 
+        # kill and assert workflow_3
         await asyncio.sleep(0.1)
         await manager.send_event(workflow_3, 'guess', None, 'put', 'q')
         

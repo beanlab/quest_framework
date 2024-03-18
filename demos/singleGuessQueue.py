@@ -26,17 +26,17 @@ async def getNum():
 @step
 async def play_game(workflow_name):
     rNum = await getNum()
-    guess = await getGuess(workflow_name)
-    while(guess != rNum and guess != -1):
-        response = f'{workflow_name}: lower than {guess}' if guess > rNum else f'{workflow_name}: higher than {guess}'
-        print(response)
+    async with state('valid-guess', None, rNum):
         guess = await getGuess(workflow_name)
+        while(guess != rNum and guess != -1):
+            response = f'{workflow_name}: lower than {guess}' if guess > rNum else f'{workflow_name}: higher than {guess}'
+            print(response)
+            guess = await getGuess(workflow_name)
 
-    if(guess == -1):
-        return -1
-    else:
-        message = f'You guessed it! The number was {rNum}'
-        async with state('valid-guess', None, message):
+        if(guess == -1):
+            return -1
+        else:
+            message = f'You guessed it! The number was {rNum}'
             print(message)
 
 async def game_loop(*args, **kwargs):
