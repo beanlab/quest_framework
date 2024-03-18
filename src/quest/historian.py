@@ -2,11 +2,14 @@ import asyncio
 import inspect
 import logging
 import traceback
-from asyncio import TaskGroup, Task
+from asyncio import Task
 from contextvars import ContextVar
 from datetime import datetime
 from functools import wraps
-from typing import TypedDict, Any, Callable, Literal, Protocol, Reversible
+from typing import Callable
+from .history import History
+from .types import ConfigurationRecord, VersionRecord, StepStartRecord, StepEndRecord, \
+    ExceptionDetails, ResourceAccessEvent, ResourceEntry, ResourceLifecycleEvent, TaskEvent
 
 QUEST_VERSIONS = "_quest_versions"
 GLOBAL_VERSION = "_global_version"
@@ -68,90 +71,6 @@ GLOBAL_VERSION = "_global_version"
 # I need to look for resources that are open in each branch and match the relevant events
 
 SUSPENDED = '__WORKFLOW_SUSPENDED__'
-
-
-class ExceptionDetails(TypedDict):
-    type: str
-    args: tuple
-    details: str
-
-
-class VersionRecord(TypedDict):
-    type: Literal['set_version', 'after_version']
-    timestamp: str
-    step_id: str  # stores the version name
-    task_id: str
-    version: str
-
-
-class ConfigurationRecord(TypedDict):
-    type: Literal['configuration']
-    timestamp: str
-    step_id: Literal['configuration']
-    task_id: str
-    function_name: str
-    args: list
-    kwargs: dict
-
-
-class StepStartRecord(TypedDict):
-    type: Literal['start']
-    timestamp: str
-    step_id: str
-    task_id: str
-
-
-class StepEndRecord(TypedDict):
-    type: Literal['end']
-    timestamp: str
-    step_id: str
-    task_id: str
-    result: Any
-    exception: Any | None
-
-
-class ResourceEntry(TypedDict):
-    name: str
-    identity: str | None
-    type: str
-    resource: Any
-
-
-class ResourceLifecycleEvent(TypedDict):
-    type: Literal['create_resource', 'delete_resource']
-    timestamp: str
-    step_id: str
-    task_id: str
-    resource_id: str
-    resource_type: str
-
-
-class ResourceAccessEvent(TypedDict):
-    type: Literal['external', 'internal_start', 'internal_end']
-    timestamp: str
-    step_id: str
-    task_id: str
-    resource_id: str
-    action: str
-    args: list
-    kwargs: dict
-    result: Any
-
-
-class TaskEvent(TypedDict):
-    type: Literal['start_task', 'complete_task']
-    timestamp: str
-    step_id: str
-    task_id: str  # the name of the task created/completed
-
-
-EventRecord = StepStartRecord \
-              | StepEndRecord \
-              | ResourceAccessEvent \
-              | TaskEvent \
-              | VersionRecord \
-              | ConfigurationRecord \
-              | ResourceLifecycleEvent
 
 
 def _get_type_name(obj):
@@ -229,16 +148,6 @@ def _create_resource_id(name: str, identity: str) -> str:
 
 historian_context = ContextVar('historian')
 workflow_aborted = asyncio.Event()
-
-
-class History(Protocol, Reversible):
-    def append(self, item: EventRecord): ...
-
-    def remove(self, item: EventRecord): ...
-
-    def __iter__(self): ...
-
-    def __reversed__(self): ...
 
 
 def get_function_name(func):

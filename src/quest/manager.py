@@ -1,7 +1,8 @@
 import asyncio
 from typing import Protocol, Callable
 
-from .historian import Historian, History
+from .historian import Historian
+from .history import History
 from .persistence import BlobStorage
 
 
