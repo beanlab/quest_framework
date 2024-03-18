@@ -20,7 +20,8 @@ async def getGuess(*args):
 
 @step
 async def getNum():
-    return random.randint(1, 50)
+    # return random.randint(1, 50)
+    return 3
 
 @step
 async def play_game(workflow_name):
@@ -37,7 +38,6 @@ async def play_game(workflow_name):
         message = f'You guessed it! The number was {rNum}'
         async with state('valid-guess', None, message):
             print(message)
-        return -1
 
 async def game_loop(*args, **kwargs):
     workflow_name = args[0]
