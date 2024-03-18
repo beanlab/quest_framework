@@ -38,7 +38,7 @@ async def play_game(workflow_name):
             return -1
         else:
             message = f'You guessed it! The number was {rNum}'
-            print(message)
+            return message
 
 async def game_loop(*args, **kwargs):
     workflow_name = args[0]

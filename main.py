@@ -3,7 +3,19 @@ from pathlib import Path
 import shutil
 
 from demos.singleGuessQueue import game_loop
-from src.quest import create_filesystem_manager, create_filesystem_historian
+from src.quest import create_filesystem_manager
+from src.quest import WorkflowManager
+
+async def make_guess(manager: WorkflowManager, workflow_id: str, the_guess: int|str):
+    resources = await manager.get_resources(workflow_id, None)
+    winning_guess = the_guess == resources['valid-guess']['value']
+
+    await manager.send_event(workflow_id, 'guess', None, 'put', the_guess)
+    await asyncio.sleep(0.1)
+
+    if not winning_guess:
+        resources = await manager.get_resources(workflow_id, None)
+        assert resources['current-guess']['value'] == the_guess
 
 async def main():
     saved_state = Path('saved-state-main.py')
@@ -28,26 +40,24 @@ async def main():
         manager.start_workflow('multi-guess', workflow_1, False, workflow_1, '-w', '-r')
         await asyncio.sleep(0.1)
         manager.start_workflow('multi-guess', workflow_2, False, workflow_2, '-w', '-r')
+        await asyncio.sleep(0.1)
+
+        assert manager.get_workflow(workflow_1).done() == False
+        assert manager.get_workflow(workflow_2).done() == False
 
         # advance the first workflow once
-        await asyncio.sleep(0.1)
-        await manager.send_event(workflow_1, 'guess', None, 'put', 5)
-        await asyncio.sleep(0.1)
-
-        resources = await manager.get_resources(workflow_1, None)
-        assert resources['current-guess']['value'] == 5
+        await make_guess(manager, workflow_1, 5)
         
         # start a third workflow
         workflow_number = workflow_number + 1
         workflow_3 = f'{workflow_namespace_root}-{workflow_number}'
         manager.start_workflow('multi-guess', workflow_3, False, workflow_3, '-w', '-r')
         await asyncio.sleep(0.1)
+        assert manager.get_workflow(workflow_3).done() == False
 
         # advance the third workflow twice
-        await manager.send_event(workflow_3, 'guess', None, 'put', 7)
-        await asyncio.sleep(0.1)
-        await manager.send_event(workflow_3, 'guess', None, 'put', 9)
-        await asyncio.sleep(0.1)
+        await make_guess(manager, workflow_3, 7)
+        await make_guess(manager, workflow_3, 9)
         # leave the context
 
     # completion of workflows
@@ -56,39 +66,52 @@ async def main():
         manager.start_workflow('multi-guess', workflow_1, False, workflow_1, '-w', '-r')
         manager.start_workflow('multi-guess', workflow_2, False, workflow_2, '-w', '-r')
         manager.start_workflow('multi-guess', workflow_3, False, workflow_3, '-w', '-r')
-
-        # TODO: this is where you'll check assertions about the states of the games. How do I do that?
         await asyncio.sleep(0.1)
+
+        # workflow_1 assertions
+        assert manager.get_workflow(workflow_1).done() == False
+        resources = await manager.get_resources(workflow_1, None)
+        current_guess = resources['current-guess']['value']
+        if current_guess is not None:
+            assert current_guess == 5
+
+        # workflow_2 assertions
+        assert manager.get_workflow(workflow_2).done() == False
+        resources = await manager.get_resources(workflow_2, None)
+        assert resources['current-guess']['value'] is None
+
+        # workflow_3 assertions
+        assert manager.get_workflow(workflow_3).done() == False
+        resources = await manager.get_resources(workflow_3, None)
+        current_guess = resources['current-guess']['value']
+        if current_guess is not None:
+            assert current_guess == 9
 
         # complete game 1 naturally instead of quitting it
         guess = 1
         while(guess <= 50):
-            await asyncio.sleep(0.1)
+            resources = await manager.get_resources(workflow_1, None)
             send = await manager.send_event(workflow_1, 'guess', None, 'put', guess)
-            guess = guess + 1
             await asyncio.sleep(0.1)
 
-            # check if we made a valid guess
-            resources = await manager.get_resources(workflow_1, None)
             if 'valid-guess' in resources and resources['valid-guess']['value'] == guess:
                 await manager.send_event(workflow_1, 'guess', None, 'put', 'q')
                 await asyncio.sleep(0.1)
                 break
 
+            guess = guess + 1
+
+
         # make sure that the workflow_1 task actually completed once the number was correctly guessed
         assert manager.get_workflow(workflow_1).done() == True
 
         # kill and assert workflow_2
-        await asyncio.sleep(0.1)
         await manager.send_event(workflow_2, 'guess', None, 'put', 'q')
-
         await asyncio.sleep(0.1)
         assert manager.get_workflow(workflow_2).done() == True
 
         # kill and assert workflow_3
-        await asyncio.sleep(0.1)
         await manager.send_event(workflow_3, 'guess', None, 'put', 'q')
-        
         await asyncio.sleep(0.1)
         assert manager.get_workflow(workflow_3).done() == True
 
@@ -109,16 +132,14 @@ async def main():
         manager.start_workflow('multi-guess', workflow_1, False, workflow_1, '-w', '-r')
         manager.start_workflow('multi-guess', workflow_2, False, workflow_2, '-w', '-r')
         manager.start_workflow('multi-guess', workflow_3, False, workflow_3, '-w', '-r')
-
         await asyncio.sleep(0.1)
+
         send = await manager.send_event(workflow_1, 'guess', None, 'put', 17)
         assert send == False
 
-        await asyncio.sleep(0.1)
         send = await manager.send_event(workflow_2, 'guess', None, 'put', 17)
         assert send == False
 
-        await asyncio.sleep(0.1)
         send = await manager.send_event(workflow_3, 'guess', None, 'put', 17)
         assert send == False
 
