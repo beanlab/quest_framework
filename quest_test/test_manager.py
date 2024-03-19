@@ -3,7 +3,7 @@ import logging
 
 import pytest
 
-from src.quest import PersistentHistory, queue
+from src.quest import PersistentHistory, queue, state, event
 from src.quest.manager import WorkflowManager
 from src.quest.persistence import InMemoryBlobStorage
 
@@ -162,3 +162,36 @@ async def test_manager_background():
 
     assert counter_a == 2
     assert counter_b == 4  # 2, replay 2, 3, 0
+
+
+@pytest.mark.asyncio
+async def test_get_queue():
+    async def workflow():
+        async with queue('messages', None) as q, \
+                state('result', None, None) as result, \
+                event('finish', None) as finish:
+            a = await q.get()
+            b = await q.get()
+            await result.set(a + b)
+            await finish.wait()
+
+    storage = InMemoryBlobStorage()
+
+    def create_history(wid: str):
+        return PersistentHistory(wid, InMemoryBlobStorage())
+
+    async with WorkflowManager('test', storage, create_history, lambda wid: workflow) as wm:
+        wm.start_workflow('workflow', 'wid')
+        await asyncio.sleep(0.1)
+        q = await wm.get_queue('wid', 'messages', None)
+        result = await wm.get_state('wid', 'result', None)
+        finish = await wm.get_event('wid', 'finish', None)
+
+        assert await result.get() is None
+        await q.put(3)
+        await q.put(4)
+        await asyncio.sleep(0.1)  # TODO - will stream_resources eliminate this need to sleep?
+        assert await result.get() == 7
+        await finish.set()
+
+
