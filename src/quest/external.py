@@ -16,8 +16,6 @@ class State:
 
     async def set(self, value):
         self._value = value
-        # TODO: Hard coded identity!
-        await self._historian.register_resource_update(None)
 
     def value(self):
         return self._value
