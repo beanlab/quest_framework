@@ -193,7 +193,7 @@ class Historian:
         #  queues to push to, etc.
         # See also external.py
         self._resources = {}
-        self.resource_queues: dict[str, asyncio.Queue] = {}
+        self._resource_queues: dict[str, asyncio.Queue] = {}
 
         # We keep track of all open tasks so we can properly suspend them
         self._open_tasks: list[Task] = []
@@ -699,7 +699,7 @@ class Historian:
                 resource_id=resource_id,
                 resource_type=_get_type_name(resource)
             ))
-            await self.resource_queues[identity].put(self._history[-1])
+            await self.register_resource_update(identity)
 
         else:
             with next_record as record:
@@ -707,6 +707,11 @@ class Historian:
                 assert record['resource_id'] == resource_id
 
         return resource_id
+
+    async def register_resource_update(self, identity):
+        # instantiate a new queue if there is not one associated with the identity yet
+        resource_queue = self._resource_queues.setdefault(identity, asyncio.Queue())
+        await resource_queue.put('Resource Update')
 
     async def delete_resource(self, name, identity, suspending=False):
         resource_id = _create_resource_id(name, identity)
@@ -728,7 +733,7 @@ class Historian:
                     resource_id=resource_id,
                     resource_type=resource_entry['type']
                 ))
-                await self.resource_queues[identity].put(self._history[-1])
+                await self.register_resource_update(identity)
 
             else:
                 with next_record as record:
@@ -920,9 +925,15 @@ class Historian:
         The caller of this function lives outside the step management of the historian
         -> don't replay, just yield event changes in realtime
         """
+        # TODO: Should we include this line?
+        # If the application has failed, let the caller know
+        if self._fatal_exception.done():
+            await self._fatal_exception
+
+        self._resource_queues.setdefault(identity, asyncio.Queue())
         while True:
-            await self.resource_queues[identity].get()
-            yield self.get_resources(identity)
+            await self._resource_queues[identity].get()
+            yield await self.get_resources(identity)
 
 
 class HistorianNotFoundException(Exception):

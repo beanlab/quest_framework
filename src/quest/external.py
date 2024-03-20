@@ -9,12 +9,15 @@ from .historian import find_historian, SUSPENDED
 class State:
     def __init__(self, value):
         self._value = value
+        self._historian = find_historian()
 
     async def get(self):
         return self._value
 
     async def set(self, value):
         self._value = value
+        # TODO: Hard coded identity!
+        await self._historian.register_resource_update(None)
 
     def value(self):
         return self._value
