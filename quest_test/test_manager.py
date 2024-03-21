@@ -190,7 +190,7 @@ async def test_get_queue():
         assert await result.get() is None
         await q.put(3)
         await q.put(4)
-        await asyncio.sleep(0.1)  # TODO - will stream_resources eliminate this need to sleep?
+        await asyncio.sleep(0.1)
         assert await result.get() == 7
         await finish.set()
 
