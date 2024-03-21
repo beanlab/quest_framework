@@ -101,7 +101,7 @@ async def test_external_queue():
 
     resources = await historian.get_resources(identity)
     assert 'items' in resources
-    assert resources['items']['type'] == 'asyncio.queues.Queue'
+    assert resources['items']['type'] == 'src.quest.external.Queue'
 
     await historian.record_external_event('items', identity, 'put', 7)
     await historian.record_external_event('items', identity, 'put', 8)

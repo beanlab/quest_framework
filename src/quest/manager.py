@@ -1,6 +1,9 @@
 import asyncio
-from typing import Protocol, Callable
+import inspect
+from functools import wraps
+from typing import Protocol, Callable, TypeVar
 
+from .external import State, IdentityQueue, _Wrapper, Queue, Event
 from .historian import Historian
 from .history import History
 from .persistence import BlobStorage
@@ -12,6 +15,9 @@ class HistoryFactory(Protocol):
 
 class WorkflowFactory(Protocol):
     def __call__(self, workflow_type: str) -> Callable: ...
+
+
+T = TypeVar('T')
 
 
 class WorkflowManager:
@@ -30,7 +36,7 @@ class WorkflowManager:
         self._workflows: dict[str, Historian] = {}
         self._workflow_tasks: dict[str, asyncio.Task] = {}
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> 'WorkflowManager':
         """Load the workflows and get them running again"""
         if self._storage.has_blob(self._namespace):
             self._workflow_data = self._storage.read_blob(self._namespace)
@@ -92,3 +98,51 @@ class WorkflowManager:
 
     async def send_event(self, workflow_id: str, name: str, identity, action, *args, **kwargs):
         return await self._get_workflow(workflow_id).record_external_event(name, identity, action, *args, **kwargs)
+
+    def _make_wrapper_func(self, workflow_id: str, name: str, identity, field, attr):
+        # Why have _make_wrapper_func?
+        # See https://stackoverflow.com/questions/3431676/creating-functions-or-lambdas-in-a-loop-or-comprehension
+
+        @wraps(field)  # except that we need to make everything async now
+        async def new_func(*args, **kwargs):
+            # TODO - handle case where this wrapper is used in a workflow and should be stepped
+            return await self.send_event(workflow_id, name, identity, attr, *args, **kwargs)
+
+        return new_func
+
+    def _wrap(self, resource: T, workflow_id: str, name: str, identity) -> T:
+        dummy = _Wrapper()
+        for attr in dir(resource):
+            if attr.startswith('_'):
+                continue
+
+            field = getattr(resource, attr)
+            if not callable(field):
+                continue
+
+            # Replace with function that routes call to historian
+            new_func = self._make_wrapper_func(workflow_id, name, identity, field, attr)
+            setattr(dummy, attr, new_func)
+
+        return dummy
+
+    async def _check_resource(self, workflow_id: str, name: str, identity):
+        if name not in await self.get_resources(workflow_id, identity):
+            raise Exception(f'{name} is not a valid resource for {workflow_id}')
+            # TODO - custom exception
+
+    async def get_queue(self, workflow_id: str, name: str, identity) -> Queue:
+        await self._check_resource(workflow_id, name, identity)
+        return self._wrap(asyncio.Queue(), workflow_id, name, identity)
+
+    async def get_state(self, workflow_id: str, name: str, identity: str | None) -> State:
+        await self._check_resource(workflow_id, name, identity)
+        return self._wrap(State(None), workflow_id, name, identity)
+
+    async def get_event(self, workflow_id: str, name: str, identity: str | None) -> Event:
+        await self._check_resource(workflow_id, name, identity)
+        return self._wrap(asyncio.Event(), workflow_id, name, identity)
+
+    async def get_identity_queue(self, workflow_id: str, name: str, identity: str | None) -> IdentityQueue:
+        await self._check_resource(workflow_id, name, identity)
+        return self._wrap(IdentityQueue(), workflow_id, name, identity)
