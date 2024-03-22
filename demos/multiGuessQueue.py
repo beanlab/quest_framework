@@ -4,8 +4,6 @@ from src.quest.external import state, queue
 
 # This version of multi guess is only different in that it accepts queue input,
     # rather than input from the blocking console.
-    # Also, it breaks out of the game loop after a single correct guess so that
-        # test inputs can terminate without passing the 'q' guess
 
 @step
 async def getGuess(*args):
