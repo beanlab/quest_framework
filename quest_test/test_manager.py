@@ -6,6 +6,7 @@ import pytest
 from src.quest import PersistentHistory, queue
 from src.quest.manager import WorkflowManager
 from pathlib import Path
+import shutil
 from src.quest.persistence import InMemoryBlobStorage, LocalFileSystemBlobStorage
 
 
@@ -111,7 +112,8 @@ async def test_manager_events():
 
 @pytest.mark.asyncio
 async def test_manager_background():
-    storage = LocalFileSystemBlobStorage(Path('test-state'))
+    test_state = Path('test-state')
+    storage = LocalFileSystemBlobStorage(test_state)
     histories = {}
 
     def create_history(wid: str):
@@ -164,3 +166,5 @@ async def test_manager_background():
 
     assert counter_a == 2
     assert counter_b == 4  # 2, replay 2, 3, 0
+
+    shutil.rmtree(test_state, ignore_errors=True)
