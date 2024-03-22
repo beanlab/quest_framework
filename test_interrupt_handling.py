@@ -4,6 +4,10 @@ import shutil
 from src.quest import step, create_filesystem_historian
 import sys
 
+# NOTES:
+# You can run this test without pytest. Error messages will go to err.txt in the working directory
+# When running from pytest, use the "-s" argument to capture output since this test produces many asyncio errors when killing the event loop
+
 sys.stderr = open('err.txt', 'w') # you'll want this file listed in your .gitignore file
 
 # global events to be set by the workflow and indicate how far the workflow progressed
@@ -48,7 +52,7 @@ async def run_faulty_workflow():
             # that we can not only confirm the Historian handling it correctly, but also
             # that the WorkflowManager will function correctly with it. 
 
-def test_manager_background():
+def test_interrupt_handling():
     # clean up files before the test
     shutil.rmtree(test_state, ignore_errors=True)
 
@@ -88,4 +92,4 @@ def test_manager_background():
         continue
 
 if __name__ == '__main__': 
-    test_manager_background()
+    test_interrupt_handling()
