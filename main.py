@@ -153,8 +153,8 @@ async def main():
         print(wk1.result())
         print(wk2.result())
         print(wk3.result())
-        
-if __name__ == '__main__':
+
+def run_main():
     loop = asyncio.new_event_loop()
     
     try:
@@ -162,3 +162,6 @@ if __name__ == '__main__':
 
     finally:
         loop.close()
+        
+if __name__ == '__main__':
+    run_main()
