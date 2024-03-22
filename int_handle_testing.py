@@ -2,6 +2,9 @@ import asyncio
 from pathlib import Path
 import shutil
 from src.quest import step, create_filesystem_historian
+import sys
+
+sys.stderr = open('err.txt', 'w')
 
 # global events to be set by the workflow and indicate how far the workflow progressed
 three_events: list[asyncio.Event] = [asyncio.Event(), asyncio.Event(), asyncio.Event()]

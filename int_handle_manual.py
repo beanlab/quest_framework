@@ -5,6 +5,7 @@ from src.quest import step, create_filesystem_historian
 import random
 import sys
 
+TOTAL_TESTS = 3
 MAX_ITERATIONS = 10
 random_breakpoint = 0
 
@@ -43,19 +44,24 @@ async def run_workflow():
     print("Workflow completed all 10 iterations successfully")
 
 def perform_the_test():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    for a in range(TOTAL_TESTS):
+        print(f"\nTEST {a + 1}\n")
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
 
-    global random_breakpoint
-    random_breakpoint = random.randint(0, 10) # selecting 10 means no interrup will be raised
-    print(f"Running with random_breakpont set to {random_breakpoint}")
+        global random_breakpoint
+        random_breakpoint = random.randint(0, 10) # selecting 10 means no interrup will be raised
+        print(f"Running with random_breakpont set to {random_breakpoint}")
 
-    try:
-        loop.run_until_complete(run_workflow())
-    
-    finally:
-        loop.stop()
-        loop.close()
+        try:
+            loop.run_until_complete(run_workflow())
+
+        except:
+            print(f"Test {a + 1} terminated")
+        
+        finally:
+            loop.stop()
+            loop.close()
 
 if __name__ == '__main__':
     print("\nSpecify \"-r\" in the argument to clear the history first")

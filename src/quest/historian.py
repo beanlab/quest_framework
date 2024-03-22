@@ -147,7 +147,6 @@ def _create_resource_id(name: str, identity: str) -> str:
 
 
 historian_context = ContextVar('historian')
-workflow_aborted = asyncio.Event()
 
 
 def get_function_name(func):
@@ -174,6 +173,9 @@ class Historian:
         # If the application fails, this future will know.
         # See also get_resources() and _run_with_exception_handling()
         self._fatal_exception = asyncio.Future()
+
+        # indicator if an intentioal interrupt occurs
+        self.workflow_aborted = asyncio.Event()
 
         # Keep track of configuration position during the replay
         self._configuration_pos = 0
@@ -530,11 +532,11 @@ class Historian:
             if cancel.args and cancel.args[0] == SUSPENDED:
                 raise asyncio.CancelledError(SUSPENDED)
             elif isinstance(cancel.__context__, KeyboardInterrupt):
-                workflow_aborted.set()
+                self.workflow_aborted.set()
                 await self.suspend()
                 raise KeyboardInterrupt
             else:
-                if not workflow_aborted.is_set():
+                if not self.workflow_aborted.is_set():
                     logging.exception(f'{step_id} canceled')
                     prune_on_exit = True
                     self._history.append(StepEndRecord(
@@ -552,12 +554,12 @@ class Historian:
                 raise
 
         except KeyboardInterrupt:
-            workflow_aborted.set()
+            self.workflow_aborted.set()
             await self.suspend()
             raise KeyboardInterrupt
 
         except Exception as ex:
-            if not workflow_aborted.is_set():
+            if not self.workflow_aborted.is_set():
                 logging.exception(f'Error in {step_id}')
                 prune_on_exit = True
                 self._history.append(StepEndRecord(
@@ -575,7 +577,7 @@ class Historian:
             raise
 
         finally:
-            if prune_on_exit and not workflow_aborted.is_set():
+            if prune_on_exit and not self.workflow_aborted.is_set():
                 _prune(step_id, self._history)  
             if len(self._prefix[self._get_task_name()]) > 0:
                 self._prefix[self._get_task_name()].pop(-1)
