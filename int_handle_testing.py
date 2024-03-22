@@ -1,11 +1,7 @@
 import asyncio
-import logging
 from pathlib import Path
 import shutil
 from src.quest import step, create_filesystem_historian
-from src.quest import PersistentHistory, queue
-from src.quest.manager import WorkflowManager
-from src.quest.persistence import InMemoryBlobStorage, LocalFileSystemBlobStorage
 
 # global events to be set by the workflow and indicate how far the workflow progressed
 three_events: list[asyncio.Event] = [asyncio.Event(), asyncio.Event(), asyncio.Event()]
