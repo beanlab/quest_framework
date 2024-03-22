@@ -5,13 +5,12 @@ from src.quest import step, create_filesystem_historian
 import random
 import sys
 
-# this code is intended to run in such a way that it is easy for the developer to interrupt the program with Ctrl+C and observe how it resumes
-
 MAX_ITERATIONS = 10
 random_breakpoint = 0
 
 @step
 async def enter_loop(iteration: int):
+    global random_breakpoint
     if iteration == random_breakpoint:
         raise KeyboardInterrupt
     await asyncio.sleep(0.5)
@@ -31,11 +30,10 @@ async def run_iterations():
         exit = await exit_loop(a)
         print(exit)
 
-    print("run_iterations() completing successfully after 10 loops and waiting for an additional 5 seconds\n")
-    await asyncio.sleep(5)
+    print("run_iterations() completing successfully after 10 loops and waiting for an additional 3 seconds\n")
+    await asyncio.sleep(3)
 
 async def run_workflow():
-    print("Running a max of 10 iterations:\n")
 
     historian = create_filesystem_historian(Path('saved-state'), 'manual-sigint-testing', run_iterations)
 
@@ -44,17 +42,11 @@ async def run_workflow():
 
     print("Workflow completed all 10 iterations successfully")
 
-if __name__ == '__main__':
-    print("\nSpecify \"-r\" in the argument to clear the history first")
-
-    args = sys.argv
-    if len(args) > 1 and args[1] == "-r":
-        shutil.rmtree("saved-state", ignore_errors=True)
-        print("json files removed.")
-
+def perform_the_test():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
+    global random_breakpoint
     random_breakpoint = random.randint(0, 10) # selecting 10 means no interrup will be raised
     print(f"Running with random_breakpont set to {random_breakpoint}")
 
@@ -64,3 +56,13 @@ if __name__ == '__main__':
     finally:
         loop.stop()
         loop.close()
+
+if __name__ == '__main__':
+    print("\nSpecify \"-r\" in the argument to clear the history first")
+
+    args = sys.argv
+    if len(args) > 1 and args[1] == "-r":
+        shutil.rmtree("saved-state", ignore_errors=True)
+        print("json files removed.")
+
+    perform_the_test()
