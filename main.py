@@ -3,7 +3,7 @@ from pathlib import Path
 import shutil
 import sys
 
-from demos.multiGuessQueue import game_loop
+from demos.multi_guess_queue import game_loop
 from src.quest import create_filesystem_manager
 from src.quest import WorkflowManager
 
