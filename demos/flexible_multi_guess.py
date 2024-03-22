@@ -1,6 +1,5 @@
 import asyncio
 from pathlib import Path
-import sys
 import shutil
 
 from src.quest import create_filesystem_historian
@@ -16,7 +15,7 @@ def usage():
     print("\n\tSpecifying \"-r\" with any other flag, or none, will refresh the history.\n")
     exit(1)
 
-async def run_flexible_multi_guess(args: list[str]):
+async def flexible_multi_guess(args: list[str]):
     game_state = Path("game-state")
     options = ["-w", "-h", "-r"]
     if len(args) < 1:
@@ -54,3 +53,15 @@ async def run_flexible_multi_guess(args: list[str]):
             result = myJob.result()
     
     return result
+
+def run_flexible_multi_guess(args: list[str]):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    try:
+        result = loop.run_until_complete(flexible_multi_guess(args))
+        print(result)
+    # TODO: is an except statement useful here?
+    finally:
+        loop.stop()
+        loop.close()

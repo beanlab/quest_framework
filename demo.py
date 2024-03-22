@@ -1,21 +1,15 @@
-import asyncio
-from demos.flexible_multi_guess import run_flexible_multi_guess
 import sys
+from main import run_main
+from demos.flexible_multi_guess import run_flexible_multi_guess
 
 if __name__ == '__main__':
-    print("\nRunning flexible_multi_guess.py\n")
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    args = sys.argv
-    if len(args) < 2:
-        args = []
-    else:
-        args = args[1:]
-    try:
-        result = loop.run_until_complete(run_flexible_multi_guess(list(args)))
-        print(f"Result returned by the program was:\n{result}")
-    except Exception as ex:
-        print("\n flexible_multi_guess.py exiting with an exception\n")
-        print(ex)
-    finally:
-        loop.close()
+    print("Running main.py example script")
+    print("-------------------------------------")
+    run_main()    
+
+    print("\n-------------------------------------")
+    print("Running flexible_multi_guess.py")
+    flags = input("Enter -w for WorkflowManager or -h for historian.\nIncluding -r with 0 or 1 other flags will wipe the json files.\nFlags: ")
+    print("-------------------------------------")
+    run_flexible_multi_guess(flags.split(" "))
+    

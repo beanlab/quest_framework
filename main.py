@@ -161,6 +161,7 @@ def run_main():
         loop.run_until_complete(main())
 
     finally:
+        loop.stop()
         loop.close()
         
 if __name__ == '__main__':
