@@ -61,7 +61,7 @@ def run_flexible_multi_guess(args: list[str]):
     try:
         result = loop.run_until_complete(flexible_multi_guess(args))
         print(result)
-    # TODO: is an except statement useful here?
+    
     finally:
         loop.stop()
         loop.close()
