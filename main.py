@@ -1,10 +1,13 @@
 import asyncio
 from pathlib import Path
 import shutil
+import sys
 
 from demos.multiGuessQueue import game_loop
 from src.quest import create_filesystem_manager
 from src.quest import WorkflowManager
+
+sys.stderr = open("err.txt", "w") # make sure you add this to your .gitignore file
 
 async def make_guess(manager: WorkflowManager, workflow_id: str, the_guess: int|str):
     resources = await manager.get_resources(workflow_id, None)
