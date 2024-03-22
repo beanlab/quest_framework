@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from utils import timeout
+from quest_test.utils import timeout
 from src.quest import step
 from src.quest.historian import Historian
 
