@@ -8,6 +8,5 @@ __pycache__/
 .vscode/
 game-state/
 test-state/
-test-state-(temp)/
 saved-state-main.py/
 err.txt
