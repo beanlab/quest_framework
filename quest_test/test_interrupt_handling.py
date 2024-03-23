@@ -50,25 +50,22 @@ SUCCESSFULL_COMPLETION = "workflow completed without exception"
 interrupt_trigger = 0
 
 @step
-async def throwExceptionOnTrigger(current_iteration):
+async def throw_exception_on_trigger(current_iteration):
     global interrupt_trigger
     if(current_iteration == interrupt_trigger):
         raise KeyboardInterrupt
 
-async def createInterrupt():
+async def find_interrupt_trigger():
     current_iteration: int = 1
 
     while(current_iteration < MAX_ITERATIONS):
         three_events[current_iteration - 1].set()
-        await throwExceptionOnTrigger(current_iteration)
+        await throw_exception_on_trigger(current_iteration)
         current_iteration += 1
 
-async def run_faulty_workflow():
-    # test against historian
-    # print("Testing interrupts on filesystem Historian:")
-
+async def run_interrupting_workflow():
     # test interrupt on first iteration
-    historian = create_filesystem_historian(test_state, "Interrupt_Testing", createInterrupt)
+    historian = create_filesystem_historian(test_state, "Interrupt_Testing", find_interrupt_trigger)
 
     task: asyncio.Task = historian.run()
     await task
@@ -92,7 +89,7 @@ def test_interrupt_handling():
         try:
             interrupt_trigger = iteration
             print(f"Iteration {iteration}:")
-            result = loop.run_until_complete(run_faulty_workflow())
+            result = loop.run_until_complete(run_interrupting_workflow())
 
         except Exception as ex:
             for i in range(iteration):
