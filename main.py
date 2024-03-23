@@ -3,7 +3,7 @@ from pathlib import Path
 import shutil
 import sys
 
-from demos.multi_guess_queue import game_loop
+from multi_guess_src.multi_guess_queue import game_loop
 from src.quest import create_filesystem_manager
 from src.quest import WorkflowManager
 
@@ -33,7 +33,7 @@ async def main():
 
     # initial partial run of workflows
     async with create_filesystem_manager(saved_state, workflow_namespace_root, get_workflow) as manager:
-        print("\nInitial run of workflows:\n")
+        print("Initial run of workflows:\n")
 
         # create and start two workflows
         workflow_1 = f'{workflow_namespace_root}-{workflow_number}'
