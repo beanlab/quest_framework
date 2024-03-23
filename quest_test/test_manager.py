@@ -111,7 +111,7 @@ async def test_manager_events():
 
 
 @pytest.mark.asyncio
-async def test_manager_background():
+async def test_manager_delete_workflow_on_finish():
     test_state = Path('test-state')
     storage = LocalFileSystemBlobStorage(test_state)
     histories = {}
