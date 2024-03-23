@@ -16,7 +16,7 @@ def usage():
     exit(1)
 
 async def flexible_multi_guess(args: list[str]):
-    game_state = Path("game-state")
+    game_state = Path("multi-guess-game-state")
     options = ["-w", "-h", "-r"]
     if len(args) < 1:
         usage()

@@ -1,8 +1,8 @@
 import asyncio
 from pathlib import Path
-import shutil
 from src.quest import step, create_filesystem_historian
 import sys
+import tempfile
 
 # This test is designed to test Quest's ability to gracefully and cleanly clean up when sent a Keyboard Interrupt. 
 
@@ -42,7 +42,7 @@ sys.stderr = open('err.txt', 'w') # you'll want this file listed in your .gitign
 three_events: list[asyncio.Event] = [asyncio.Event(), asyncio.Event(), asyncio.Event()]
 
 # directory for storage of json files
-test_state = Path("saved-state")
+test_state: Path = None
 
 # broadly used constant and variables
 MAX_ITERATIONS = 4
@@ -73,44 +73,45 @@ async def run_interrupting_workflow():
     return SUCCESSFULL_COMPLETION 
 
 def test_interrupt_handling():
-    # clean up files before the test
-    shutil.rmtree(test_state, ignore_errors=True)
+    with tempfile.TemporaryDirectory() as tempdirname:
+        global test_state
+        test_state = Path(tempdirname)
 
-    global interrupt_trigger
-    iteration = 1
-    while(iteration <= MAX_ITERATIONS):
-        # reset the events
-        for event in three_events:
-            event.clear()
+        global interrupt_trigger
+        iteration = 1
+        while(iteration <= MAX_ITERATIONS):
+            # reset the events
+            for event in three_events:
+                event.clear()
 
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        try:
-            interrupt_trigger = iteration
-            print(f"Iteration {iteration}:")
-            result = loop.run_until_complete(run_interrupting_workflow())
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            try:
+                interrupt_trigger = iteration
+                print(f"Iteration {iteration}:")
+                result = loop.run_until_complete(run_interrupting_workflow())
 
-        except Exception as ex:
-            for i in range(iteration):
-                if i < len(three_events):
-                    assert three_events[i].is_set()
+            except Exception as ex:
+                for i in range(iteration):
+                    if i < len(three_events):
+                        assert three_events[i].is_set()
 
+                print("PASSED\n")
+                continue
+
+            finally:
+                loop.stop()
+                loop.close()
+                iteration = iteration + 1
+
+            # no exceptions were thrown (4 was passed in) all events should be set
+            for event in three_events:
+                assert event.is_set()
+
+            assert result == SUCCESSFULL_COMPLETION
             print("PASSED\n")
             continue
-
-        finally:
-            loop.stop()
-            loop.close()
-            iteration = iteration + 1
-
-        # no exceptions were thrown (4 was passed in) all events should be set
-        for event in three_events:
-            assert event.is_set()
-
-        assert result == SUCCESSFULL_COMPLETION
-        print("PASSED\n")
-        continue
 
 if __name__ == '__main__': 
     test_interrupt_handling()

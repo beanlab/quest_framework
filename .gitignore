@@ -6,7 +6,7 @@ __pycache__/
 /venv/
 /quest_test/event_tests/.pytest_cache
 .vscode/
-game-state/
+multi-guess-game-state/
 test-state/
 saved-state-main.py/
 err.txt
