@@ -1,6 +1,6 @@
 import asyncio
 from pathlib import Path
-from src.quest import step, create_filesystem_historian
+from src.quest import step, create_filesystem_historian, create_filesystem_manager
 import sys
 import tempfile
 
@@ -64,13 +64,10 @@ async def find_interrupt_trigger():
         current_iteration += 1
 
 async def run_interrupting_workflow():
-    # test interrupt on first iteration
-    historian = create_filesystem_historian(test_state, "Interrupt_Testing", find_interrupt_trigger)
-
-    task: asyncio.Task = historian.run()
-    await task
-
-    return SUCCESSFULL_COMPLETION 
+    async with create_filesystem_manager(test_state, "Interrupt_testing", lambda arg: find_interrupt_trigger) as manager:
+        task: asyncio.Task = manager.start_workflow("any", "sigint_workflow", False,)
+        await task
+        return SUCCESSFULL_COMPLETION
 
 def test_interrupt_handling():
     with tempfile.TemporaryDirectory() as tempdirname:
