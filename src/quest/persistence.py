@@ -3,6 +3,7 @@ import json
 from hashlib import md5
 from pathlib import Path
 from typing import Protocol, Union
+import copy
 
 from .history import History
 from .types import EventRecord
@@ -85,7 +86,7 @@ class InMemoryBlobStorage(BlobStorage):
         self._data = {}
 
     def write_blob(self, key: str, blob: Blob):
-        self._data[key] = blob
+        self._data[key] = copy.deepcopy(blob)
 
     def read_blob(self, key: str) -> Blob:
         return self._data[key]
