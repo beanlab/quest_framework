@@ -4,7 +4,7 @@ import logging
 import traceback
 from asyncio import Task
 from contextvars import ContextVar
-from datetime import datetime
+from datetime import datetime, UTC
 from functools import wraps
 from typing import Callable
 from .history import History
@@ -126,7 +126,7 @@ def _prune(step_id: str, history: "History"):
 
 
 def _get_current_timestamp() -> str:
-    return datetime.utcnow().isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _get_qualified_version(module_name, function_name, version_name: str) -> str:
@@ -173,6 +173,9 @@ class Historian:
         # If the application fails, this future will know.
         # See also get_resources() and _run_with_exception_handling()
         self._fatal_exception = asyncio.Future()
+
+        # indicator if an intentioal interrupt occurs
+        self.workflow_aborted = asyncio.Event()
 
         # Keep track of configuration position during the replay
         self._configuration_pos = 0
@@ -501,8 +504,9 @@ class Historian:
                 task_id=self._get_task_name(),
                 step_id=step_id
             ))
+        
+        prune_on_exit = False
 
-        prune_on_exit = True
         try:
             self._prefix[self._get_task_name()].append(unique_func_name)
 
@@ -520,48 +524,63 @@ class Historian:
                 exception=None
             ))
 
-            return result
+            prune_on_exit = True
+
+            return result 
 
         except asyncio.CancelledError as cancel:
             if cancel.args and cancel.args[0] == SUSPENDED:
-                prune_on_exit = False
                 raise asyncio.CancelledError(SUSPENDED)
+            elif isinstance(cancel.__context__, KeyboardInterrupt):
+                self.workflow_aborted.set()
+                await self.suspend()
+                raise KeyboardInterrupt
             else:
-                logging.exception(f'{step_id} canceled')
+                if not self.workflow_aborted.is_set():
+                    logging.exception(f'{step_id} canceled')
+                    prune_on_exit = True
+                    self._history.append(StepEndRecord(
+                        type='end',
+                        timestamp=_get_current_timestamp(),
+                        task_id=self._get_task_name(),
+                        step_id=step_id,
+                        result=None,
+                        exception=ExceptionDetails(
+                            type=_get_type_name(cancel),
+                            args=cancel.args,
+                            details=traceback.format_exc()
+                        )
+                    ))
+                raise
+
+        except KeyboardInterrupt:
+            self.workflow_aborted.set()
+            await self.suspend()
+            raise KeyboardInterrupt
+
+        except Exception as ex:
+            if not self.workflow_aborted.is_set():
+                logging.exception(f'Error in {step_id}')
+                prune_on_exit = True
                 self._history.append(StepEndRecord(
                     type='end',
                     timestamp=_get_current_timestamp(),
-                    task_id=self._get_task_name(),
                     step_id=step_id,
+                    task_id=self._get_task_name(),
                     result=None,
                     exception=ExceptionDetails(
-                        type=_get_type_name(cancel),
-                        args=cancel.args,
+                        type=_get_type_name(ex),
+                        args=ex.args,
                         details=traceback.format_exc()
                     )
                 ))
-                raise
-
-        except Exception as ex:
-            logging.exception(f'Error in {step_id}')
-            self._history.append(StepEndRecord(
-                type='end',
-                timestamp=_get_current_timestamp(),
-                step_id=step_id,
-                task_id=self._get_task_name(),
-                result=None,
-                exception=ExceptionDetails(
-                    type=_get_type_name(ex),
-                    args=ex.args,
-                    details=traceback.format_exc()
-                )
-            ))
             raise
 
         finally:
-            if prune_on_exit:
-                _prune(step_id, self._history)
-            self._prefix[self._get_task_name()].pop(-1)
+            if prune_on_exit and not self.workflow_aborted.is_set():
+                _prune(step_id, self._history)  
+            if len(self._prefix[self._get_task_name()]) > 0:
+                self._prefix[self._get_task_name()].pop(-1)
 
     async def record_external_event(self, name, identity, action, *args, **kwargs):
         """
@@ -880,8 +899,9 @@ class Historian:
         for task in list(self._open_tasks):
             try:
                 await task
-            except asyncio.CancelledError:
+            except asyncio.CancelledError as cancel:
                 pass
+            
 
     async def get_resources(self, identity):
         # Wait until the replay is done.

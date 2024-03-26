@@ -4,7 +4,7 @@ import pytest
 
 from src.quest.historian import Historian
 from src.quest.wrappers import task
-from utils import timeout
+from quest_test.utils import timeout
 
 stop = asyncio.Event()
 steps = []
