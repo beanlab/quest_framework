@@ -3,6 +3,8 @@ from pathlib import Path
 from src.quest import step, create_filesystem_historian, create_filesystem_manager
 import sys
 import tempfile
+import subprocess 
+from pytest import MonkeyPatch
 
 # This test is designed to test Quest's ability to gracefully and cleanly clean up when sent a Keyboard Interrupt. 
 
@@ -110,5 +112,8 @@ def test_interrupt_handling():
             print("PASSED\n")
             continue
 
-if __name__ == '__main__': 
-    test_interrupt_handling()
+def test_subproccess_recovery():
+    pass
+    # call the file, then kill it after .3 seconds
+    # check the bad return code or catch all exceptions
+    # then call the process again and ensure it exits with a return code of 0
