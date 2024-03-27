@@ -156,12 +156,14 @@ async def main():
         print(wk1.result())
         print(wk2.result())
         print(wk3.result())
+        # check for WorkflowManager hanging on some unfinished task
 
 def run_main():
     loop = asyncio.new_event_loop()
     
     try:
-        loop.run_until_complete(main())
+        loop.run_until_complete(main()) 
+        # it looks like we never quite complete this statement
 
     finally:
         loop.stop()
@@ -169,4 +171,4 @@ def run_main():
         
 if __name__ == '__main__':
     run_main()
-    exit(0)
+    
