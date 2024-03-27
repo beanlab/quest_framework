@@ -164,6 +164,7 @@ def run_main():
     try:
         loop.run_until_complete(main()) 
         # it looks like we never quite complete this statement
+        # TODO: also, did you figure out how the get_workflow on a finished task should work?
 
     finally:
         loop.stop()
