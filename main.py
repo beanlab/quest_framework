@@ -24,7 +24,7 @@ async def main():
     saved_state = Path('saved-state-main.py')
 
     # Remove data
-    shutil.rmtree(saved_state, ignore_errors=True)
+    # shutil.rmtree(saved_state, ignore_errors=True)
     workflow_namespace_root = 'multi-guess-game'
     workflow_number = 1
 
