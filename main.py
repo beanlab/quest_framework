@@ -20,11 +20,16 @@ async def make_guess(manager: WorkflowManager, workflow_id: str, the_guess: int|
         resources = await manager.get_resources(workflow_id, None)
         assert resources['current-guess']['value'] == the_guess
 
-async def main():
+async def main(args):
     saved_state = Path('saved-state-main.py')
 
-    # Remove data
-    # shutil.rmtree(saved_state, ignore_errors=True)
+    if len(args) > 1 and args[1] == "--no-delete":
+        pass
+    else:
+        # Remove data
+        shutil.rmtree(saved_state, ignore_errors=True)
+        print("Json files deleted")
+    
     workflow_namespace_root = 'multi-guess-game'
     workflow_number = 1
 
@@ -162,7 +167,7 @@ def run_main():
     loop = asyncio.new_event_loop()
     
     try:
-        loop.run_until_complete(main()) 
+        loop.run_until_complete(main(sys.argv)) 
         # it looks like we never quite complete this statement
         # TODO: also, did you figure out how the get_workflow on a finished task should work?
 
