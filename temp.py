@@ -4,11 +4,11 @@ import time
 import platform
 
 def get_subprocess(is_fresh=False):
-    if(is_fresh): # delete json files on first run of main.py
+    if(is_fresh): # delete json files after a full clean run
         p = subprocess.Popen("python ./main.py --no-delete")
     else:
         p = subprocess.Popen("python ./main.py")
-    time.sleep(1)
+    time.sleep(1.5)
     return p
 
 def check_fresh_run():
@@ -33,6 +33,20 @@ def run_test():
     p.wait()
     print(p.returncode)
     assert p.returncode == 1
+
+    check_fresh_run()
+
+    print("--------CTRL_C_EVENT Test--------")
+    p = get_subprocess()
+    p.send_signal(signal.CTRL_C_EVENT)
+    try: # parent process also receives the CTL_C_EVENT, so we need to swallow the exception
+        p.wait()
+    except KeyboardInterrupt:
+        pass
+    print(p.returncode)
+    assert p.returncode == 1
+
+    return
 
     check_fresh_run()
 
