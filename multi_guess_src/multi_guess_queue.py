@@ -18,7 +18,8 @@ async def getGuess(*args):
 
 @step
 async def getNum():
-    return random.randint(1, 50)
+    num = random.randint(1, 50)
+    return num
 
 @step
 async def play_game(workflow_name):

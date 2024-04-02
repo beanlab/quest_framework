@@ -32,19 +32,23 @@ class WorkflowManager:
 
     async def __aenter__(self):
         """Load the workflows and get them running again"""
+        print("manager __aenter__ begun")
         if self._storage.has_blob(self._namespace):
             self._workflow_data = self._storage.read_blob(self._namespace)
 
         for wtype, wid, args, kwargs, background in self._workflow_data.values():
             self._start_workflow(wtype, wid, args, kwargs, delete_on_finish=background)
 
+        print("manager __aenter__ exiting")
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Save whatever state is necessary before exiting"""
+        print("manager __aexit__ begun")
         self._storage.write_blob(self._namespace, self._workflow_data)
         for wid, historian in self._workflows.items():
             await historian.suspend()
+        print("manager __aexit__ exiting")
 
     def _get_workflow(self, workflow_id: str):
         return self._workflows[workflow_id]  # TODO check for key, throw error
