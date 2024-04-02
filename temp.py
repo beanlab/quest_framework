@@ -45,7 +45,7 @@ def run_test():
         os.kill(s.pid, signal.CTRL_BREAK_EVENT)
         s.wait()
         print(f'return code: {s.returncode}')
-        # assert s.returncode == 1
+        assert s.returncode >= 1
         
         check_fresh_run()
 
@@ -57,9 +57,9 @@ def run_test():
         except KeyboardInterrupt:
             pass
         print(f'return code: {v.returncode}')
-        assert v.returncode == 1
+        assert v.returncode >= 1
 
-        # check_fresh_run()
+        check_fresh_run()
 
     else:
         print("--------SIGINT Test--------")

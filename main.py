@@ -70,69 +70,74 @@ async def main(args):
 
     # completion of workflows
     async with create_filesystem_manager(saved_state, workflow_namespace_root, get_workflow) as manager:
-        print("\nExiting, resuming, and completing workflows:\n")
-        manager.start_workflow('multi-guess', workflow_1, False, workflow_1)
-        manager.start_workflow('multi-guess', workflow_3, False, workflow_3)
-        manager.start_workflow('multi-guess', workflow_2, False, workflow_2)
-        await asyncio.sleep(0.1)
-
-        # workflow_1 assertions
-        assert manager.get_workflow(workflow_1).done() == False
-        resources = await manager.get_resources(workflow_1, None)
-        current_guess = resources['current-guess']['value']
-        if current_guess is not None:
-            assert current_guess == 5
-
-        # workflow_2 assertions
-        assert manager.get_workflow(workflow_2).done() == False
-        resources = await manager.get_resources(workflow_2, None)
-        assert resources['current-guess']['value'] is None
-
-        # workflow_3 assertions
-        assert manager.get_workflow(workflow_3).done() == False
-        resources = await manager.get_resources(workflow_3, None)
-        current_guess = resources['current-guess']['value']
-        if current_guess is not None:
-            assert current_guess == 9
-
-        # complete game 1 naturally instead of quitting it
-        guess = 1
-        while(guess <= 50):
-            resources = await manager.get_resources(workflow_1, None)
-            send = await manager.send_event(workflow_1, 'guess', None, 'put', guess)
+        try:
+            print("\nExiting, resuming, and completing workflows:\n")
+            manager.start_workflow('multi-guess', workflow_1, False, workflow_1)
+            manager.start_workflow('multi-guess', workflow_3, False, workflow_3)
+            manager.start_workflow('multi-guess', workflow_2, False, workflow_2)
             await asyncio.sleep(0.1)
 
-            if 'valid-guess' in resources and resources['valid-guess']['value'] == guess:
-                await manager.send_event(workflow_1, 'guess', None, 'put', 'q')
+            # workflow_1 assertions
+            assert manager.get_workflow(workflow_1).done() == False
+            resources = await manager.get_resources(workflow_1, None)
+            current_guess = resources['current-guess']['value']
+            if current_guess is not None:
+                assert current_guess == 5
+
+            # workflow_2 assertions
+            assert manager.get_workflow(workflow_2).done() == False
+            resources = await manager.get_resources(workflow_2, None)
+            assert resources['current-guess']['value'] is None
+
+            # workflow_3 assertions
+            assert manager.get_workflow(workflow_3).done() == False
+            resources = await manager.get_resources(workflow_3, None)
+            current_guess = resources['current-guess']['value']
+            if current_guess is not None:
+                assert current_guess == 9
+
+            # complete game 1 naturally instead of quitting it
+            guess = 1
+            while(guess <= 50):
+                resources = await manager.get_resources(workflow_1, None)
+                send = await manager.send_event(workflow_1, 'guess', None, 'put', guess)
                 await asyncio.sleep(0.1)
-                break
 
-            guess = guess + 1
+                if 'valid-guess' in resources and resources['valid-guess']['value'] == guess:
+                    await manager.send_event(workflow_1, 'guess', None, 'put', 'q')
+                    await asyncio.sleep(0.1)
+                    break
+
+                guess = guess + 1
 
 
-        # make sure that the workflow_1 task actually completed once the number was correctly guessed
-        assert manager.get_workflow(workflow_1).done() == True
+            # make sure that the workflow_1 task actually completed once the number was correctly guessed
+            assert manager.get_workflow(workflow_1).done() == True
 
-        # kill and assert workflow_2
-        await manager.send_event(workflow_2, 'guess', None, 'put', 'q')
-        await asyncio.sleep(0.1)
-        assert manager.get_workflow(workflow_2).done() == True
+            # kill and assert workflow_2
+            await manager.send_event(workflow_2, 'guess', None, 'put', 'q')
+            await asyncio.sleep(0.1)
+            assert manager.get_workflow(workflow_2).done() == True
 
-        # kill and assert workflow_3
-        await manager.send_event(workflow_3, 'guess', None, 'put', 'q')
-        await asyncio.sleep(0.1)
-        assert manager.get_workflow(workflow_3).done() == True
+            # kill and assert workflow_3
+            await manager.send_event(workflow_3, 'guess', None, 'put', 'q')
+            await asyncio.sleep(0.1)
+            assert manager.get_workflow(workflow_3).done() == True
 
-        wk1 = manager.get_workflow(workflow_1)
-        wk2 = manager.get_workflow(workflow_2)
-        wk3 = manager.get_workflow(workflow_3)
-        await wk1
-        await wk2
-        await wk3
+            wk1 = manager.get_workflow(workflow_1)
+            wk2 = manager.get_workflow(workflow_2)
+            wk3 = manager.get_workflow(workflow_3)
+            await wk1
+            await wk2
+            await wk3
 
-        print(wk1.result())
-        print(wk2.result())
-        print(wk3.result())
+            print(wk1.result())
+            print(wk2.result())
+            print(wk3.result())
+        except (Exception, KeyboardInterrupt) as ex:
+            print(f'Caught {ex.__class__}')
+            manager.__aexit__()
+            raise
 
     # attempt to start previously completed workflows - should cause no errors and output final result again
     async with create_filesystem_manager(saved_state, workflow_namespace_root, get_workflow) as manager:
@@ -171,6 +176,11 @@ def run_main():
         # it looks like we never quite complete this statement
         # TODO: also, did you figure out how the get_workflow on a finished task should work?
 
+    except (Exception, KeyboardInterrupt) as ex:
+        print(f'TESTING-------------------------')
+        print(f'Cause: {ex.__cause__}\nClass: {ex.__class__}\nTraceback: {ex.with_traceback}')
+        print(f'{ex}')
+        raise
     finally:
         loop.stop()
         loop.close()
