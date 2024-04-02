@@ -11,7 +11,7 @@ def get_subprocess(is_fresh=False):
     time.sleep(1.5)
     return p
 
-def check_full_run():
+def check_fresh_run():
     print("--------Clean Test--------")
     q = get_subprocess(is_fresh=True)
     q.wait()
@@ -25,7 +25,7 @@ def run_test():
     p.wait()
     assert p.returncode == 1
 
-    check_full_run()
+    check_fresh_run()
 
     print("--------Kill Test--------")
     r = get_subprocess()
@@ -34,21 +34,19 @@ def run_test():
     print(r.returncode)
     assert r.returncode == 1    
 
-    check_full_run()
+    check_fresh_run()
 
-    print("--------CTRL_C_EVENT Test--------")
+    print("--------CTRL_BREAK_EVENT Test--------")
     s = get_subprocess()
-    s.send_signal(signal.CTRL_C_EVENT)
-    try: # parent process also receives the CTL_C_EVENT, so we need to swallow the exception
+    s.send_signal(signal.CTRL_BREAK_EVENT)
+    try:
         s.wait()
     except KeyboardInterrupt:
         pass
     print(s.returncode)
     assert s.returncode == 1
-
-    return
-
-    check_full_run()
+    
+    check_fresh_run()
 
     if "Windows" in platform.platform():
         return
@@ -59,7 +57,7 @@ def run_test():
     p.wait()
     assert p.returncode == 1
 
-    check_full_run()
+    check_fresh_run()
 
     print("--------SIGABRT Test--------")
     p = get_subprocess()
@@ -67,6 +65,6 @@ def run_test():
     p.wait()
     assert p.returncode == 1
 
-    check_full_run()
+    check_fresh_run()
 
 run_test()
