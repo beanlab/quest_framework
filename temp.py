@@ -13,10 +13,10 @@ def get_subprocess(is_fresh=False):
 
 def check_fresh_run():
     print("--------Clean Test--------")
-    p = get_subprocess(is_fresh=True)
-    p.wait()
-    print(p.returncode)
-    assert p.returncode == 0
+    q = get_subprocess(is_fresh=True)
+    q.wait()
+    print(q.returncode)
+    assert q.returncode == 0
 
 def run_test():
     print("--------Termination Test--------")
@@ -28,23 +28,23 @@ def run_test():
     check_fresh_run()
 
     print("--------Kill Test--------")
-    p = get_subprocess()
-    p.kill()
-    p.wait()
-    print(p.returncode)
-    assert p.returncode == 1
+    r = get_subprocess()
+    r.kill()
+    r.wait()
+    print(r.returncode)
+    assert r.returncode == 1    
 
     check_fresh_run()
 
     print("--------CTRL_C_EVENT Test--------")
-    p = get_subprocess()
-    p.send_signal(signal.CTRL_C_EVENT)
+    s = get_subprocess()
+    s.send_signal(signal.CTRL_C_EVENT)
     try: # parent process also receives the CTL_C_EVENT, so we need to swallow the exception
-        p.wait()
+        s.wait()
     except KeyboardInterrupt:
         pass
-    print(p.returncode)
-    assert p.returncode == 1
+    print(s.returncode)
+    assert s.returncode == 1
 
     return
 

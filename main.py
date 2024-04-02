@@ -45,9 +45,9 @@ async def main(args):
         workflow_number = workflow_number + 1
         workflow_2 = f'{workflow_namespace_root}-{workflow_number}'
 
-        manager.start_workflow('multi-guess', workflow_1, False, workflow_1, '-w', '-r')
+        manager.start_workflow('multi-guess', workflow_1, False, workflow_1)
         await asyncio.sleep(0.1)
-        manager.start_workflow('multi-guess', workflow_2, False, workflow_2, '-w', '-r')
+        manager.start_workflow('multi-guess', workflow_2, False, workflow_2)
         await asyncio.sleep(0.1)
 
         assert manager.get_workflow(workflow_1).done() == False
@@ -59,7 +59,7 @@ async def main(args):
         # start a third workflow
         workflow_number = workflow_number + 1
         workflow_3 = f'{workflow_namespace_root}-{workflow_number}'
-        manager.start_workflow('multi-guess', workflow_3, False, workflow_3, '-w', '-r')
+        manager.start_workflow('multi-guess', workflow_3, False, workflow_3)
         await asyncio.sleep(0.1)
         assert manager.get_workflow(workflow_3).done() == False
 
@@ -71,9 +71,9 @@ async def main(args):
     # completion of workflows
     async with create_filesystem_manager(saved_state, workflow_namespace_root, get_workflow) as manager:
         print("\nExiting, resuming, and completing workflows:\n")
-        manager.start_workflow('multi-guess', workflow_1, False, workflow_1, '-w', '-r')
-        manager.start_workflow('multi-guess', workflow_2, False, workflow_2, '-w', '-r')
-        manager.start_workflow('multi-guess', workflow_3, False, workflow_3, '-w', '-r')
+        manager.start_workflow('multi-guess', workflow_1, False, workflow_1)
+        manager.start_workflow('multi-guess', workflow_3, False, workflow_3)
+        manager.start_workflow('multi-guess', workflow_2, False, workflow_2)
         await asyncio.sleep(0.1)
 
         # workflow_1 assertions
@@ -137,9 +137,9 @@ async def main(args):
     # attempt to start previously completed workflows - should cause no errors and output final result again
     async with create_filesystem_manager(saved_state, workflow_namespace_root, get_workflow) as manager:
         print("\nAttempting to restart completed workflows:\n")
-        manager.start_workflow('multi-guess', workflow_1, False, workflow_1, '-w', '-r')
-        manager.start_workflow('multi-guess', workflow_2, False, workflow_2, '-w', '-r')
-        manager.start_workflow('multi-guess', workflow_3, False, workflow_3, '-w', '-r')
+        manager.start_workflow('multi-guess', workflow_1, False, workflow_1)
+        manager.start_workflow('multi-guess', workflow_2, False, workflow_2)
+        manager.start_workflow('multi-guess', workflow_3, False, workflow_3)
         await asyncio.sleep(0.1)
 
         send = await manager.send_event(workflow_1, 'guess', None, 'put', 17)
