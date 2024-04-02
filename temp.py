@@ -11,7 +11,7 @@ def get_subprocess(is_fresh=False):
     time.sleep(1.5)
     return p
 
-def check_fresh_run():
+def check_full_run():
     print("--------Clean Test--------")
     q = get_subprocess(is_fresh=True)
     q.wait()
@@ -25,7 +25,7 @@ def run_test():
     p.wait()
     assert p.returncode == 1
 
-    check_fresh_run()
+    check_full_run()
 
     print("--------Kill Test--------")
     r = get_subprocess()
@@ -34,7 +34,7 @@ def run_test():
     print(r.returncode)
     assert r.returncode == 1    
 
-    check_fresh_run()
+    check_full_run()
 
     print("--------CTRL_C_EVENT Test--------")
     s = get_subprocess()
@@ -48,7 +48,7 @@ def run_test():
 
     return
 
-    check_fresh_run()
+    check_full_run()
 
     if "Windows" in platform.platform():
         return
@@ -59,7 +59,7 @@ def run_test():
     p.wait()
     assert p.returncode == 1
 
-    check_fresh_run()
+    check_full_run()
 
     print("--------SIGABRT Test--------")
     p = get_subprocess()
@@ -67,6 +67,6 @@ def run_test():
     p.wait()
     assert p.returncode == 1
 
-    check_fresh_run()
+    check_full_run()
 
 run_test()
