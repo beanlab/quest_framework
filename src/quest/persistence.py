@@ -23,34 +23,31 @@ class ListPersistentHistory(History):
     def __init__(self, namespace: str, storage: BlobStorage):
         self._namespace = namespace
         self._storage = storage
-        self._items = []
-        self._keys: list[str] = []
+        self._records: dict[str, EventRecord] = {}
 
         if storage.has_blob(namespace):
-            self._keys = storage.read_blob(namespace)
-            for key in self._keys:
-                self._items.append(storage.read_blob(key))
+            keys = storage.read_blob(namespace)
+            for key in keys:
+                self._records[key] = storage.read_blob(key)
 
     def _get_key(self, item: EventRecord) -> str:
         return self._namespace + '.' + md5((item['timestamp'] + item['step_id'] + item['type']).encode()).hexdigest()
     
     def append(self, item: EventRecord):
-        self._items.append(item)
-        self._keys.append(key := self._get_key(item))
+        self._records[key := self._get_key(item)] = item
         self._storage.write_blob(key, item)
-        self._storage.write_blob(self._namespace, self._keys)
+        self._storage.write_blob(self._namespace, list(self._records.keys()))
 
     def remove(self, item: EventRecord):
-        self._items.remove(item)
-        self._keys.remove(key := self._get_key(item))
+        del self._records[key := self._get_key(item)]
         self._storage.delete_blob(key)
-        self._storage.write_blob(self._namespace, self._keys)
+        self._storage.write_blob(self._namespace, list(self._records.keys()))
 
     def __iter__(self):
-        return iter(self._items)
+        return iter(self._records.values())
     
     def __reversed__(self):
-        return reversed(self._items)
+        return reversed(self._records.values())
 
 class LinkedPersistentHistory(History):
     class HistoryNode():
