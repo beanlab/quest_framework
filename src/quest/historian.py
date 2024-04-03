@@ -668,7 +668,7 @@ class Historian:
                 kwargs=kwargs,
                 result=result
             ))
-            await self._register_resource_update(identity)
+            await self._handle_resource_update(identity)
 
         else:
             with next_record as record:
@@ -708,7 +708,7 @@ class Historian:
                 resource_id=resource_id,
                 resource_type=_get_type_name(resource)
             ))
-            await self._register_resource_update(identity)
+            await self._handle_resource_update(identity)
 
         else:
             with next_record as record:
@@ -737,7 +737,7 @@ class Historian:
                     resource_id=resource_id,
                     resource_type=resource_entry['type']
                 ))
-                await self._register_resource_update(identity)
+                await self._handle_resource_update(identity)
 
             else:
                 with next_record as record:
@@ -937,11 +937,11 @@ class Historian:
             yield await self.get_resources(identity)
             self._resource_events[identity].set()
 
-    async def _register_resource_update(self, identity):
+    async def _handle_resource_update(self, identity):
         # If the user with `identity` has not called `stream_resources`, an update is not needed
         if (resource_queue := self._resource_queues.get(identity)) is not None:
             # If the user has called stream_resources, there should be a resource_event for `identity`
-            assert self._resource_events[identity] is not None
+            assert self._resource_events.get(identity) is not None
 
             self._resource_events[identity].clear()
             await resource_queue.put('Resource Update')
