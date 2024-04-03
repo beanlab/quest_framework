@@ -57,41 +57,32 @@ async def test_resource_stream():
             assert 'phrase' in resources
             assert resources['phrase']['value'] == 'woot'
 
-        elif index == 1:  # skip yield for 'phrase.get'
-            pass  # TODO: Assert the same as index == 0
-
-        elif index == 2:  # phrase.set(big_phrase())
+        elif index == 1:  # phrase.set(big_phrase())
             assert 'phrase' in resources
             assert resources['phrase']['value'] == 'wootwootwoot'
 
-        elif index == 3:  # 'messages' created
+        elif index == 2:  # 'messages' created
             assert 'phrase' in resources
             assert resources['phrase']['value'] == 'wootwootwoot'
             assert 'messages' in resources
 
             await historian.record_external_event('messages', None, 'put', 'quuz')
 
-        elif index == 4:  # skip yield for 'messages.get'
-            pass
-
-        elif index == 5:  # skip yield for 'phrase.get'
-            pass
-
-        elif index == 6:  # 'phrase.set(+ message)'
+        elif index == 3:  # 'phrase.set(+ message)'
             assert 'phrase' in resources
             assert resources['phrase']['value'] == 'wootwootwootquuz'
             assert 'messages' in resources
 
-        elif index == 7:  # 'messages' deleted
+        elif index == 4:  # 'messages' deleted
             assert 'phrase' in resources
             assert resources['phrase']['value'] == 'wootwootwootquuz'
             assert 'messages' not in resources
 
-        elif index == 8:  # 'phrase.set'
+        elif index == 5:  # 'phrase.set'
             assert 'phrase' in resources
             assert resources['phrase']['value'] == 'all done'
 
-        elif index == 9: # 'phrase' deleted
+        elif index == 6:  # 'phrase' deleted
             assert not resources  # i.e. empty
             await historian.suspend()
             return

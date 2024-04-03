@@ -668,7 +668,8 @@ class Historian:
                 kwargs=kwargs,
                 result=result
             ))
-            await self._handle_resource_update(identity)
+            if action != 'get':
+                await self._handle_resource_update(identity)
 
         else:
             with next_record as record:
