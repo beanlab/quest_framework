@@ -53,7 +53,7 @@ async def test_persistence_basic_linked(tmp_path: Path):
 @timeout(3)
 async def test_persistence_basic_list(tmp_path: Path):
     storage = LocalFileSystemBlobStorage(tmp_path)
-    history = LinkedPersistentHistory('test', storage)
+    history = ListPersistentHistory('test', storage)
     historian = Historian(
         'test',
         simple_workflow,
@@ -65,7 +65,7 @@ async def test_persistence_basic_list(tmp_path: Path):
     await historian.suspend()
 
     pause.set()
-    history = LinkedPersistentHistory('test', storage)
+    history = ListPersistentHistory('test', storage)
     historian = Historian(
         'test',
         simple_workflow,
@@ -127,7 +127,7 @@ async def resume_this_workflow():
 @pytest.mark.asyncio
 async def test_resume_step_persistence_list(tmp_path: Path):
     storage = LocalFileSystemBlobStorage(tmp_path)
-    history = LinkedPersistentHistory('test', storage)
+    history = ListPersistentHistory('test', storage)
     historian = Historian(
         'test',
         resume_this_workflow,
@@ -141,7 +141,7 @@ async def test_resume_step_persistence_list(tmp_path: Path):
     event.set()
 
     storage = LocalFileSystemBlobStorage(tmp_path)
-    history = LinkedPersistentHistory('test', storage)
+    history = ListPersistentHistory('test', storage)
     historian = Historian(
         'test',
         resume_this_workflow,
