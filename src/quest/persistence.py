@@ -48,7 +48,7 @@ class PersistentHistory(History):
         newNode.item = item
         newNode.prev = self._tail
 
-        if(self._tail != None):
+        if(self._tail is not None):
             self._tail.next = newNode
         else:
             self._head = newNode
