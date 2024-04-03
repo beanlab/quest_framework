@@ -58,7 +58,7 @@ async def test_resource_stream():
             assert resources['phrase']['value'] == 'woot'
 
         elif index == 1:  # skip yield for 'phrase.get'
-            pass
+            pass  # TODO: Assert the same as index == 0
 
         elif index == 2:  # phrase.set(big_phrase())
             assert 'phrase' in resources
