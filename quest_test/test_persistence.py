@@ -5,8 +5,8 @@ import pytest
 
 from src.quest import step
 from src.quest.historian import Historian
-from src.quest.persistence import PersistentHistory, LocalFileSystemBlobStorage
-from utils import timeout
+from src.quest.persistence import LinkedPersistentHistory, LocalFileSystemBlobStorage
+from quest_test.utils import timeout
 
 
 @step
@@ -28,7 +28,7 @@ async def simple_workflow():
 @timeout(3)
 async def test_persistence_basic(tmp_path: Path):
     storage = LocalFileSystemBlobStorage(tmp_path)
-    history = PersistentHistory('test', storage)
+    history = LinkedPersistentHistory('test', storage)
     historian = Historian(
         'test',
         simple_workflow,
@@ -40,7 +40,7 @@ async def test_persistence_basic(tmp_path: Path):
     await historian.suspend()
 
     pause.set()
-    history = PersistentHistory('test', storage)
+    history = LinkedPersistentHistory('test', storage)
     historian = Historian(
         'test',
         simple_workflow,
@@ -66,7 +66,7 @@ async def resume_this_workflow():
 @pytest.mark.asyncio
 async def test_resume_step_persistence(tmp_path: Path):
     storage = LocalFileSystemBlobStorage(tmp_path)
-    history = PersistentHistory('test', storage)
+    history = LinkedPersistentHistory('test', storage)
     historian = Historian(
         'test',
         resume_this_workflow,
@@ -80,7 +80,7 @@ async def test_resume_step_persistence(tmp_path: Path):
     event.set()
 
     storage = LocalFileSystemBlobStorage(tmp_path)
-    history = PersistentHistory('test', storage)
+    history = LinkedPersistentHistory('test', storage)
     historian = Historian(
         'test',
         resume_this_workflow,

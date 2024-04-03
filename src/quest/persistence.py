@@ -19,20 +19,20 @@ class BlobStorage(Protocol):
 
     def delete_blob(self, key: str): ...
 
-class HistoryNode():
-    def __init__(self):
-        self.prev: HistoryNode = None
-        self.next: HistoryNode = None
-        self.item = None
+class LinkedPersistentHistory(History):
+    class HistoryNode():
+        def __init__(self):
+            self.prev: self.HistoryNode = None
+            self.next: self.HistoryNode = None
+            self.item = None
 
-class PersistentHistory(History):
     def __init__(self, namespace: str, storage: BlobStorage):
         self._namespace = namespace
         self._storage = storage
-        self._nodes: dict[str, HistoryNode] = {}
+        self._nodes: dict[str, self.HistoryNode] = {}
 
-        self._head: HistoryNode = None
-        self._tail: HistoryNode = None
+        self._head: self.HistoryNode = None
+        self._tail: self.HistoryNode = None
 
         if storage.has_blob(namespace):
             keys = storage.read_blob(namespace)
@@ -44,22 +44,22 @@ class PersistentHistory(History):
 
     def _insert_node(self, nodeKey: str, item: Blob):
         """Inserts blob into the linked list of HistoryNodes"""
-        newNode: HistoryNode = HistoryNode()
-        newNode.item = item
-        newNode.prev = self._tail
+        new_node: self.HistoryNode = self.HistoryNode()
+        new_node.item = item
+        new_node.prev = self._tail
 
         if(self._tail is not None):
-            self._tail.next = newNode
+            self._tail.next = new_node
         else:
-            self._head = newNode
+            self._head = new_node
 
-        self._tail = newNode
+        self._tail = new_node
 
-        self._nodes[nodeKey] = newNode
+        self._nodes[nodeKey] = new_node
 
     def _remove_node(self, nodeKey: str):
         # TODO: should I be key checking here first? Probably
-        toDelete: HistoryNode = self._nodes[nodeKey]
+        toDelete: self.HistoryNode = self._nodes[nodeKey]
 
         if toDelete.prev is not None:
             toDelete.prev.next = toDelete.next
@@ -67,10 +67,10 @@ class PersistentHistory(History):
         if toDelete.next is not None:
             toDelete.next.prev = toDelete.prev
 
-        if toDelete == self._head:
+        if toDelete is self._head:
             self._head = toDelete.next
 
-        if toDelete == self._tail:
+        if toDelete is self._tail:
             self._tail = toDelete.prev
 
         del self._nodes[nodeKey]
@@ -87,27 +87,17 @@ class PersistentHistory(History):
         self._storage.delete_blob(key)
         self._storage.write_blob(self._namespace, list(self._nodes.keys()))
 
-    class HistoryIterator():
-        def __init__(self, currentNode: HistoryNode, direction: str):
-            self.current: HistoryNode = currentNode
-            self.direction = direction
-
-        def __next__(self):
-            if self.current == None:
-                raise StopIteration
-            else:
-                result = self.current
-                if self.direction == 'prev':
-                    self.current = self.current.prev
-                else:
-                    self.current = self.current.next
-                return result.item
-
     def __iter__(self):
-        return self.HistoryIterator(self._head, 'next')
+        node: self.HistoryNode = self._head
+        while node is not None:
+            yield node.item
+            node = node.next
     
     def __reversed__(self):
-        return self.HistoryIterator(self._tail, 'prev')
+        node: self.HistoryNode = self._tail
+        while node is not None:
+            yield node.item
+            node = node.prev
 
 class LocalFileSystemBlobStorage(BlobStorage):
     def __init__(self, root_folder: Path):

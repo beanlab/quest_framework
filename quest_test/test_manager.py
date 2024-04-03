@@ -3,7 +3,7 @@ import logging
 
 import pytest
 
-from src.quest import PersistentHistory, queue
+from src.quest import LinkedPersistentHistory, queue
 from src.quest.manager import WorkflowManager
 from src.quest.persistence import InMemoryBlobStorage
 
@@ -15,7 +15,7 @@ async def test_manager():
 
     def create_history(wid: str):
         if wid not in histories:
-            histories[wid] = PersistentHistory(wid, InMemoryBlobStorage())
+            histories[wid] = LinkedPersistentHistory(wid, InMemoryBlobStorage())
         return histories[wid]
 
     pause = asyncio.Event()
@@ -61,7 +61,7 @@ async def test_manager_events():
 
     def create_history(wid: str):
         if wid not in histories:
-            histories[wid] = PersistentHistory(wid, InMemoryBlobStorage())
+            histories[wid] = LinkedPersistentHistory(wid, InMemoryBlobStorage())
         return histories[wid]
 
     counter_a = 0
@@ -115,7 +115,7 @@ async def test_manager_background():
 
     def create_history(wid: str):
         if wid not in histories:
-            histories[wid] = PersistentHistory(wid, InMemoryBlobStorage())
+            histories[wid] = LinkedPersistentHistory(wid, InMemoryBlobStorage())
         return histories[wid]
 
     counter_a = 0
