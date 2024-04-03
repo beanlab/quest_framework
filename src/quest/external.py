@@ -9,7 +9,6 @@ from .historian import find_historian, SUSPENDED
 class State:
     def __init__(self, value):
         self._value = value
-        self._historian = find_historian()
 
     async def get(self):
         return self._value
