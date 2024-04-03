@@ -39,11 +39,11 @@ async def test_resource_stream():
 
     async def workflow():
         async with state('phrase', None, 'woot') as phrase:
-            await phrase.set(big_phrase(phrase))
+            await phrase.set(await big_phrase(await phrase.get()))
 
             async with queue('messages', None) as messages:
                 new_message = await messages.get()
-                await phrase.set(phrase + new_message)
+                await phrase.set((await phrase.get()) + new_message)
 
             await phrase.set('all done')
 
@@ -55,7 +55,7 @@ async def test_resource_stream():
     async for resources in historian.stream_resources(None):
         if index == 0:
             assert 'phrase' in resources
-            # assert resources['phrase']['value'] == 'woot'
+            assert resources['phrase']['value'] == 'woot'
 
         elif index == 1:
             assert 'phrase' in resources
@@ -70,7 +70,7 @@ async def test_resource_stream():
 
         elif index == 3:  # queue.get()
             assert 'phrase' in resources
-            # assert resources['phrase']['value'] == 'wootwootwootquux'
+            assert resources['phrase']['value'] == 'wootwootwootquux'
             assert 'messages' in resources
 
         elif index == 4:

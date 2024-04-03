@@ -660,6 +660,7 @@ class Historian:
                 kwargs=kwargs,
                 result=result
             ))
+            await self._register_resource_update(identity)
 
         else:
             with next_record as record:
@@ -699,7 +700,7 @@ class Historian:
                 resource_id=resource_id,
                 resource_type=_get_type_name(resource)
             ))
-            await self.register_resource_update(identity)
+            await self._register_resource_update(identity)
 
         else:
             with next_record as record:
@@ -708,10 +709,10 @@ class Historian:
 
         return resource_id
 
-    async def register_resource_update(self, identity):
-        # instantiate a new queue if there is not one associated with the identity yet
-        resource_queue = self._resource_queues.setdefault(identity, asyncio.Queue())
-        await resource_queue.put('Resource Update')
+    async def _register_resource_update(self, identity):
+        resource_queue = self._resource_queues.get(identity, None)
+        if resource_queue is not None:
+            await resource_queue.put('Resource Update')
 
     async def delete_resource(self, name, identity, suspending=False):
         resource_id = _create_resource_id(name, identity)
@@ -733,7 +734,7 @@ class Historian:
                     resource_id=resource_id,
                     resource_type=resource_entry['type']
                 ))
-                await self.register_resource_update(identity)
+                await self._register_resource_update(identity)
 
             else:
                 with next_record as record:
@@ -925,15 +926,14 @@ class Historian:
         The caller of this function lives outside the step management of the historian
         -> don't replay, just yield event changes in realtime
         """
-        # TODO: Should we include this line?
-        # If the application has failed, let the caller know
-        if self._fatal_exception.done():
-            await self._fatal_exception
-
+        logging.debug(f'Resource stream created for {identity}')
         self._resource_queues.setdefault(identity, asyncio.Queue())
+        # Asyncio.event
         while True:
             await self._resource_queues[identity].get()
+            # event.set()
             yield await self.get_resources(identity)
+            # event.clear()
 
 
 class HistorianNotFoundException(Exception):

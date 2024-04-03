@@ -7,15 +7,11 @@ async def fetch_data():
     return f'The given number is: {input_num}'
 
 async def async_generator():
-    numbers = [1, 2, 3, 4, 5, 6, 7]
-
-    index = 0
-    while True:
+    for number in range(8):
         await my_queue.get()
         print('Got resource update from queue!')
         print('Yielding data from resource update')
-        yield numbers[index]
-        index += 1
+        yield number
 
 async def resource_queue_puts():
     while True:
@@ -35,6 +31,7 @@ async def main():
         elif index == 1:
             assert data == 2
             print(f'Resource update: {data}. Assert passed')
+        index += 1
 
 if __name__ == "__main__":
     asyncio.run(main())
