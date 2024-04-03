@@ -53,44 +53,47 @@ async def test_resource_stream():
 
     index = 0
     async for resources in historian.stream_resources(None):
-        if index == 0:
+        if index == 0:  # 'phrase' created
             assert 'phrase' in resources
             assert resources['phrase']['value'] == 'woot'
 
-        elif index == 1:
-            assert 'phrase' in resources
-            # assert resources['phrase']['value'] == 'wootwootwoot'
+        elif index == 1:  # skip yield for 'phrase.get'
+            pass
 
-        elif index == 2:  # queue created
+        elif index == 2:  # phrase.set(big_phrase())
             assert 'phrase' in resources
-            # assert resources['phrase']['value'] == 'wootwootwoot'
+            assert resources['phrase']['value'] == 'wootwootwoot'
+
+        elif index == 3:  # 'messages' created
+            assert 'phrase' in resources
+            assert resources['phrase']['value'] == 'wootwootwoot'
             assert 'messages' in resources
 
             await historian.record_external_event('messages', None, 'put', 'quuz')
 
-        elif index == 3:  # queue.get()
+        elif index == 4:  # skip yield for 'messages.get'
+            pass
+
+        elif index == 5:  # skip yield for 'phrase.get'
+            pass
+
+        elif index == 6:  # 'phrase.set(+ message)'
             assert 'phrase' in resources
-            assert resources['phrase']['value'] == 'wootwootwootquux'
+            assert resources['phrase']['value'] == 'wootwootwootquuz'
             assert 'messages' in resources
 
-        elif index == 4:
+        elif index == 7:  # 'messages' deleted
             assert 'phrase' in resources
-            # assert resources['phrase']['value'] == 'wootwootwootquux'
-            assert 'messages' in resources
-
-        elif index == 5:
-            assert 'phrase' in resources
-            # assert resources['phrase']['value'] == 'wootwootwootquux'
+            assert resources['phrase']['value'] == 'wootwootwootquuz'
             assert 'messages' not in resources
 
-        elif index == 6:
+        elif index == 8:  # 'phrase.set'
             assert 'phrase' in resources
-            # assert resources['phrase']['value'] == 'all done'
+            assert resources['phrase']['value'] == 'all done'
 
-        elif index == 7:
+        elif index == 9: # 'phrase' deleted
             assert not resources  # i.e. empty
-
-        else:
+            await historian.suspend()
             return
 
         index += 1

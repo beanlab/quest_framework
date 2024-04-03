@@ -194,6 +194,7 @@ class Historian:
         # See also external.py
         self._resources = {}
         self._resource_queues: dict[str, asyncio.Queue] = {}
+        self._resource_stream_event: asyncio.Event | None = None
 
         # We keep track of all open tasks so we can properly suspend them
         self._open_tasks: list[Task] = []
@@ -710,9 +711,13 @@ class Historian:
         return resource_id
 
     async def _register_resource_update(self, identity):
+        if self._resource_stream_event is not None:
+            self._resource_stream_event.clear()
         resource_queue = self._resource_queues.get(identity, None)
         if resource_queue is not None:
             await resource_queue.put('Resource Update')
+            if self._resource_stream_event is not None:
+                await self._resource_stream_event.wait()
 
     async def delete_resource(self, name, identity, suspending=False):
         resource_id = _create_resource_id(name, identity)
@@ -928,12 +933,11 @@ class Historian:
         """
         logging.debug(f'Resource stream created for {identity}')
         self._resource_queues.setdefault(identity, asyncio.Queue())
-        # Asyncio.event
+        self._resource_stream_event = asyncio.Event()
         while True:
             await self._resource_queues[identity].get()
-            # event.set()
             yield await self.get_resources(identity)
-            # event.clear()
+            self._resource_stream_event.set()
 
 
 class HistorianNotFoundException(Exception):
