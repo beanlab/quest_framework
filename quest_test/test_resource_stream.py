@@ -4,34 +4,8 @@ from src.quest import step, Historian
 from src.quest.external import state, queue
 
 
-#TODO: - make a test that ensures that when an external party reads a queue that the workflow populates, it is sane
-# - The workflow puts stuff on a queue
-# - An external party reads from the queue
-# - The workflow suspends
-# - The workflow resumes
-# - The external party does not see the already-consumed items on the queue, but does see any outstanding items
-# Workflow        External
-# 7 -> Q
-# 8 -> Q
-#                 Q -> 7
-# 9 -> Q
-# -- Suspend and resume --
-#                 Q -> 8  (not a 7!)
-#                 Q -> 9
-
 @pytest.mark.asyncio
 async def test_resource_stream():
-    # Strategy
-    # Workflow            External
-    # --------------------------------
-    # phrase created
-    # phrase set
-    # messages created
-    # messages.get()
-    # phrase set
-    # messages destroyed
-    # phrase set
-    # phrase destroyed
 
     @step
     async def big_phrase(phrase):
