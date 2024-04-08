@@ -23,6 +23,10 @@ def check_full_run():
     # assert q.returncode == 0
 
 def run_test(args: list[str]):
+    if "Windows" in platform.platform():
+        print("This  file must be run on a non-windows platform")
+        return
+    
     all = False
     if "--all" in args: all = True
 
