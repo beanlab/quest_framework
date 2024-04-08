@@ -4,13 +4,15 @@ from src.quest.external import state, queue
 
 # This version of multi guess is only different in that it accepts queue input,
     # rather than input from the blocking console.
+printing = True
 
 @step
 async def getGuess(*args):
-    print(f"{args[0]}: Enter your guess:")
+    global printing
+    if printing: print(f"{args[0]}: Enter your guess:")
     async with queue('guess', None) as input:
         guess = await input.get()
-    print(f"{args[0]}: Guess was {guess}")
+    if printing: print(f"{args[0]}: Guess was {guess}")
     
     if(guess == "q"):
         return -1
@@ -23,13 +25,14 @@ async def getNum():
 
 @step
 async def play_game(workflow_name):
+    global printing
     rNum = await getNum()
     async with state('valid-guess', None, rNum), state('current-guess', None, None) as current_guess:
         guess = await getGuess(workflow_name)
         await current_guess.set(guess)
         while(guess != rNum and guess != -1):
             response = f'{workflow_name}: lower than {guess}' if guess > rNum else f'{workflow_name}: higher than {guess}'
-            print(response)
+            if printing: print(response)
             guess = await getGuess(workflow_name)
             await current_guess.set(guess)
 
@@ -41,8 +44,10 @@ async def play_game(workflow_name):
 
 async def game_loop(*args, **kwargs):
     workflow_name = args[0]
-    print(f"{workflow_name}: type q to quit the game.")
+    global printing
+    printing = args[1]
+    if printing: print(f"{workflow_name}: type q to quit the game.")
     while((res := await play_game(workflow_name)) != -1):
         print(res)
-    print(f"{workflow_name}: Adios from the game loop!")
+    if printing: print(f"{workflow_name}: Adios from the game loop!")
     return f"{workflow_name}: Game loop successfully completed"

@@ -33,7 +33,6 @@ class WorkflowManager:
 
     async def __aenter__(self):
         """Load the workflows and get them running again"""
-        # TODO: you should probably block signals for thie function too
         print("manager __aenter__ begun")
         if self._storage.has_blob(self._namespace):
             self._workflow_data = self._storage.read_blob(self._namespace)
@@ -46,13 +45,14 @@ class WorkflowManager:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Save whatever state is necessary before exiting"""
-        old_mask = signal.pthread_sigmask(signal.SIG_BLOCK, [signal.SIGINT, signal.SIGABRT])
+        # old_mask = signal.pthread_sigmask(signal.SIG_BLOCK, [signal.SIGINT, signal.SIGABRT])
         print("manager __aexit__ begun")
         self._storage.write_blob(self._namespace, self._workflow_data)
         for wid, historian in self._workflows.items():
             await historian.suspend()
         print("manager __aexit__ exiting")
-        signal.pthread_sigmask(signal.SIG_SETMASK, old_mask) # TODO pickup here
+        # signal.pthread_sigmask(signal.SIG_SETMASK, old_mask)
+
     def _get_workflow(self, workflow_id: str):
         return self._workflows[workflow_id]  # TODO check for key, throw error
 
