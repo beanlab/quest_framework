@@ -884,6 +884,7 @@ class Historian:
 
     async def suspend(self):
         logging.info(f'-- Suspending {self.workflow_id} --')
+        if self.workflow_aborted.is_set(): print(f'-- Suspending {self.workflow_id} --') # TODO: remove!!!!!!
         # Cancelling these in reverse order is important
         # If a parent thread cancels, it will cancel a child.
         # We want to be the one that cancels every task,
@@ -941,6 +942,7 @@ def find_historian() -> Historian:
     if (workflow := historian_context.get()) is not None:
         return workflow
 
+    # TODO: we might not need this code
     outer_frame = inspect.currentframe()
     is_workflow = False
     while not is_workflow:

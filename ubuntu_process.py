@@ -5,14 +5,23 @@ import time
 import platform
 import random
 
-def get_subprocess(is_fresh=False, skip_own_gpid=False):
+printing = False
+
+def get_subprocess(is_fresh=False):
+    global printing
     if(is_fresh): # delete json files after a full clean run
-        p = subprocess.Popen([sys.executable, "./main.py", "--no-delete", "--no-print"])
-    elif skip_own_gpid:
-        subprocess.Popen([sys.executable, "./main.py", "--no-print"])
+        if printing: 
+            p = subprocess.Popen([sys.executable, "./main.py", "--no-delete"])
+        else: 
+            p = subprocess.Popen([sys.executable, "./main.py", "--no-delete", "--no-print"])
     else:
-        p = subprocess.Popen([sys.executable, "./main.py", "--no-print"])
-    time.sleep(random.randint(1, 8) % 4)
+        if printing:
+            p = subprocess.Popen([sys.executable, "./main.py"])
+        else:
+            p = subprocess.Popen([sys.executable, "./main.py", "--no-print"])
+    wait = random.randint(1, 6) / 4
+    print(f'waiting {wait}')
+    time.sleep(wait)
     return p
 
 def check_full_run():
@@ -20,15 +29,17 @@ def check_full_run():
     q = get_subprocess(is_fresh=True)
     q.wait()
     print(q.returncode)
-    # assert q.returncode == 0
+    assert q.returncode == 0
 
 def run_test(args: list[str]):
     if "Windows" in platform.platform():
         print("This  file must be run on a non-windows platform")
         return
     
+    global printing
     all = False
     if "--all" in args: all = True
+    if "--print" in args: printing = True
 
     if all or "--term" in args:
         print("--------Termination Test--------")
