@@ -13,18 +13,19 @@ signal_defaults = {}
 
 def custom_signal_handler(signal_num, frame):
 # def custom_signal_handler():
-        print("\nhandler entered")
-        old_mask = signal.pthread_sigmask(signal.SIG_BLOCK, guarded_signals)
-        print("manager exiting...")
+        # print("\nhandler entered")
+        # old_mask = signal.pthread_sigmask(signal.SIG_BLOCK, guarded_signals)
+        # print("manager exiting...")
 
-        def how_to_exit():
-            print("...done")
-            signal.pthread_sigmask(signal.SIG_SETMASK, old_mask)
-            restore_default_signal_handlers()
-            signal.raise_signal(signal_num)
+        # def how_to_exit():
+        #     print("...done")
+        #     signal.pthread_sigmask(signal.SIG_SETMASK, old_mask)
+        #     restore_default_signal_handlers()
+        #     signal.raise_signal(signal_num)
 
-        manager: WorkflowManager = manager_context.get('manager')
-        if manager is not None: manager._exit_gracefully(how_to_exit)
+        # manager: WorkflowManager = manager_context.get('manager')
+        # if manager is not None: manager._exit_gracefully(how_to_exit)
+        exit(1) 
 
 def loop_signal_handler(*args):
     # asyncio.get_running_loop().call_soon() # USEFUL!
@@ -32,6 +33,8 @@ def loop_signal_handler(*args):
     # if manager is not None:
         # def how_to_exit():
         #     exit(77)
+
+        # TODO: lookup and use the asyncio debug stuff so you can see everything that is inside
         
         # asyncio.get_running_loop().call_soon(manager._exit_gracefully, manager, how_to_exit)
 
@@ -154,6 +157,7 @@ class WorkflowManager:
     async def send_event(self, workflow_id: str, name: str, identity, action, *args, **kwargs):
         workflow_task = self._workflow_tasks[workflow_id]
 
+        # TODO: asking to send an event to a finished task should throw an error
         result = False
         if not workflow_task.done():
             result = await self._get_workflow(workflow_id).record_external_event(name, identity, action, *args, **kwargs)
