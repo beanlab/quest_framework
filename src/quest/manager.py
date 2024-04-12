@@ -19,7 +19,7 @@ guarded_signals: list[signal.signal] = [signal.SIGINT, signal.SIGABRT, signal.SI
 def loop_signal_handler(*args):
     exit(1)
 
-def set_up_signal_handlers(self):
+def set_up_signal_handlers():
     loop = asyncio.get_running_loop()
     for sig in guarded_signals:
         loop.add_signal_handler(sig, loop_signal_handler)

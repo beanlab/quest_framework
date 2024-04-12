@@ -13,7 +13,9 @@ def get_subprocess(is_fresh=False, skip_own_gpid=False):
         p = subprocess.Popen("python ./main.py")
     else:
         p = subprocess.Popen("python ./main.py", creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
-    time.sleep(1.5)
+    wait = random.randint(1, 6) / 4
+    print(f'waiting {wait}')
+    time.sleep(wait)
     return p
 
 def check_fresh_run():
