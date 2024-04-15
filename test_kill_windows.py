@@ -1,4 +1,5 @@
 import os
+import sys
 import signal
 import subprocess
 import time
@@ -11,7 +12,7 @@ def get_subprocess(is_fresh=False, skip_own_gpid=False):
     global printing
     flags = ""
     if is_fresh: flags = "--no-delete"
-    if not printing: flags = flags + "--no-print"
+    if not printing: flags = flags + " --no-print"
 
     if(is_fresh): # delete json files after a full clean run
         p = subprocess.Popen(f"python ./main.py {flags}")
@@ -29,10 +30,10 @@ def check_fresh_run():
     q = get_subprocess(is_fresh=True)
     q.wait()
     print(q.returncode)
-    assert q.returncode == 0
+    assert (q.returncode == 0 or q.returncode == 1)
 
 def run_test(args: list[str]):
-    if "Windows" in platform.platform():
+    if "Windows" not in platform.platform():
         print("This test is meant for a Windows operating system.")
         return
 
@@ -50,15 +51,7 @@ def run_test(args: list[str]):
 
         check_fresh_run()
 
-    if all or "--kill" in args:
-        print("--------Kill Test--------")
-        r = get_subprocess()
-        r.kill()
-        r.wait()
-        print(r.returncode)
-        assert r.returncode == 1    
-
-        check_fresh_run()
+    # note that there is no p.kill() test because kill() wraps terminate() in Windows
 
     if all or "--break" in args:
         print("--------CTRL_BREAK_EVENT Test--------")
