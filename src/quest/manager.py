@@ -1,5 +1,6 @@
 import asyncio
 import signal
+import platform
 from typing import Protocol, Callable
 from contextvars import ContextVar
 
@@ -13,6 +14,7 @@ class HistoryFactory(Protocol):
 class WorkflowFactory(Protocol):
     def __call__(self, workflow_type: str) -> Callable: ...
 
+implements_signals = True
 manager_context = ContextVar('manager'); manager_context.set(None)
 guarded_signals: list[signal.signal] = [signal.SIGINT, signal.SIGABRT, signal.SIGTERM]
 
@@ -20,14 +22,18 @@ def loop_signal_handler(*args):
     exit(1)
 
 def set_up_signal_handlers():
-    loop = asyncio.get_running_loop()
-    for sig in guarded_signals:
-        loop.add_signal_handler(sig, loop_signal_handler)
+    global implements_signals
+    if implements_signals:
+        loop = asyncio.get_running_loop()
+        for sig in guarded_signals:
+            loop.add_signal_handler(sig, loop_signal_handler)
 
 def restore_default_signal_handlers():
-    loop = asyncio.get_running_loop()
-    for sig in guarded_signals:
-        loop.remove_signal_handler(sig)
+    global implements_signals
+    if implements_signals:
+        loop = asyncio.get_running_loop()
+        for sig in guarded_signals:
+            loop.remove_signal_handler(sig)
 
 class WorkflowManager:
     """
@@ -44,6 +50,9 @@ class WorkflowManager:
         self._workflow_data = {}
         self._workflows: dict[str, Historian] = {}
         self._workflow_tasks: dict[str, asyncio.Task] = {}
+        if "Windows" in platform.platform():
+            global implements_signals
+            implements_signals = False
                 
     async def __aenter__(self):
         """Load the workflows and get them running again"""
