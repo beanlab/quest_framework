@@ -3,16 +3,22 @@ import signal
 import subprocess
 import time
 import platform
+import random
 
 printing = False
 
 def get_subprocess(is_fresh=False, skip_own_gpid=False):
+    global printing
+    flags = ""
+    if is_fresh: flags = "--no-delete"
+    if not printing: flags = flags + "--no-print"
+
     if(is_fresh): # delete json files after a full clean run
-        p = subprocess.Popen("python ./main.py --no-delete")
+        p = subprocess.Popen(f"python ./main.py {flags}")
     elif skip_own_gpid:
-        p = subprocess.Popen("python ./main.py")
+        p = subprocess.Popen(f"python ./main.py {flags}")
     else:
-        p = subprocess.Popen("python ./main.py", creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+        p = subprocess.Popen(f"python ./main.py {flags}", creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
     wait = random.randint(1, 6) / 4
     print(f'waiting {wait}')
     time.sleep(wait)

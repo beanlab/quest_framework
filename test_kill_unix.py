@@ -47,7 +47,7 @@ def run_test(args: list[str]):
         p.terminate()
         p.wait()
         print(p.returncode)
-        # assert p.returncode == 1
+        assert p.returncode != 0
 
         check_full_run()
 
@@ -57,7 +57,7 @@ def run_test(args: list[str]):
         r.kill()
         r.wait()
         print(r.returncode)
-        # assert r.returncode == 1    
+        assert p.returncode != 0
 
         check_full_run()
 
@@ -66,7 +66,7 @@ def run_test(args: list[str]):
         p = get_subprocess()
         p.send_signal(signal.SIGINT)
         p.wait()
-        # assert p.returncode == 1
+        assert p.returncode != 0
 
         check_full_run()
 
@@ -75,7 +75,7 @@ def run_test(args: list[str]):
         p = get_subprocess()
         p.send_signal(signal.SIGABRT)
         p.wait()
-        # assert p.returncode == 1
+        assert p.returncode != 0
 
         check_full_run()
 

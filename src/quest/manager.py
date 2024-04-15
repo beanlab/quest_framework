@@ -14,8 +14,8 @@ class HistoryFactory(Protocol):
 class WorkflowFactory(Protocol):
     def __call__(self, workflow_type: str) -> Callable: ...
 
-implements_signals = True
 manager_context = ContextVar('manager'); manager_context.set(None)
+implements_signals = True
 guarded_signals: list[signal.signal] = [signal.SIGINT, signal.SIGABRT, signal.SIGTERM]
 
 def loop_signal_handler(*args):
