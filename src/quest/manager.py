@@ -19,6 +19,7 @@ implements_signals = True
 guarded_signals: list[signal.signal] = [signal.SIGINT, signal.SIGABRT, signal.SIGTERM]
 
 def loop_signal_handler(*args):
+    print("handler")
     exit(1)
 
 def set_up_signal_handlers():
