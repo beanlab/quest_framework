@@ -12,14 +12,14 @@ def get_subprocess(is_fresh=False):
     global printing
     if(is_fresh): # delete json files after a full clean run
         if printing: 
-            p = subprocess.Popen([sys.executable, "./main.py", "--no-delete"])
+            p = subprocess.Popen([sys.executable, "./main.py"])
         else: 
-            p = subprocess.Popen([sys.executable, "./main.py", "--no-delete", "--no-print"])
+            p = subprocess.Popen([sys.executable, "./main.py", "--no-print"])
     else:
         if printing:
-            p = subprocess.Popen([sys.executable, "./main.py"])
+            p = subprocess.Popen([sys.executable, "./main.py", "--restart"])
         else:
-            p = subprocess.Popen([sys.executable, "./main.py", "--no-print"])
+            p = subprocess.Popen([sys.executable, "./main.py", "--restart", "--no-print"])
     wait = random.randint(1, 6) / 4
     print(f'waiting {wait}')
     time.sleep(wait)

@@ -23,9 +23,7 @@ async def make_guess(manager: WorkflowManager, workflow_id: str, the_guess: int|
 async def main(args):
     saved_state = Path('saved-state-main.py')
 
-    if "--no-delete" in args:
-        pass
-    else:
+    if "--restart" in args:
         # Remove data
         shutil.rmtree(saved_state, ignore_errors=True)
         print("Json files deleted")

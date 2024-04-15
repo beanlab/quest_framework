@@ -12,7 +12,7 @@ printing = False
 def get_subprocess(is_fresh=False, skip_own_gpid=False):
     global printing
     flags = ""
-    if is_fresh: flags = "--no-delete"
+    if not is_fresh: flags = "--restart"
     if not printing: flags = flags + " --no-print"
 
     if(is_fresh): # delete json files after a full clean run
