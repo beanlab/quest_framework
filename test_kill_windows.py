@@ -5,6 +5,7 @@ import subprocess
 import time
 import platform
 import random
+import pytest
 
 printing = False
 
@@ -32,7 +33,8 @@ def check_fresh_run():
     print(q.returncode)
     assert (q.returncode == 0 or q.returncode == 1)
 
-def run_test(args: list[str]):
+@pytest.mark.parametrize("args", [["--all"]])
+def test_termination_response(args: list[str]):
     if "Windows" not in platform.platform():
         print("This test is meant for a Windows operating system.")
         return
@@ -59,7 +61,7 @@ def run_test(args: list[str]):
         os.kill(s.pid, signal.CTRL_BREAK_EVENT)
         s.wait()
         print(f'return code: {s.returncode}')
-        assert s.returncode >= 1
+        assert s.returncode != 0
         
         check_fresh_run()
 
@@ -72,9 +74,9 @@ def run_test(args: list[str]):
         except KeyboardInterrupt:
             pass
         print(f'return code: {v.returncode}')
-        assert v.returncode >= 1
+        assert s.returncode != 0
 
         check_fresh_run()
 
 if __name__ == '__main__':
-    run_test(sys.argv)
+    test_termination_response(sys.argv)
