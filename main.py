@@ -165,11 +165,11 @@ async def main(args):
         print(wk3.result())
         # check for WorkflowManager hanging on some unfinished task
 
-def run_main():
+def run_main(args):
     loop = asyncio.new_event_loop()
     
     try:
-        loop.run_until_complete(main(sys.argv)) 
+        loop.run_until_complete(main(args)) 
         # it looks like we never quite complete this statement
         # TODO: also, did you figure out how the get_workflow on a finished task should work?
 
@@ -181,5 +181,5 @@ def run_main():
         loop.close()
         
 if __name__ == '__main__':
-    run_main()
+    run_main(sys.argv)
     
