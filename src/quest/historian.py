@@ -180,6 +180,7 @@ class Historian:
 
         # indicator if an intentioal interrupt occurs
         self.workflow_aborted = asyncio.Event() # TODO: convert to boolean
+        self.suspending_in_process = False
 
         # Keep track of configuration position during the replay
         self._configuration_pos = 0
@@ -897,6 +898,8 @@ class Historian:
                 ))
 
     async def suspend(self):
+        if self.suspending_in_process: return
+        self.suspending_in_process = True
         logging.info(f'-- Suspending {self.workflow_id} --')
         if self.workflow_aborted.is_set(): print(f'-- Suspending {self.workflow_id} --') # TODO: remove!!!!!!
         # Cancelling these in reverse order is important
@@ -917,6 +920,7 @@ class Historian:
             except asyncio.CancelledError as cancel:
                 pass
             
+        self.suspending_in_process = False
 
     async def get_resources(self, identity):
         # Wait until the replay is done.
