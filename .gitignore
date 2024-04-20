@@ -10,4 +10,4 @@ multi-guess-game-state/
 test-state/
 saved-state-main.py/
 game-state/
-err.txt
+stderr.txt

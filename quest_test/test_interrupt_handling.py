@@ -113,9 +113,3 @@ def test_interrupt_handling(monkeypatch):
                 assert result == SUCCESSFULL_COMPLETION
                 print("PASSED\n")
                 continue
-
-def test_subproccess_recovery():
-    pass
-    # call the file, then kill it after .3 seconds
-    # check the bad return code or catch all exceptions
-    # then call the process again and ensure it exits with a return code of 0

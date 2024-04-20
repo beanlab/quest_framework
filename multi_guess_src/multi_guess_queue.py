@@ -1,6 +1,7 @@
 import random
 from src.quest import step
 from src.quest.external import state, queue
+import asyncio
 
 # This version of multi guess is only different in that it accepts queue input,
     # rather than input from the blocking console.
@@ -31,13 +32,10 @@ async def play_game(workflow_name):
         guess = await getGuess(workflow_name)
         await current_guess.set(guess)
         import time
-        time.sleep(2)
         while(guess != rNum and guess != -1):
             response = f'{workflow_name}: lower than {guess}' if guess > rNum else f'{workflow_name}: higher than {guess}'
             if printing: print(response)
-            time.sleep(2)
             guess = await getGuess(workflow_name)
-            time.sleep(2)
             await current_guess.set(guess)
 
         if(guess == -1):
