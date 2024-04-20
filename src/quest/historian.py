@@ -8,6 +8,7 @@ from datetime import datetime, UTC
 from functools import wraps
 from typing import Callable
 from .history import History
+# from .manager import WorkflowManager
 from .types import ConfigurationRecord, VersionRecord, StepStartRecord, StepEndRecord, \
     ExceptionDetails, ResourceAccessEvent, ResourceEntry, ResourceLifecycleEvent, TaskEvent
 
@@ -157,7 +158,7 @@ def get_function_name(func):
 
 
 class Historian:
-    def __init__(self, workflow_id: str, workflow: Callable, history: History):
+    def __init__(self, workflow_id: str, workflow: Callable, history: History, manager = None):
         # TODO - change nomenclature (away from workflow)? Maybe just use workflow.__name__?
         self.workflow_id = workflow_id
         self.workflow = workflow
@@ -165,6 +166,9 @@ class Historian:
 
         # These things need to be serialized
         self._history: History = history
+
+        # used the reach back up to the manager if it is provided
+        self._manager = manager
 
         # The remaining properties defined in __init__
         # are reset every time you call start_workflow
@@ -435,13 +439,14 @@ class Historian:
         logging.debug(f'Version record: {version_name} = {version}')
         self._versions[version_name] = version
 
-        self._history.append(VersionRecord(
-            type='set_version',
-            timestamp=_get_current_timestamp(),
-            step_id=version_name,
-            task_id=self._get_external_task_name(),  # the external task owns these
-            version=version
-        ))
+        if not self.workflow_aborted.is_set():
+            self._history.append(VersionRecord(
+                type='set_version',
+                timestamp=_get_current_timestamp(),
+                step_id=version_name,
+                task_id=self._get_external_task_name(),  # the external task owns these
+                version=version
+            ))
 
     def _replay_version(self, record: VersionRecord):
         logging.debug(f'{self._get_task_name()} setting version {record["step_id"]} = "{record["version"]}"')
@@ -470,7 +475,7 @@ class Historian:
                 assert record['version_name'] == version_name, str(record)
                 assert record['version'] == version, str(record)
 
-        else:
+        elif not self.workflow_aborted.is_set():
             self._history.append(VersionRecord(
                 type='after_version',
                 timestamp=_get_current_timestamp(),
@@ -478,6 +483,14 @@ class Historian:
                 task_id=self._get_task_name(),
                 version=version
             ))
+
+    async def interruption_routine(self):
+        if self._manager is not None:
+            await self._manager.suspend_all_workflows()
+        else:
+            self.workflow_aborted.set()
+            await self.suspend()
+            raise KeyboardInterrupt
 
     async def handle_step(self, func_name, func: Callable, *args, **kwargs):
         step_id = self._get_unique_id(func_name)
@@ -498,12 +511,13 @@ class Historian:
 
         if next_record is None:
             logging.debug(f'{self._get_task_name()} starting step {func_name} with {args} and {kwargs}')
-            self._history.append(StepStartRecord(
-                type='start',
-                timestamp=_get_current_timestamp(),
-                task_id=self._get_task_name(),
-                step_id=step_id
-            ))
+            if not self.workflow_aborted.is_set():
+                self._history.append(StepStartRecord(
+                    type='start',
+                    timestamp=_get_current_timestamp(),
+                    task_id=self._get_task_name(),
+                    step_id=step_id
+                ))
         
         prune_on_exit = False
 
@@ -515,14 +529,15 @@ class Historian:
                 result = await result
             logging.debug(f'{self._get_task_name()} completing step {func_name} with {result}')
 
-            self._history.append(StepEndRecord(
-                type='end',
-                timestamp=_get_current_timestamp(),
-                task_id=self._get_task_name(),
-                step_id=step_id,
-                result=result,
-                exception=None
-            ))
+            if not self.workflow_aborted.is_set():
+                self._history.append(StepEndRecord(
+                    type='end',
+                    timestamp=_get_current_timestamp(),
+                    task_id=self._get_task_name(),
+                    step_id=step_id,
+                    result=result,
+                    exception=None
+                ))
 
             prune_on_exit = True
 
@@ -532,9 +547,7 @@ class Historian:
             if cancel.args and cancel.args[0] == SUSPENDED:
                 raise asyncio.CancelledError(SUSPENDED)
             elif isinstance(cancel.__context__, KeyboardInterrupt):
-                self.workflow_aborted.set()
-                await self.suspend()
-                raise KeyboardInterrupt
+                await self.interruption_routine()
             else:
                 if not self.workflow_aborted.is_set():
                     logging.exception(f'{step_id} canceled')
@@ -554,26 +567,25 @@ class Historian:
                 raise
 
         except KeyboardInterrupt:
-            self.workflow_aborted.set()
-            await self.suspend()
-            raise KeyboardInterrupt
+            await self.interruption_routine()
 
         except Exception as ex:
             if not self.workflow_aborted.is_set():
                 logging.exception(f'Error in {step_id}')
                 prune_on_exit = True
-                self._history.append(StepEndRecord(
-                    type='end',
-                    timestamp=_get_current_timestamp(),
-                    step_id=step_id,
-                    task_id=self._get_task_name(),
-                    result=None,
-                    exception=ExceptionDetails(
-                        type=_get_type_name(ex),
-                        args=ex.args,
-                        details=traceback.format_exc()
-                    )
-                ))
+                if not self.workflow_aborted.is_set():
+                    self._history.append(StepEndRecord(
+                        type='end',
+                        timestamp=_get_current_timestamp(),
+                        step_id=step_id,
+                        task_id=self._get_task_name(),
+                        result=None,
+                        exception=ExceptionDetails(
+                            type=_get_type_name(ex),
+                            args=ex.args,
+                            details=traceback.format_exc()
+                        )
+                    ))
             raise
 
         finally:
@@ -598,17 +610,18 @@ class Historian:
         else:
             result = function(*args, **kwargs)
 
-        self._history.append(ResourceAccessEvent(
-            type='external',
-            timestamp=_get_current_timestamp(),
-            step_id=step_id,
-            task_id=self._get_task_name(),
-            resource_id=resource_id,
-            action=action,
-            args=list(args),
-            kwargs=kwargs,
-            result=result
-        ))
+        if not self.workflow_aborted.is_set():
+            self._history.append(ResourceAccessEvent(
+                type='external',
+                timestamp=_get_current_timestamp(),
+                step_id=step_id,
+                task_id=self._get_task_name(),
+                resource_id=resource_id,
+                action=action,
+                args=list(args),
+                kwargs=kwargs,
+                result=result
+            ))
 
         return result
 
@@ -640,7 +653,7 @@ class Historian:
         resource = self._resources[resource_id]['resource']
         function = getattr(resource, action)
 
-        if (next_record := await self._next_record()) is None:
+        if (next_record := await self._next_record()) is None and not self.workflow_aborted.is_set():
             self._history.append(ResourceAccessEvent(
                 type='internal_start',
                 timestamp=_get_current_timestamp(),
@@ -666,7 +679,7 @@ class Historian:
         else:
             result = function(*args, **kwargs)
 
-        if (next_record := await self._next_record()) is None:
+        if (next_record := await self._next_record()) is None and not self.workflow_aborted.is_set():
             self._history.append(ResourceAccessEvent(
                 type='internal_end',
                 timestamp=_get_current_timestamp(),
@@ -708,7 +721,7 @@ class Historian:
             resource=resource
         )
 
-        if (next_record := await self._next_record()) is None:
+        if (next_record := await self._next_record()) is None and not self.workflow_aborted.is_set():
             self._history.append(ResourceLifecycleEvent(
                 type='create_resource',
                 timestamp=_get_current_timestamp(),
@@ -736,7 +749,7 @@ class Historian:
         resource_entry = self._resources.pop(resource_id)
 
         if not suspending:
-            if (next_record := await self._next_record()) is None:
+            if (next_record := await self._next_record()) is None and not self.workflow_aborted.is_set():
                 self._history.append(ResourceLifecycleEvent(
                     type='delete_resource',
                     timestamp=_get_current_timestamp(),
@@ -760,7 +773,7 @@ class Historian:
         async def _func(*a, **kw):
             logging.debug(f'Starting task {task_id}')
 
-            if (next_record := await self._next_record()) is None:
+            if (next_record := await self._next_record()) is None and not self.workflow_aborted.is_set():
                 self._history.append(TaskEvent(
                     type='start_task',
                     timestamp=_get_current_timestamp(),
@@ -774,7 +787,7 @@ class Historian:
 
             result = await func(*a, **kw)
 
-            if (next_record := await self._next_record()) is None:
+            if (next_record := await self._next_record()) is None and not self.workflow_aborted.is_set():
                 self._history.append(TaskEvent(
                     type='complete_task',
                     timestamp=_get_current_timestamp(),
@@ -872,15 +885,16 @@ class Historian:
         for config_function, args, kwargs in self._configurations[len(config_records):]:
             logging.debug(f'Adding new configuration: {get_function_name(config_function)}(*{args}, **{kwargs}')
 
-            self._history.append(ConfigurationRecord(
-                type='configuration',
-                timestamp=_get_current_timestamp(),
-                step_id='configuration',
-                task_id=self._get_external_task_name(),  # the external task owns these
-                function_name=get_function_name(config_function),
-                args=args,
-                kwargs=kwargs
-            ))
+            if not self.workflow_aborted.is_set():
+                self._history.append(ConfigurationRecord(
+                    type='configuration',
+                    timestamp=_get_current_timestamp(),
+                    step_id='configuration',
+                    task_id=self._get_external_task_name(),  # the external task owns these
+                    function_name=get_function_name(config_function),
+                    args=args,
+                    kwargs=kwargs
+                ))
 
     async def suspend(self):
         logging.info(f'-- Suspending {self.workflow_id} --')

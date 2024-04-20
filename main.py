@@ -167,10 +167,10 @@ async def main(args):
 
 def run_main(args):
     loop = asyncio.new_event_loop()
-    
+    loop.set_debug(True)
+
     try:
         loop.run_until_complete(main(args)) 
-        # it looks like we never quite complete this statement
         # TODO: also, did you figure out how the get_workflow on a finished task should work?
 
     except (Exception, KeyboardInterrupt) as ex:

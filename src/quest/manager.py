@@ -1,5 +1,6 @@
 import asyncio
 import signal
+import sys
 import platform
 from typing import Protocol, Callable
 from contextvars import ContextVar
@@ -19,15 +20,20 @@ implements_signals = True
 guarded_signals: list[signal.signal] = [signal.SIGINT, signal.SIGABRT, signal.SIGTERM]
 
 def loop_signal_handler(*args):
-    print("handler entered. stopping loop:")
-    loop = asyncio.get_running_loop()
-    loop.stop()
     current_manager: WorkflowManager = manager_context.get()
-    async def to_call():
-        await current_manager.suspend_all_workflows()
-    loop.run_until_complete(to_call)
-    print("exiting")
-    exit(1)
+    sys.stderr.write("handling interrupt")
+    current_manager.suspend_all_workflows() # TODO this wouldn't work because it is now async
+
+# def loop_signal_handler(*args):
+    # print("handler entered. stopping loop:")
+    # loop = asyncio.get_running_loop()
+    # loop.stop()
+    # current_manager: WorkflowManager = manager_context.get()
+    # async def to_call():
+    #     await current_manager.suspend_all_workflows()
+    # loop.run_until_complete(to_call)
+    # print("exiting")
+    # exit(1)
 
 def set_up_signal_handlers():
     global implements_signals
@@ -127,9 +133,17 @@ class WorkflowManager:
         await self._get_workflow(workflow_id).suspend()
 
     async def suspend_all_workflows(self):
-        print("suspending")
+        print("manager issuing abortion signals")
+        # stops json files from being written
+        for historian in self._workflows.values():
+            historian.workflow_aborted.set()
+
+        # actually asks the historians to suspend
         for historian in self._workflows.values():
             await historian.suspend()
+
+        # only exit once all have been suspended
+        exit(1)
 
     async def get_resources(self, workflow_id: str, identity):
         return await self._get_workflow(workflow_id).get_resources(identity)
