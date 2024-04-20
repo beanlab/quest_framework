@@ -19,7 +19,14 @@ implements_signals = True
 guarded_signals: list[signal.signal] = [signal.SIGINT, signal.SIGABRT, signal.SIGTERM]
 
 def loop_signal_handler(*args):
-    print("handler")
+    print("handler entered. stopping loop:")
+    loop = asyncio.get_running_loop()
+    loop.stop()
+    current_manager: WorkflowManager = manager_context.get()
+    async def to_call():
+        await current_manager.suspend_all_workflows()
+    loop.run_until_complete(to_call)
+    print("exiting")
     exit(1)
 
 def set_up_signal_handlers():
@@ -118,6 +125,11 @@ class WorkflowManager:
 
     async def suspend_workflow(self, workflow_id: str):
         await self._get_workflow(workflow_id).suspend()
+
+    async def suspend_all_workflows(self):
+        print("suspending")
+        for historian in self._workflows.values():
+            await historian.suspend()
 
     async def get_resources(self, workflow_id: str, identity):
         return await self._get_workflow(workflow_id).get_resources(identity)

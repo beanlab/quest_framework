@@ -175,7 +175,7 @@ class Historian:
         self._fatal_exception = asyncio.Future()
 
         # indicator if an intentioal interrupt occurs
-        self.workflow_aborted = asyncio.Event()
+        self.workflow_aborted = asyncio.Event() # TODO: convert to boolean
 
         # Keep track of configuration position during the replay
         self._configuration_pos = 0
