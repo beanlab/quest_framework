@@ -32,6 +32,8 @@ class PersistentHistory(History):
         self._implements_signals = True
         if "Windows" in platform.platform():
             self._implements_signals = False
+        self._pertinent_signals = [signal.SIGABRT, signal.SIGINT, signal.SIGTERM]
+        self._old_signal_mask = None
 
         if storage.has_blob(namespace):
             self._keys = storage.read_blob(namespace)
@@ -42,10 +44,10 @@ class PersistentHistory(History):
         return self._namespace + '.' + md5((item['timestamp'] + item['step_id'] + item['type']).encode()).hexdigest()
     
     def _refuse_signals(self):
-        pass
+        self._old_signal_mask = signal.pthread_sigmask(signal.SIG_BLOCK, self._pertinent_signals)
 
     def _allow_signals(self):
-        pass
+        signal.pthread_sigmask(signal.SIG_SETMASK, self._old_signal_mask)
 
     def append(self, item: EventRecord):
         self._refuse_signals()
