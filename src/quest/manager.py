@@ -140,7 +140,9 @@ class WorkflowManager:
 
         # actually asks the historians to suspend
         for historian in self._workflows.values():
-            if not historian.suspending_in_process: await historian.suspend()
+            if not historian.suspending_in_process:
+                print(f"suspending {historian.workflow_id}")
+                await historian.suspend()
 
         # only exit once all have been suspended
         exit(1)

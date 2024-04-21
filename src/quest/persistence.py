@@ -4,6 +4,8 @@ from hashlib import md5
 from pathlib import Path
 from typing import Protocol, Union
 import copy
+import platform
+import signal
 
 from .history import History
 from .types import EventRecord
@@ -25,13 +27,11 @@ class PersistentHistory(History):
     def __init__(self, namespace: str, storage: BlobStorage):
         self._namespace = namespace
         self._storage = storage
-        # TODO - use linked list instead of array list
-        # master stores head/tail keys
-        # each blob is item, prev, next
-        # only need to modify blobs for altered nodes
-        # on add/delete, and rarely change master head/tail blob
         self._items = []
         self._keys: list[str] = []
+        self._implements_signals = True
+        if "Windows" in platform.platform():
+            self._implements_signals = False
 
         if storage.has_blob(namespace):
             self._keys = storage.read_blob(namespace)
@@ -40,18 +40,30 @@ class PersistentHistory(History):
 
     def _get_key(self, item: EventRecord) -> str:
         return self._namespace + '.' + md5((item['timestamp'] + item['step_id'] + item['type']).encode()).hexdigest()
+    
+    def _refuse_signals(self):
+        pass
+
+    def _allow_signals(self):
+        pass
 
     def append(self, item: EventRecord):
+        self._refuse_signals()
         self._items.append(item)
         self._keys.append(key := self._get_key(item))
-        self._storage.write_blob(key, item)
+        # writing the keys first is important. It doesn't cause an error to have an extra file, but no key to it,
+            # but it is a problem if we have a key entry to a file that doesn't exist
         self._storage.write_blob(self._namespace, self._keys)
+        self._storage.write_blob(key, item)
+        self._allow_signals()
 
     def remove(self, item: EventRecord):
+        self._refuse_signals()
         self._items.remove(item)
         self._keys.remove(key := self._get_key(item))
-        self._storage.delete_blob(key)
         self._storage.write_blob(self._namespace, self._keys)
+        self._storage.delete_blob(key)
+        self._allow_signals()
 
     def __iter__(self):
         return iter(self._items)

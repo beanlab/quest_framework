@@ -31,7 +31,6 @@ async def play_game(workflow_name):
     async with state('valid-guess', None, rNum), state('current-guess', None, None) as current_guess:
         guess = await getGuess(workflow_name)
         await current_guess.set(guess)
-        import time
         while(guess != rNum and guess != -1):
             response = f'{workflow_name}: lower than {guess}' if guess > rNum else f'{workflow_name}: higher than {guess}'
             if printing: print(response)
