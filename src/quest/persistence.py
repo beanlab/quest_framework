@@ -16,6 +16,7 @@ from .types import EventRecord
 Blob = Union[dict, list, str, int, bool, float]
 
 explode = True
+explode_on = 50
 
 class BlobStorage(Protocol):
     def write_blob(self, key: str, blob: Blob): ...
@@ -64,8 +65,8 @@ class PersistentHistory(History):
         self._storage.write_blob(self._namespace, self._keys)
 
         self._temp_counter += 1
-        global explode
-        if "--no-destruct" not in sys.argv and self._temp_counter > 50 and explode:
+        global explode, explode_on
+        if "--no-destruct" not in sys.argv and self._temp_counter > explode_on and explode:
             explode = False
             logging.debug("persistence is exploding")
             signal.pthread_kill(get_ident(), signal.SIGINT)
@@ -80,8 +81,8 @@ class PersistentHistory(History):
         self._storage.write_blob(self._namespace, self._keys)
 
         self._temp_counter += 1
-        global explode
-        if "--no-destruct" not in sys.argv and self._temp_counter > 50 and explode:
+        global explode, explode_on
+        if "--no-destruct" not in sys.argv and self._temp_counter > explode_on and explode:
             explode = False
             logging.debug("persistence is exploding")
             signal.pthread_kill(get_ident(), signal.SIGINT)

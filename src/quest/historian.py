@@ -548,6 +548,7 @@ class Historian:
             if cancel.args and cancel.args[0] == SUSPENDED:
                 raise asyncio.CancelledError(SUSPENDED)
             elif isinstance(cancel.__context__, KeyboardInterrupt):
+                # raise asyncio.CancelledError(SUSPENDED)
                 await self.interruption_routine()
             else:
                 if not self.workflow_aborted.is_set():
@@ -569,6 +570,7 @@ class Historian:
 
         except KeyboardInterrupt:
            await self.interruption_routine()
+            # raise asyncio.CancelledError(SUSPENDED)
 
         except Exception as ex:
             if not self.workflow_aborted.is_set():
