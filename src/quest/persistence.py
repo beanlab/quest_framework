@@ -129,6 +129,38 @@ class LinkedPersistentHistory(History):
             yield node.item
             node = node.prev
 
+class DictPersistentHistory(History):
+    def __init__(self, namespace: str, storage):
+        self._namespace = namespace
+        self._storage = storage
+        self._data = {}
+
+        if storage.has_blob(namespace):
+            keys = storage.read_blob(namespace)
+            for key in keys:
+                self._data[key] = storage.read_blob(key)
+
+    def _get_key(self, item) -> str:
+        return self._namespace + '.' + md5((item['timestamp'] + item['step_id'] + item['type']).encode()).hexdigest()
+
+    def append(self, item):
+        key = self._get_key(item)
+        self._data[key] = item
+        self._storage.write_blob(key, item)
+        self._storage.write_blob(self._namespace, self._data.keys())
+
+    def remove(self, item):
+        key = self._get_key(item)
+        del self._data[key]
+        self._storage.delete_blob(key)
+        self._storage.write_blob(self._namespace, self._data.keys())
+
+    def __iter__(self):
+        return iter(self._data.values())
+
+    def __reversed__(self):
+        return reversed(self._data.values())
+
 class LocalFileSystemBlobStorage(BlobStorage):
     def __init__(self, root_folder: Path):
         root_folder.mkdir(parents=True, exist_ok=True)
