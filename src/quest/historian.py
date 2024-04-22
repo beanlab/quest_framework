@@ -486,10 +486,10 @@ class Historian:
             ))
 
     async def interruption_routine(self):
+        self.workflow_aborted.set()
         if self._manager is not None:
             await self._manager.suspend_all_workflows()
         else:
-            self.workflow_aborted.set()
             await self.suspend()
             raise KeyboardInterrupt
 
@@ -568,7 +568,7 @@ class Historian:
                 raise
 
         except KeyboardInterrupt:
-            await self.interruption_routine()
+           await self.interruption_routine()
 
         except Exception as ex:
             if not self.workflow_aborted.is_set():
@@ -750,7 +750,7 @@ class Historian:
         resource_entry = self._resources.pop(resource_id)
 
         if not suspending:
-            if (next_record := await self._next_record()) is None and not self.workflow_aborted.is_set():
+            if (next_record := await self._next_record()) is None and not self.workflow_aborted.is_set(): 
                 self._history.append(ResourceLifecycleEvent(
                     type='delete_resource',
                     timestamp=_get_current_timestamp(),
@@ -901,7 +901,6 @@ class Historian:
         if self.suspending_in_process: return
         self.suspending_in_process = True
         logging.info(f'-- Suspending {self.workflow_id} --')
-        if self.workflow_aborted.is_set(): print(f'-- Suspending {self.workflow_id} --') # TODO: remove!!!!!!
         # Cancelling these in reverse order is important
         # If a parent thread cancels, it will cancel a child.
         # We want to be the one that cancels every task,

@@ -6,12 +6,16 @@ from typing import Protocol, Union
 import copy
 import platform
 import signal
+from threading import get_ident
+import sys
+import logging
 
 from .history import History
 from .types import EventRecord
 
 Blob = Union[dict, list, str, int, bool, float]
 
+explode = True
 
 class BlobStorage(Protocol):
     def write_blob(self, key: str, blob: Blob): ...
@@ -25,6 +29,8 @@ class BlobStorage(Protocol):
 
 class PersistentHistory(History):
     def __init__(self, namespace: str, storage: BlobStorage):
+        self._temp_counter = 0;
+
         self._namespace = namespace
         self._storage = storage
         self._items = []
@@ -56,6 +62,14 @@ class PersistentHistory(History):
         # writing the keys first is important. It doesn't cause an error to have an extra file, but no key to it,
             # but it is a problem if we have a key entry to a file that doesn't exist
         self._storage.write_blob(self._namespace, self._keys)
+
+        self._temp_counter += 1
+        global explode
+        if "--no-destruct" not in sys.argv and self._temp_counter > 50 and explode:
+            explode = False
+            logging.debug("persistence is exploding")
+            signal.pthread_kill(get_ident(), signal.SIGINT)
+
         self._storage.write_blob(key, item)
         self._allow_signals()
 
@@ -64,6 +78,14 @@ class PersistentHistory(History):
         self._items.remove(item)
         self._keys.remove(key := self._get_key(item))
         self._storage.write_blob(self._namespace, self._keys)
+
+        self._temp_counter += 1
+        global explode
+        if "--no-destruct" not in sys.argv and self._temp_counter > 50 and explode:
+            explode = False
+            logging.debug("persistence is exploding")
+            signal.pthread_kill(get_ident(), signal.SIGINT)
+
         self._storage.delete_blob(key)
         self._allow_signals()
 

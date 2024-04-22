@@ -19,21 +19,14 @@ manager_context = ContextVar('manager'); manager_context.set(None)
 implements_signals = True
 guarded_signals: list[signal.signal] = [signal.SIGINT, signal.SIGABRT, signal.SIGTERM]
 
-def loop_signal_handler(*args):
-    current_manager: WorkflowManager = manager_context.get()
-    sys.stderr.write("handling interrupt")
-    current_manager.suspend_all_workflows() # TODO this wouldn't work because it is now async
+kill_count = 0
+persistence_abort = False
 
-# def loop_signal_handler(*args):
-    # print("handler entered. stopping loop:")
-    # loop = asyncio.get_running_loop()
-    # loop.stop()
+def loop_signal_handler(*args):
+    exit(1)
     # current_manager: WorkflowManager = manager_context.get()
-    # async def to_call():
-    #     await current_manager.suspend_all_workflows()
-    # loop.run_until_complete(to_call)
-    # print("exiting")
-    # exit(1)
+    # sys.stderr.write("handling interrupt")
+    # current_manager.suspend_all_workflows() # TODO this wouldn't work because it is now async
 
 def set_up_signal_handlers():
     global implements_signals
@@ -71,7 +64,7 @@ class WorkflowManager:
     async def __aenter__(self):
         """Load the workflows and get them running again"""
         manager_context.set(self)
-        set_up_signal_handlers()
+        # set_up_signal_handlers()
         if self._storage.has_blob(self._namespace):
             self._workflow_data = self._storage.read_blob(self._namespace)
 
@@ -135,8 +128,8 @@ class WorkflowManager:
     async def suspend_all_workflows(self):
         print("manager issuing abortion signals")
         # stops json files from being written
-        for historian in self._workflows.values():
-            historian.workflow_aborted.set()
+        # for historian in self._workflows.values():
+        #     historian.workflow_aborted.set()
 
         # actually asks the historians to suspend
         for historian in self._workflows.values():

@@ -1,12 +1,17 @@
 import asyncio
 from pathlib import Path
 import shutil
+import sys
+import logging
 
 from src.quest import PersistentHistory
 from src.quest.manager import WorkflowManager
 from src.quest.persistence import LocalFileSystemBlobStorage
 
 from multi_guess_src.multi_guess_terminal import game_loop
+
+sys.stderr = open("stderr3.txt", "w")
+logging.basicConfig(level=logging.DEBUG)
 
 def usage():
     print("\nUSAGE:")

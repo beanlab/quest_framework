@@ -1,4 +1,6 @@
 import random
+import signal
+from threading import get_ident
 from src.quest import step
 
 # This program is a nice way to test out the functionality of quest, especially when resuming from something like a Keyboard Interrupt,
@@ -18,6 +20,7 @@ from src.quest import step
 async def getGuess():
     print("Enter your guess:")
     guess = input()
+    if int(guess) == 77: signal.pthread_kill(get_ident(), signal.SIGINT)
     if(guess == "q"):
         return -1
     return int(guess)

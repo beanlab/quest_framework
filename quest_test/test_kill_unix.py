@@ -4,7 +4,7 @@ import subprocess
 import time
 import platform
 import random
-import pytest
+# import pytest
 
 printing = False
 
@@ -32,7 +32,7 @@ def check_full_run():
     print(q.returncode)
     assert (q.returncode == 0 or q.returncode == 1)
 
-@pytest.mark.parametrize("args", [["--all"]])
+# @pytest.mark.parametrize("args", [["--all"]])
 def test_termination_response(args: list[str]):
     if "Windows" in platform.platform():
         print("This  file must be run on a non-windows platform")
