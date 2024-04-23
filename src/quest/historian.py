@@ -8,7 +8,6 @@ from datetime import datetime, UTC
 from functools import wraps
 from typing import Callable
 from .history import History
-# from .manager import WorkflowManager
 from .types import ConfigurationRecord, VersionRecord, StepStartRecord, StepEndRecord, \
     ExceptionDetails, ResourceAccessEvent, ResourceEntry, ResourceLifecycleEvent, TaskEvent
 
@@ -158,7 +157,7 @@ def get_function_name(func):
 
 
 class Historian:
-    def __init__(self, workflow_id: str, workflow: Callable, history: History, manager = None):
+    def __init__(self, workflow_id: str, workflow: Callable, history: History, abort_callback: Callable = None):
         # TODO - change nomenclature (away from workflow)? Maybe just use workflow.__name__?
         self.workflow_id = workflow_id
         self.workflow = workflow
@@ -167,8 +166,8 @@ class Historian:
         # These things need to be serialized
         self._history: History = history
 
-        # used the reach back up to the manager if it is provided
-        self._manager = manager
+        # function to call when a Keyboard Interrupt is received. Typically something from the Workflow Manager
+        self.call_on_abort: Callable = abort_callback
 
         # The remaining properties defined in __init__
         # are reset every time you call start_workflow
@@ -486,9 +485,10 @@ class Historian:
             ))
 
     async def interruption_routine(self):
-        self.workflow_aborted.set()
-        if self._manager is not None:
-            await self._manager.suspend_all_workflows()
+        if self.call_on_abort is not None:
+            result = self.call_on_abort()
+            if hasattr(result, '__await__'):
+                await result
         else:
             await self.suspend()
             raise KeyboardInterrupt
@@ -546,9 +546,10 @@ class Historian:
 
         except asyncio.CancelledError as cancel:
             if cancel.args and cancel.args[0] == SUSPENDED:
+                self.workflow_aborted.set()
                 raise asyncio.CancelledError(SUSPENDED)
             elif isinstance(cancel.__context__, KeyboardInterrupt):
-                # raise asyncio.CancelledError(SUSPENDED)
+                self.workflow_aborted.set()
                 await self.interruption_routine()
             else:
                 if not self.workflow_aborted.is_set():
@@ -569,6 +570,7 @@ class Historian:
                 raise
 
         except KeyboardInterrupt:
+           self.workflow_aborted.set()
            await self.interruption_routine()
             # raise asyncio.CancelledError(SUSPENDED)
 
@@ -592,10 +594,11 @@ class Historian:
             raise
 
         finally:
-            if prune_on_exit and not self.workflow_aborted.is_set():
-                _prune(step_id, self._history)  
-            if len(self._prefix[self._get_task_name()]) > 0:
-                self._prefix[self._get_task_name()].pop(-1)
+            if not self.workflow_aborted.is_set():
+                if prune_on_exit:
+                    _prune(step_id, self._history)  
+                if len(self._prefix[self._get_task_name()]) > 0:
+                    self._prefix[self._get_task_name()].pop(-1)
 
     async def record_external_event(self, name, identity, action, *args, **kwargs):
         """
@@ -742,6 +745,9 @@ class Historian:
         return resource_id
 
     async def delete_resource(self, name, identity, suspending=False):
+        # TESTING
+        suspending = self.workflow_aborted.is_set()
+
         resource_id = _create_resource_id(name, identity)
         if resource_id not in self._resources:
             raise Exception(f'No resource for {identity} named {name} found')

@@ -96,7 +96,7 @@ class WorkflowManager:
         workflow_function = self._create_workflow(workflow_type)
 
         history = self._create_history(workflow_id)
-        historian: Historian = Historian(workflow_id, workflow_function, history, manager=self)
+        historian: Historian = Historian(workflow_id, workflow_function, history, abort_callback=self.suspend_all_workflows)
         self._workflows[workflow_id] = historian
 
         self._workflow_tasks[workflow_id] = (task := historian.run(*workflow_args, **workflow_kwargs))
@@ -127,9 +127,6 @@ class WorkflowManager:
 
     async def suspend_all_workflows(self):
         print("manager issuing abortion signals")
-        # stops json files from being written
-        # for historian in self._workflows.values():
-        #     historian.workflow_aborted.set()
 
         # actually asks the historians to suspend
         for historian in self._workflows.values():
