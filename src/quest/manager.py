@@ -81,7 +81,7 @@ class WorkflowManager:
         for wid, historian in self._workflows.items():
             await historian.suspend()
 
-        restore_default_signal_handlers()
+        # restore_default_signal_handlers()
         manager_context.set(None)
 
     def _get_workflow(self, workflow_id: str):

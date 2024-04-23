@@ -7,11 +7,11 @@ import logging
 from multi_guess_src.multi_guess_queue import game_loop
 from src.quest import create_filesystem_manager
 
-sys.stderr = open("2stderr.txt", "w") # make sure you add this to your .gitignore file
+sys.stderr = open("2bstderr.txt", "w") # make sure you add this to your .gitignore file
 logging.basicConfig(level=logging.DEBUG)
 
 async def main(args):
-    saved_state = Path('saved-state-main2.py')
+    saved_state = Path('saved-state-main2b.py')
 
     if "--restart" in args:
         # Remove data

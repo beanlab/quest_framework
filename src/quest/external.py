@@ -75,6 +75,7 @@ class ExternalResource(Generic[T]):
         if exc_type is not KeyboardInterrupt:
             await self._historian.delete_resource(self._name, self._identity, suspending=suspending)
         else:
+            print(f"from {self}:")
             print("exception was of type KeyboardInterrupt")
 
 
