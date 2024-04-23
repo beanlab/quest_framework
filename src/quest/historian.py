@@ -487,6 +487,7 @@ class Historian:
             ))
 
     async def interruption_routine(self):
+        self.workflow_aborted.set()
         if self.call_on_abort is not None:
             result = self.call_on_abort()
             if hasattr(result, '__await__'):
@@ -513,8 +514,8 @@ class Historian:
                     assert record['type'] == 'start'
 
         if next_record is None:
-            logging.debug(f'{self._get_task_name()} starting step {func_name} with {args} and {kwargs}')
             if not self.workflow_aborted.is_set():
+                logging.debug(f'{self._get_task_name()} starting step {func_name} with {args} and {kwargs}')
                 self._history.append(StepStartRecord(
                     type='start',
                     timestamp=_get_current_timestamp(),
@@ -551,7 +552,6 @@ class Historian:
                 self.workflow_aborted.set()
                 raise asyncio.CancelledError(SUSPENDED)
             elif isinstance(cancel.__context__, KeyboardInterrupt):
-                self.workflow_aborted.set()
                 await self.interruption_routine()
             else:
                 if not self.workflow_aborted.is_set():
@@ -572,7 +572,6 @@ class Historian:
                 raise
 
         except KeyboardInterrupt:
-           self.workflow_aborted.set()
            await self.interruption_routine()
 
         except Exception as ex:

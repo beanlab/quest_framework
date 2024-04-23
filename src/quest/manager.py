@@ -15,34 +15,6 @@ class HistoryFactory(Protocol):
 class WorkflowFactory(Protocol):
     def __call__(self, workflow_type: str) -> Callable: ...
 
-manager_context = ContextVar('manager'); manager_context.set(None)
-implements_signals = True
-guarded_signals: list[signal.signal] = [signal.SIGINT, signal.SIGABRT, signal.SIGTERM]
-
-kill_count = 0
-persistence_abort = False
-
-def loop_signal_handler(*args):
-    # current_manager = manager_context.get()
-    # for historian in current_manager._workflows.values():
-    #     historian.workflow_aborted.set()
-    exit(1)
-    
-
-def set_up_signal_handlers():
-    global implements_signals
-    if implements_signals:
-        loop = asyncio.get_running_loop()
-        for sig in guarded_signals:
-            loop.add_signal_handler(sig, loop_signal_handler)
-
-def restore_default_signal_handlers():
-    global implements_signals
-    if implements_signals:
-        loop = asyncio.get_running_loop()
-        for sig in guarded_signals:
-            loop.remove_signal_handler(sig)
-
 class WorkflowManager:
     """
     Runs workflow tasks
@@ -58,14 +30,9 @@ class WorkflowManager:
         self._workflow_data = {}
         self._workflows: dict[str, Historian] = {}
         self._workflow_tasks: dict[str, asyncio.Task] = {}
-        if "Windows" in platform.platform():
-            global implements_signals
-            implements_signals = False
                 
     async def __aenter__(self):
         """Load the workflows and get them running again"""
-        manager_context.set(self)
-        # set_up_signal_handlers()
         if self._storage.has_blob(self._namespace):
             self._workflow_data = self._storage.read_blob(self._namespace)
 
@@ -76,13 +43,9 @@ class WorkflowManager:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Save whatever state is necessary before exiting"""
-        # TODO: this is a difference between SIGKILL and SIGINT, but I don't think it's an actual issue
         self._storage.write_blob(self._namespace, self._workflow_data)
         for wid, historian in self._workflows.items():
             await historian.suspend()
-
-        # restore_default_signal_handlers()
-        manager_context.set(None)
 
     def _get_workflow(self, workflow_id: str):
         return self._workflows[workflow_id]  # TODO check for key, throw error
@@ -98,7 +61,7 @@ class WorkflowManager:
         workflow_function = self._create_workflow(workflow_type)
 
         history = self._create_history(workflow_id)
-        historian: Historian = Historian(workflow_id, workflow_function, history, abort_callback=self.suspend_all_workflows)
+        historian: Historian = Historian(workflow_id, workflow_function, history, abort_callback=self._suspend_all_workflows_and_exit)
         self._workflows[workflow_id] = historian
 
         self._workflow_tasks[workflow_id] = (task := historian.run(*workflow_args, **workflow_kwargs))
@@ -127,16 +90,12 @@ class WorkflowManager:
     async def suspend_workflow(self, workflow_id: str):
         await self._get_workflow(workflow_id).suspend()
 
-    async def suspend_all_workflows(self):
-        print("manager issuing abortion signals")
-
-        # actually asks the historians to suspend
+    async def _suspend_all_workflows_and_exit(self):
         for historian in self._workflows.values():
             if not historian.suspending_in_process:
                 print(f"suspending {historian.workflow_id}")
                 await historian.suspend()
 
-        # only exit once all have been suspended
         exit(1)
 
     async def get_resources(self, workflow_id: str, identity):

@@ -4,10 +4,6 @@ from hashlib import md5
 from pathlib import Path
 from typing import Protocol, Union
 import copy
-import signal
-from threading import get_ident
-import sys
-import logging
 
 from .history import History
 from .types import EventRecord
@@ -51,15 +47,15 @@ class PersistentHistory(History):
             self._keys.append(key := self._get_key(item))
             # writing the keys first is important. It doesn't cause an error to have an extra file, but no key to it,
                 # but it is a problem if we have a key entry to a file that doesn't exist
-            self._storage.write_blob(self._namespace, self._keys)
             self._storage.write_blob(key, item)
+            self._storage.write_blob(self._namespace, self._keys)
 
     def remove(self, item: EventRecord):
         with Protection():
             self._items.remove(item)
             self._keys.remove(key := self._get_key(item))
-            self._storage.write_blob(self._namespace, self._keys)
             self._storage.delete_blob(key)
+            self._storage.write_blob(self._namespace, self._keys)
 
     def __iter__(self):
         return iter(self._items)

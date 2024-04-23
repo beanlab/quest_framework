@@ -9,8 +9,9 @@ class Protection():
         if "Windows" in platform():
             self._implements_signals = False
 
-        self._pertinent_signals = [signal.SIGABRT, signal.SIGINT, signal.SIGTERM]
-        self._old_signal_mask = None
+        if self._implements_signals:
+            self._pertinent_signals = [signal.SIGABRT, signal.SIGINT, signal.SIGTERM]
+            self._old_signal_mask = None
 
     def __enter__(self):
         if self._implements_signals:
