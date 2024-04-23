@@ -54,36 +54,12 @@ class PersistentHistory(History):
             self._storage.write_blob(self._namespace, self._keys)
             self._storage.write_blob(key, item)
 
-            # BEGIN TESTING
-            self._temp_counter += 1
-            global explode, explode_on
-            if "--no-destruct" not in sys.argv and self._temp_counter > explode_on and explode:
-                explode = False
-                logging.debug("persistence is exploding")
-                if '-term' in sys.argv:
-                    signal.pthread_kill(get_ident(), signal.SIGTERM)
-                else:
-                    signal.pthread_kill(get_ident(), signal.SIGINT)
-            # END TESTING
-
     def remove(self, item: EventRecord):
         with Protection():
             self._items.remove(item)
             self._keys.remove(key := self._get_key(item))
             self._storage.write_blob(self._namespace, self._keys)
             self._storage.delete_blob(key)
-
-            # BEGIN TESTING
-            self._temp_counter += 1
-            global explode, explode_on
-            if "--no-destruct" not in sys.argv and self._temp_counter > explode_on and explode:
-                explode = False
-                logging.debug("persistence is exploding")
-                if '-term' in sys.argv:
-                    signal.pthread_kill(get_ident(), signal.SIGTERM)
-                else:
-                    signal.pthread_kill(get_ident(), signal.SIGINT)
-            # END TESTING
 
     def __iter__(self):
         return iter(self._items)

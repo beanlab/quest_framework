@@ -3,13 +3,14 @@ from pathlib import Path
 from src.quest import LocalFileSystemBlobStorage, History, PersistentHistory
 
 def main():
-    if '-vb' in sys.argv:
-        saved_state = Path('saved-state-main2b.py')
-    else:
-        saved_state = Path('saved-state-main2.py')
+    args = sys.argv
+    if len(args) != 4:
+        print("usage: <saved state folder name> <namespace> <workflow id>")
 
-    storage = LocalFileSystemBlobStorage(saved_state / "multi-guess-game" / "multi-guess-game-1")
-    history: History = PersistentHistory("multi-guess-game-1", storage)
+    path = Path(f"{args[1]}/{args[2]}/{args[3]}")
+    print(f"Path: {path}")
+    storage = LocalFileSystemBlobStorage(path)
+    history: History = PersistentHistory(args[3], storage)
     print(f"PersistentHistory:\n")
 
     for item in history._items:
