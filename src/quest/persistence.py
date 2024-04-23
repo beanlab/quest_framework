@@ -4,7 +4,6 @@ from hashlib import md5
 from pathlib import Path
 from typing import Protocol, Union
 import copy
-import platform
 import signal
 from threading import get_ident
 import sys
@@ -12,6 +11,7 @@ import logging
 
 from .history import History
 from .types import EventRecord
+from .protect import Protection
 
 Blob = Union[dict, list, str, int, bool, float]
 
@@ -36,11 +36,6 @@ class PersistentHistory(History):
         self._storage = storage
         self._items = []
         self._keys: list[str] = []
-        self._implements_signals = True
-        if "Windows" in platform.platform():
-            self._implements_signals = False
-        self._pertinent_signals = [signal.SIGABRT, signal.SIGINT, signal.SIGTERM]
-        self._old_signal_mask = None
 
         if storage.has_blob(namespace):
             self._keys = storage.read_blob(namespace)
@@ -49,50 +44,46 @@ class PersistentHistory(History):
 
     def _get_key(self, item: EventRecord) -> str:
         return self._namespace + '.' + md5((item['timestamp'] + item['step_id'] + item['type']).encode()).hexdigest()
-    
-    def _refuse_signals(self):
-        self._old_signal_mask = signal.pthread_sigmask(signal.SIG_BLOCK, self._pertinent_signals)
-
-    def _allow_signals(self):
-        signal.pthread_sigmask(signal.SIG_SETMASK, self._old_signal_mask)
 
     def append(self, item: EventRecord):
-        self._refuse_signals()
-        self._items.append(item)
-        self._keys.append(key := self._get_key(item))
-        # writing the keys first is important. It doesn't cause an error to have an extra file, but no key to it,
-            # but it is a problem if we have a key entry to a file that doesn't exist
-        self._storage.write_blob(self._namespace, self._keys)
+        with Protection() as protect:
+            self._items.append(item)
+            self._keys.append(key := self._get_key(item))
+            # writing the keys first is important. It doesn't cause an error to have an extra file, but no key to it,
+                # but it is a problem if we have a key entry to a file that doesn't exist
+            self._storage.write_blob(self._namespace, self._keys)
+            self._storage.write_blob(key, item)
 
-        # BEGIN TESTING
-        self._temp_counter += 1
-        global explode, explode_on
-        if "--no-destruct" not in sys.argv and self._temp_counter > explode_on and explode:
-            explode = False
-            logging.debug("persistence is exploding")
-            signal.pthread_kill(get_ident(), signal.SIGINT)
-        # END TESTING
-
-        self._storage.write_blob(key, item)
-        self._allow_signals()
+            # BEGIN TESTING
+            self._temp_counter += 1
+            global explode, explode_on
+            if "--no-destruct" not in sys.argv and self._temp_counter > explode_on and explode:
+                explode = False
+                logging.debug("persistence is exploding")
+                if '-term' in sys.argv:
+                    signal.pthread_kill(get_ident(), signal.SIGTERM)
+                else:
+                    signal.pthread_kill(get_ident(), signal.SIGINT)
+            # END TESTING
 
     def remove(self, item: EventRecord):
-        self._refuse_signals()
-        self._items.remove(item)
-        self._keys.remove(key := self._get_key(item))
-        self._storage.write_blob(self._namespace, self._keys)
+        with Protection():
+            self._items.remove(item)
+            self._keys.remove(key := self._get_key(item))
+            self._storage.write_blob(self._namespace, self._keys)
+            self._storage.delete_blob(key)
 
-        # BEGIN TESTING
-        self._temp_counter += 1
-        global explode, explode_on
-        if "--no-destruct" not in sys.argv and self._temp_counter > explode_on and explode:
-            explode = False
-            logging.debug("persistence is exploding")
-            signal.pthread_kill(get_ident(), signal.SIGINT)
-        # END TESTING
-
-        self._storage.delete_blob(key)
-        self._allow_signals()
+            # BEGIN TESTING
+            self._temp_counter += 1
+            global explode, explode_on
+            if "--no-destruct" not in sys.argv and self._temp_counter > explode_on and explode:
+                explode = False
+                logging.debug("persistence is exploding")
+                if '-term' in sys.argv:
+                    signal.pthread_kill(get_ident(), signal.SIGTERM)
+                else:
+                    signal.pthread_kill(get_ident(), signal.SIGINT)
+            # END TESTING
 
     def __iter__(self):
         return iter(self._items)
