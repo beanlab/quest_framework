@@ -23,10 +23,11 @@ kill_count = 0
 persistence_abort = False
 
 def loop_signal_handler(*args):
+    # current_manager = manager_context.get()
+    # for historian in current_manager._workflows.values():
+    #     historian.workflow_aborted.set()
     exit(1)
-    # current_manager: WorkflowManager = manager_context.get()
-    # sys.stderr.write("handling interrupt")
-    # current_manager.suspend_all_workflows() # TODO this wouldn't work because it is now async
+    
 
 def set_up_signal_handlers():
     global implements_signals
@@ -75,6 +76,7 @@ class WorkflowManager:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Save whatever state is necessary before exiting"""
+        # TODO: this is a difference between SIGKILL and SIGINT, but I don't think it's an actual issue
         self._storage.write_blob(self._namespace, self._workflow_data)
         for wid, historian in self._workflows.items():
             await historian.suspend()

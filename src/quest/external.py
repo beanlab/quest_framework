@@ -72,7 +72,10 @@ class ExternalResource(Generic[T]):
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         suspending = (exc_type == asyncio.CancelledError and exc_val.args and exc_val.args[0] == SUSPENDED)
-        await self._historian.delete_resource(self._name, self._identity, suspending=suspending)
+        if exc_type is not KeyboardInterrupt:
+            await self._historian.delete_resource(self._name, self._identity, suspending=suspending)
+        else:
+            print("exception was of type KeyboardInterrupt")
 
 
 def queue(name, identity):

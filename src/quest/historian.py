@@ -572,7 +572,6 @@ class Historian:
         except KeyboardInterrupt:
            self.workflow_aborted.set()
            await self.interruption_routine()
-            # raise asyncio.CancelledError(SUSPENDED)
 
         except Exception as ex:
             if not self.workflow_aborted.is_set():
@@ -745,8 +744,6 @@ class Historian:
         return resource_id
 
     async def delete_resource(self, name, identity, suspending=False):
-        # TESTING
-        suspending = self.workflow_aborted.is_set()
 
         resource_id = _create_resource_id(name, identity)
         if resource_id not in self._resources:
