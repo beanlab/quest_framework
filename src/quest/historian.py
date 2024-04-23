@@ -10,6 +10,7 @@ from typing import Callable
 from .history import History
 from .types import ConfigurationRecord, VersionRecord, StepStartRecord, StepEndRecord, \
     ExceptionDetails, ResourceAccessEvent, ResourceEntry, ResourceLifecycleEvent, TaskEvent
+from .protect import Protection
 
 QUEST_VERSIONS = "_quest_versions"
 GLOBAL_VERSION = "_global_version"
@@ -93,36 +94,37 @@ def _prune(step_id: str, history: "History"):
     Records whose step_ids are prefixed by the step_id of the step are substep work
     Keep external events that belong to resources created outside the step
     """
-    items = reversed(history)
-    to_delete = []
+    with Protection():
+        items = reversed(history)
+        to_delete = []
 
-    # Last record should be a step with the give step ID
-    record = next(items)
-    assert record['type'] == 'end', f'{record["type"]} != end'
-    assert record['step_id'] == step_id, f'{record["step_id"]} != {step_id}'
+        # Last record should be a step with the give step ID
+        record = next(items)
+        assert record['type'] == 'end', f'{record["type"]} != end'
+        assert record['step_id'] == step_id, f'{record["step_id"]} != {step_id}'
 
-    end_of_life_resources = set()
-    try:
-        while record := next(items):
-            if record['step_id'].startswith(step_id):
-                # Found a sub-record of the step, we can delete it
-                # But if it is a resource scoped to this step, keep track of it first
-                if record['type'] == 'delete_resource':
-                    end_of_life_resources.add(record['resource_id'])
-                to_delete.append(record)
+        end_of_life_resources = set()
+        try:
+            while record := next(items):
+                if record['step_id'].startswith(step_id):
+                    # Found a sub-record of the step, we can delete it
+                    # But if it is a resource scoped to this step, keep track of it first
+                    if record['type'] == 'delete_resource':
+                        end_of_life_resources.add(record['resource_id'])
+                    to_delete.append(record)
 
-            if record['type'] == 'external' and record['resource_id'] in end_of_life_resources:
-                to_delete.append(record)
+                if record['type'] == 'external' and record['resource_id'] in end_of_life_resources:
+                    to_delete.append(record)
 
-            if record['step_id'] == step_id:
-                # Found the beginning of the step, we can stop searching
-                break
+                if record['step_id'] == step_id:
+                    # Found the beginning of the step, we can stop searching
+                    break
 
-    except StopIteration:
-        pass
+        except StopIteration:
+            pass
 
-    for record in to_delete:
-        history.remove(record)
+        for record in to_delete:
+            history.remove(record)
 
 
 def _get_current_timestamp() -> str:
