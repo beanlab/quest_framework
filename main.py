@@ -48,7 +48,6 @@ async def main(args):
         workflow_1 = f'{workflow_namespace_root}-{workflow_number}'
         workflow_number = workflow_number + 1
         workflow_2 = f'{workflow_namespace_root}-{workflow_number}'
-
         manager.start_workflow('multi-guess', workflow_1, False, workflow_1, printing)
         await asyncio.sleep(0.1)
         manager.start_workflow('multi-guess', workflow_2, False, workflow_2, printing)
@@ -175,9 +174,12 @@ def run_main(args):
         loop.run_until_complete(main(args)) 
         # TODO: also, did you figure out how the get_workflow on a finished task should work?
 
+    # this actually isn't necessary. It just allows main.py to return 0 when an exception happens in its code outside of quest
     except (Exception, KeyboardInterrupt) as ex:
-        print(f'{ex}')
-        raise
+        print(f'main.py received and handled an exeption and will now exit:\n')
+        print(ex)
+        exit(0)
+        
     finally:
         loop.stop()
         loop.close()
