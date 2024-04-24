@@ -10,7 +10,7 @@ from src.quest.persistence import LocalFileSystemBlobStorage
 
 from multi_guess_src.multi_guess_terminal import game_loop
 
-sys.stderr = open("stderr3.txt", "w")
+sys.stderr = open("stderr.txt", "w")
 logging.basicConfig(level=logging.DEBUG)
 
 def usage():

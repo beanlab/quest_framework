@@ -2,6 +2,10 @@ import sys
 from pathlib import Path
 from src.quest import LocalFileSystemBlobStorage, History, PersistentHistory
 
+# This file allows you to print a PersistentHistory to the screen, provided
+    # you give the correct file path arguments. It's a nice little tool for
+    # seeing what order the JSON records are in
+
 def main():
     args = sys.argv
     if len(args) != 4:

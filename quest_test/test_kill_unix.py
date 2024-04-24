@@ -7,13 +7,15 @@ import random
 # import pytest
 
 printing = False
-out_file = open("kill-test_stdout-and-stderr.txt", "w")
+out_file = open("kill-test_stdout.txt", "w")
+err_file = open("kill-test_stderr.txt", "w")
 wait_time = -1
 
 def get_subprocess(is_fresh=False):
-    global printing, out_file, wait_time
-    out_file.close()
-    out_file = open("kill-test_stdout-and-stderr.txt", "w")
+    global printing, out_file, err_file, wait_time
+    out_file.close(); err_file.close()
+    out_file = open("kill-test_stdout.txt", "w")
+    err_file = open("kill-test_stderr.txt", "w")
     if(is_fresh): # delete json files after a full clean run
         if printing: 
             p = subprocess.Popen([sys.executable, "./main.py", "--no-destruct"], stdout=out_file, stderr=out_file)

@@ -11,3 +11,4 @@ test-state/
 saved-state-main.py/
 game-state/
 stderr.txt
+kill-test_*

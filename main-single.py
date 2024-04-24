@@ -7,18 +7,14 @@ import logging
 from multi_guess_src.multi_guess_queue import game_loop
 from src.quest import create_filesystem_manager
 
-if '-vb' in sys.argv:
-    sys.stderr = open("2bstderr.txt", "w")
-else:
-    sys.stderr = open("2stderr.txt", "w")
+# This version of main just runs a single workflow of multi-guess-queue to completion
+
+sys.stderr = open('stderr.txt', 'w')
 
 logging.basicConfig(level=logging.DEBUG)
 
 async def main(args):
-    if '-vb' in sys.argv:
-        saved_state = Path('saved-state-main2b.py')
-    else:
-        saved_state = Path('saved-state-main2.py')
+    saved_state = Path('saved-state-main-single.py')
 
     if "--restart" in args:
         # Remove data
@@ -68,11 +64,7 @@ def run_main(args):
 
     try:
         loop.run_until_complete(main(args)) 
-        # TODO: also, did you figure out how the get_workflow on a finished task should work?
 
-    except (Exception, KeyboardInterrupt) as ex:
-        print(f'{ex}')
-        raise
     finally:
         loop.stop()
         loop.close()
