@@ -11,9 +11,6 @@ from .protect import Protection
 
 Blob = Union[dict, list, str, int, bool, float]
 
-explode = True
-explode_on = 24
-
 class BlobStorage(Protocol):
     def write_blob(self, key: str, blob: Blob): ...
 
@@ -26,8 +23,6 @@ class BlobStorage(Protocol):
 
 class PersistentHistory(History):
     def __init__(self, namespace: str, storage: BlobStorage):
-        self._temp_counter = 0;
-
         self._namespace = namespace
         self._storage = storage
         self._items = []
