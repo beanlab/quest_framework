@@ -9,6 +9,7 @@ __pycache__/
 multi-guess-game-state/
 test-state/
 saved-state-main.py/
+saved-state-main-single.py/
 game-state/
 stderr.txt
 kill-test_*
