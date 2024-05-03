@@ -19,45 +19,147 @@ class BlobStorage(Protocol):
 
     def delete_blob(self, key: str): ...
 
-
-class PersistentHistory(History):
+class ListPersistentHistory(History):
     def __init__(self, namespace: str, storage: BlobStorage):
         self._namespace = namespace
         self._storage = storage
-        # TODO - use linked list instead of array list
-        # master stores head/tail keys
-        # each blob is item, prev, next
-        # only need to modify blobs for altered nodes
-        # on add/delete, and rarely change master head/tail blob
-        self._items = []
-        self._keys: list[str] = []
+        self._records: dict[str, EventRecord] = {}
 
         if storage.has_blob(namespace):
-            self._keys = storage.read_blob(namespace)
-            for key in self._keys:
-                self._items.append(storage.read_blob(key))
+            keys = storage.read_blob(namespace)
+            for key in keys:
+                self._records[key] = storage.read_blob(key)
+
+    def _get_key(self, item: EventRecord) -> str:
+        return self._namespace + '.' + md5((item['timestamp'] + item['step_id'] + item['type']).encode()).hexdigest()
+    
+    def append(self, item: EventRecord):
+        self._records[key := self._get_key(item)] = item
+        self._storage.write_blob(key, item)
+        self._storage.write_blob(self._namespace, list(self._records.keys()))
+
+    def remove(self, item: EventRecord):
+        del self._records[key := self._get_key(item)]
+        self._storage.delete_blob(key)
+        self._storage.write_blob(self._namespace, list(self._records.keys()))
+
+    def __iter__(self):
+        return iter(self._records.values())
+    
+    def __reversed__(self):
+        return reversed(self._records.values())
+
+class LinkedPersistentHistory(History):
+    class HistoryNode():
+        def __init__(self):
+            self.prev: self.HistoryNode = None
+            self.next: self.HistoryNode = None
+            self.item = None
+
+    def __init__(self, namespace: str, storage: BlobStorage):
+        self._namespace = namespace
+        self._storage = storage
+        self._nodes: dict[str, self.HistoryNode] = {}
+
+        self._head: self.HistoryNode = None
+        self._tail: self.HistoryNode = None
+
+        if storage.has_blob(namespace):
+            keys = storage.read_blob(namespace)
+            for key in keys:
+                self.append(storage.read_blob(key))
 
     def _get_key(self, item: EventRecord) -> str:
         return self._namespace + '.' + md5((item['timestamp'] + item['step_id'] + item['type']).encode()).hexdigest()
 
+    def _insert_node(self, nodeKey: str, item: Blob):
+        """Inserts blob into the linked list of HistoryNodes"""
+        new_node: self.HistoryNode = self.HistoryNode()
+        new_node.item = item
+        new_node.prev = self._tail
+
+        if(self._tail is not None):
+            self._tail.next = new_node
+        else:
+            self._head = new_node
+
+        self._tail = new_node
+
+        self._nodes[nodeKey] = new_node
+
+    def _remove_node(self, nodeKey: str):
+        # TODO: should I be key checking here first? Probably
+        toDelete: self.HistoryNode = self._nodes[nodeKey]
+
+        if toDelete.prev is not None:
+            toDelete.prev.next = toDelete.next
+
+        if toDelete.next is not None:
+            toDelete.next.prev = toDelete.prev
+
+        if toDelete is self._head:
+            self._head = toDelete.next
+
+        if toDelete is self._tail:
+            self._tail = toDelete.prev
+
+        del self._nodes[nodeKey]
+
     def append(self, item: EventRecord):
-        self._items.append(item)
-        self._keys.append(key := self._get_key(item))
+        key = self._get_key(item)
+        self._insert_node(key, item)
         self._storage.write_blob(key, item)
-        self._storage.write_blob(self._namespace, self._keys)
+        self._storage.write_blob(self._namespace, list(self._nodes.keys()))
 
     def remove(self, item: EventRecord):
-        self._items.remove(item)
-        self._keys.remove(key := self._get_key(item))
+        key = self._get_key(item)
+        self._remove_node(key)
         self._storage.delete_blob(key)
-        self._storage.write_blob(self._namespace, self._keys)
+        self._storage.write_blob(self._namespace, list(self._nodes.keys()))
 
     def __iter__(self):
-        return iter(self._items)
+        node: self.HistoryNode = self._head
+        while node is not None:
+            yield node.item
+            node = node.next
+    
+    def __reversed__(self):
+        node: self.HistoryNode = self._tail
+        while node is not None:
+            yield node.item
+            node = node.prev
+
+class DictPersistentHistory(History):
+    def __init__(self, namespace: str, storage):
+        self._namespace = namespace
+        self._storage = storage
+        self._data = {}
+
+        if storage.has_blob(namespace):
+            keys = storage.read_blob(namespace)
+            for key in keys:
+                self._data[key] = storage.read_blob(key)
+
+    def _get_key(self, item) -> str:
+        return self._namespace + '.' + md5((item['timestamp'] + item['step_id'] + item['type']).encode()).hexdigest()
+
+    def append(self, item):
+        key = self._get_key(item)
+        self._data[key] = item
+        self._storage.write_blob(key, item)
+        self._storage.write_blob(self._namespace, self._data.keys())
+
+    def remove(self, item):
+        key = self._get_key(item)
+        del self._data[key]
+        self._storage.delete_blob(key)
+        self._storage.write_blob(self._namespace, self._data.keys())
+
+    def __iter__(self):
+        return iter(self._data.values())
 
     def __reversed__(self):
-        return reversed(self._items)
-
+        return reversed(self._data.values())
 
 class LocalFileSystemBlobStorage(BlobStorage):
     def __init__(self, root_folder: Path):
