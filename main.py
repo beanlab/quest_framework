@@ -152,14 +152,27 @@ async def main(args):
             manager.start_workflow('multi-guess', workflow_3, False, workflow_3, printing)
             await asyncio.sleep(0.1)
 
-            send = await manager.send_event(workflow_1, 'guess', None, 'put', 17)
-            assert send == False
+            had_exception = False
+            try:
+                await manager.send_event(workflow_1, 'guess', None, 'put', 17)
+            except Exception:
+                had_exception = True
+            
+            assert had_exception
 
-            send = await manager.send_event(workflow_2, 'guess', None, 'put', 17)
-            assert send == False
+            had_exception = False
+            try:
+                await manager.send_event(workflow_2, 'guess', None, 'put', 17)
+            except Exception:
+                had_exception = True
+            assert had_exception
 
-            send = await manager.send_event(workflow_3, 'guess', None, 'put', 17)
-            assert send == False
+            had_exception = False
+            try:
+                await manager.send_event(workflow_3, 'guess', None, 'put', 17)
+            except Exception:
+                had_exception = True
+            assert had_exception
 
             wk1 = manager.get_workflow(workflow_1)
             wk2 = manager.get_workflow(workflow_2)
@@ -181,7 +194,6 @@ def run_main(args):
 
     try:
         loop.run_until_complete(main(args)) 
-        # TODO: also, did you figure out how the get_workflow on a finished task should work?
 
     finally:
         loop.stop()

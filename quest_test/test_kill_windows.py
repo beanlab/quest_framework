@@ -7,6 +7,8 @@ import platform
 import random
 import pytest
 
+# TODO: model this file more like test_kill_unix.py
+
 printing = False
 
 def get_subprocess(is_fresh=False, skip_own_gpid=False):

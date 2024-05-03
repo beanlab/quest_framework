@@ -104,9 +104,7 @@ class WorkflowManager:
     async def send_event(self, workflow_id: str, name: str, identity, action, *args, **kwargs):
         workflow_task = self._workflow_tasks[workflow_id]
 
-        # TODO: asking to send an event to a finished task should throw an error
-        result = False
         if not workflow_task.done():
-            result = await self._get_workflow(workflow_id).record_external_event(name, identity, action, *args, **kwargs)
-            
-        return result
+            return await self._get_workflow(workflow_id).record_external_event(name, identity, action, *args, **kwargs)
+        else:
+            raise Exception("Attempted to send event to a completed workflow.")
