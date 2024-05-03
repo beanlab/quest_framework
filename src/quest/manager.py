@@ -96,8 +96,6 @@ class WorkflowManager:
                 print(f"suspending {historian.workflow_id}")
                 await historian.suspend()
 
-        exit(1)
-
     async def get_resources(self, workflow_id: str, identity):
         return await self._get_workflow(workflow_id).get_resources(identity)
 
