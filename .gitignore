@@ -5,3 +5,11 @@
 __pycache__/
 /venv/
 /quest_test/event_tests/.pytest_cache
+.vscode/
+multi-guess-game-state/
+test-state/
+saved-state-main.py/
+saved-state-main-single.py/
+game-state/
+stderr.txt
+kill-test_*
