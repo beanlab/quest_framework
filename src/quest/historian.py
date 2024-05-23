@@ -194,6 +194,15 @@ class Historian:
         # See also external.py
         self._resources = {}
 
+        # These are asyncio.queues that are used to signal resource updates across
+        # the workflow. Instantiated by stream_resources()
+        self._resource_queues: dict[str, asyncio.Queue] = {}
+
+        # An asyncio.event by identity that is used to handle resource stream updates
+        # and force the application to yield and update to a user before moving on.
+        # Instantiated by stream_resources()
+        self._resource_events: dict[str, asyncio.Event] = {}
+
         # We keep track of all open tasks so we can properly suspend them
         self._open_tasks: list[Task] = []
 
@@ -659,6 +668,7 @@ class Historian:
                 kwargs=kwargs,
                 result=result
             ))
+            await self._handle_resource_update(identity)
 
         else:
             with next_record as record:
@@ -698,6 +708,7 @@ class Historian:
                 resource_id=resource_id,
                 resource_type=_get_type_name(resource)
             ))
+            await self._handle_resource_update(identity)
 
         else:
             with next_record as record:
@@ -726,6 +737,7 @@ class Historian:
                     resource_id=resource_id,
                     resource_type=resource_entry['type']
                 ))
+                await self._handle_resource_update(identity)
 
             else:
                 with next_record as record:
@@ -911,6 +923,29 @@ class Historian:
                 }
 
         return resources
+
+    async def stream_resources(self, identity):
+        """
+        The caller of this function lives outside the step management of the historian
+        -> don't replay, just yield event changes in realtime
+        """
+        logging.debug(f'Resource stream created for {identity}')
+        self._resource_queues.setdefault(identity, asyncio.Queue())
+        self._resource_events.setdefault(identity, asyncio.Event())
+        while True:
+            await self._resource_queues[identity].get()
+            yield await self.get_resources(identity)
+            self._resource_events[identity].set()
+
+    async def _handle_resource_update(self, identity):
+        # If the user with `identity` has not called `stream_resources`, an update is not needed
+        if (resource_queue := self._resource_queues.get(identity)) is not None:
+            # If the user has called stream_resources, there should be a resource_event for `identity`
+            assert self._resource_events.get(identity) is not None
+
+            self._resource_events[identity].clear()
+            await resource_queue.put('Resource Update')
+            await self._resource_events[identity].wait()
 
 
 class HistorianNotFoundException(Exception):
