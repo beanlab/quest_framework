@@ -6,6 +6,41 @@ from typing import TypeVar, Generic
 from .historian import find_historian, SUSPENDED
 
 
+class Queue:
+    def __init__(self):
+        self._queue = asyncio.Queue()
+
+    async def put(self, item):
+        return await self._queue.put(item)
+
+    async def get(self):
+        return await self._queue.get()
+
+    async def empty(self):
+        return self._queue.empty()
+
+
+class Event:
+    # Why this class?
+    # When wrapped for historians, all methods become async
+    # So this class gives async versions of the methods
+    # so IDEs and typehints indicate the actual behavior
+    def __init__(self):
+        self._event = asyncio.Event()
+
+    async def wait(self):
+        await self._event.wait()
+
+    async def set(self):
+        self._event.set()
+
+    async def clear(self):
+        self._event.clear()
+
+    async def is_set(self):
+        return self._event.is_set()
+
+
 class State:
     def __init__(self, value):
         self._value = value
@@ -17,6 +52,7 @@ class State:
         self._value = value
 
     def value(self):
+        # TODO - why do we need this?
         return self._value
 
 
@@ -76,11 +112,11 @@ class ExternalResource(Generic[T]):
 
 
 def queue(name, identity):
-    return ExternalResource(name, identity, asyncio.Queue())
+    return ExternalResource(name, identity, Queue())
 
 
 def event(name, identity):
-    return ExternalResource(name, identity, asyncio.Event())
+    return ExternalResource(name, identity, Event())
 
 
 def state(name, identity, value):
