@@ -58,16 +58,14 @@ async def test_external_state():
 
     resources = await historian.get_resources(identity)
     assert 'name' in resources
-    assert resources['name']['type'] == "src.quest.external.State"
-    assert resources['name']['value'] == 'Foobar'
+    assert await resources['name'].value() == 'Foobar'
 
     # Set state
-    await historian.record_external_event('name', identity, 'set', 'Barbaz')
+    await resources['name'].set('Barbaz')
 
     resources = await historian.get_resources(identity)
     assert 'name' in resources
-    assert resources['name']['type'] == "src.quest.external.State"
-    assert resources['name']['value'] == 'Barbaz'
+    assert await resources['name'].value() == 'Barbaz'
 
     # Resume
     name_event.set()
@@ -101,11 +99,10 @@ async def test_external_queue():
 
     resources = await historian.get_resources(identity)
     assert 'items' in resources
-    assert resources['items']['type'] == 'src.quest.external.Queue'
 
-    await historian.record_external_event('items', identity, 'put', 7)
-    await historian.record_external_event('items', identity, 'put', 8)
-    await historian.record_external_event('items', identity, 'put', 9)
+    await resources['items'].put(7)
+    await resources['items'].put(8)
+    await resources['items'].put(9)
 
     assert await workflow == [7, 8, 9]
 

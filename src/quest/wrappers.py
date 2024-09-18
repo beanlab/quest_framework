@@ -1,7 +1,7 @@
 import inspect
 from asyncio import Task
 from functools import wraps
-from typing import Callable, Coroutine
+from typing import Callable, Coroutine, TypeVar
 
 from .historian import find_historian
 
@@ -31,3 +31,22 @@ def task(func: Callable[..., Coroutine]) -> Callable[..., Task]:
         return find_historian().start_task(func, *args, **kwargs)
 
     return new_func
+
+
+T = TypeVar('T')
+
+
+def wrap_steps(obj: T) -> T:
+    class Wrapped:
+        pass
+
+    wrapped = Wrapped()
+    for field in dir(obj):
+        if field.startswith('_'):
+            continue
+
+        if callable(method := getattr(obj, field)):
+            method = step(method)
+            setattr(wrapped, field, method)
+
+    return wrapped

@@ -6,7 +6,8 @@ from asyncio import Task
 from contextvars import ContextVar
 from datetime import datetime
 from functools import wraps
-from typing import Callable
+from typing import Callable, TypeVar
+
 from .history import History
 from .types import ConfigurationRecord, VersionRecord, StepStartRecord, StepEndRecord, \
     ExceptionDetails, ResourceAccessEvent, ResourceEntry, ResourceLifecycleEvent, TaskEvent
@@ -71,6 +72,33 @@ GLOBAL_VERSION = "_global_version"
 # I need to look for resources that are open in each branch and match the relevant events
 
 SUSPENDED = '__WORKFLOW_SUSPENDED__'
+
+T = TypeVar('T')
+
+
+class _Wrapper:
+    pass
+
+
+def wrap_methods_as_historian_events(resource: T, name: str, identity: str | None, historian: 'Historian',
+                                     internal=True) -> T:
+    wrapper = _Wrapper()
+
+    historian_action = historian.handle_internal_event if internal else historian.record_external_event
+
+    for field in dir(resource):
+        if field.startswith('_'):
+            continue
+
+        if callable(method := getattr(resource, field)):
+            # Use default-value kwargs to force value binding instead of late binding
+            @wraps(method)
+            async def record(*args, _name=name, _identity=identity, _field=field, **kwargs):
+                return await historian_action(_name, _identity, _field, *args, **kwargs)
+
+            setattr(wrapper, field, record)
+
+    return wrapper
 
 
 def _get_type_name(obj):
@@ -163,6 +191,10 @@ class Historian:
         self.workflow = workflow
         self._configurations: list[tuple[Callable, list, dict]] = []
 
+        # This indicates whether the workflow function has completed
+        # Suspending the workflow does not affect this value
+        self._workflow_completed = False
+
         # These things need to be serialized
         self._history: History = history
 
@@ -192,7 +224,7 @@ class Historian:
         #  This could include values that can be accessed,
         #  queues to push to, etc.
         # See also external.py
-        self._resources = {}
+        self._resources: dict[str, ResourceEntry] = {}
 
         # These are asyncio.queues that are used to signal resource updates across
         # the workflow. Instantiated by stream_resources()
@@ -799,6 +831,8 @@ class Historian:
         args = await self.handle_step('args', lambda: args)
         kwargs = await self.handle_step('kwargs', lambda: kwargs)
         result = await self.handle_step(get_function_name(self.workflow), self.workflow, *args, **kwargs)
+        self._workflow_completed = True
+        await self._handle_resource_update(None)
         return result
 
     async def _run_with_exception_handling(self, *args, **kwargs):
@@ -907,32 +941,49 @@ class Historian:
 
         # Get public resources first
         resources = {
-            entry['name']: {
-                'type': entry['type'],
-                'value': res.value() if hasattr((res := entry['resource']), 'value') else repr(res)
-            } for entry in self._resources.values()
+            entry['name']: entry['resource']
+            for entry in self._resources.values()
             if entry['identity'] is None
         }
 
         # Now add in (and override) identity-specific resources
         for entry in self._resources.values():
             if entry['identity'] == identity:
-                resources[entry['name']] = {
-                    'type': entry['type'],
-                    'value': res.value() if hasattr((res := entry['resource']), 'value') else repr(res)
-                }
+                resources[entry['name']] = entry['resource']
 
-        return resources
+        # Now wrap the resources in register_external_event wrappers
+        return {k: wrap_methods_as_historian_events(res, k, identity, self, internal=False) for k, res in
+                resources.items()}
 
     async def stream_resources(self, identity):
         """
-        The caller of this function lives outside the step management of the historian
-        -> don't replay, just yield event changes in realtime
+        Provide a stream of resource snapshots for this workflow.
+        Everytime the workflow resource state changes, an update will be published.
+
+        NOTE: Once you start the resource stream,
+        the workflow will not progress unless you iterate this stream.
+        Use wait_for_completion() to automatically iterate (and ignore) the remaining updates.
         """
+
+        # The caller of this function lives outside the step management of the historian
+        #         -> don't replay, just yield event changes in realtime
+
         logging.debug(f'Resource stream created for {identity}')
+
+        # _handle_resource_updates puts on this queue when the resources have changed
         self._resource_queues.setdefault(identity, asyncio.Queue())
+
+        # this event ensures that the historian yields to whoever is using the
+        # resources before continuing on
+        # (otherwise the historian would move until blocked,
+        # and the observer wouldn't get a chance to respond to resource changes)
         self._resource_events.setdefault(identity, asyncio.Event())
-        while True:
+
+        # Yield the current resources immediately
+        yield await self.get_resources(identity)
+
+        while not self._workflow_completed:
+            # Yield new resources updates as they become available
             await self._resource_queues[identity].get()
             yield await self.get_resources(identity)
             self._resource_events[identity].set()
@@ -946,6 +997,13 @@ class Historian:
             self._resource_events[identity].clear()
             await resource_queue.put('Resource Update')
             await self._resource_events[identity].wait()
+
+    async def wait_for_completion(self, identity):
+        """
+        Wait for the workflow to complete after starting the resource stream
+        """
+        async for _ in self.stream_resources(identity):
+            pass
 
 
 class HistorianNotFoundException(Exception):

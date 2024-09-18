@@ -1,5 +1,5 @@
 from typing import Protocol, Reversible
-from src.quest.types import EventRecord
+from .types import EventRecord
 
 
 class History(Protocol, Reversible):

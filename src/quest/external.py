@@ -1,9 +1,14 @@
 import asyncio
 import uuid
-from functools import wraps
 from typing import TypeVar, Generic
 
-from .historian import find_historian, SUSPENDED
+from .historian import find_historian, SUSPENDED, Historian, wrap_methods_as_historian_events
+
+
+#
+# Note: The following Queue and Event classes
+# are intended to be used as type hints
+#
 
 
 class Queue:
@@ -71,30 +76,8 @@ class IdentityQueue:
 T = TypeVar('T')
 
 
-class _Wrapper:
-    pass
-
-
-def _wrap(resource: T, name, identity, historian) -> T:
-    wrapper = _Wrapper()
-
-    for field in dir(resource):
-        if field.startswith('_'):
-            continue
-
-        if callable(method := getattr(resource, field)):
-            # Use default-value kwargs to force value binding instead of late binding
-
-            @wraps(method)
-            async def record(*args, _name=name, _identity=identity, _field=field, **kwargs):
-                return await historian.handle_internal_event(_name, _identity, _field, *args, **kwargs)
-
-            setattr(wrapper, field, record)
-
-    return wrapper
-
-
-class ExternalResource(Generic[T]):
+class InternalResource(Generic[T]):
+    """Internal resources are used inside the workflow context"""
 
     def __init__(self, name, identity, resource: T):
         self._name = name
@@ -104,7 +87,7 @@ class ExternalResource(Generic[T]):
 
     async def __aenter__(self) -> T:
         await self._historian.register_resource(self._name, self._identity, self._resource)
-        return _wrap(self._resource, self._name, self._identity, self._historian)
+        return wrap_methods_as_historian_events(self._resource, self._name, self._identity, self._historian)
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         suspending = (exc_type == asyncio.CancelledError and exc_val.args and exc_val.args[0] == SUSPENDED)
@@ -112,16 +95,16 @@ class ExternalResource(Generic[T]):
 
 
 def queue(name, identity):
-    return ExternalResource(name, identity, Queue())
+    return InternalResource(name, identity, Queue())
 
 
 def event(name, identity):
-    return ExternalResource(name, identity, Event())
+    return InternalResource(name, identity, Event())
 
 
 def state(name, identity, value):
-    return ExternalResource(name, identity, State(value))
+    return InternalResource(name, identity, State(value))
 
 
 def identity_queue(name):
-    return ExternalResource(name, None, IdentityQueue())
+    return InternalResource(name, None, IdentityQueue())

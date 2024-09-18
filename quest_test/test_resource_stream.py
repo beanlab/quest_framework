@@ -6,7 +6,6 @@ from src.quest.external import state, queue
 
 @pytest.mark.asyncio
 async def test_resource_stream():
-
     @step
     async def big_phrase(phrase):
         return phrase * 3
@@ -23,42 +22,52 @@ async def test_resource_stream():
 
     history = []
     historian = Historian('test', workflow, history)
-    historian.run()
+    wtask = historian.run()
 
-    index = 0
-    async for resources in historian.stream_resources(None):
-        if index == 0:  # 'phrase' created
-            assert 'phrase' in resources
-            assert resources['phrase']['value'] == 'woot'
+    updates = aiter(historian.stream_resources(None))
+    resources = await anext(updates)  # empty - start of workflow
 
-        elif index == 1:  # phrase.set(big_phrase())
-            assert 'phrase' in resources
-            assert resources['phrase']['value'] == 'wootwootwoot'
+    resources = await anext(updates)  # phrase created
+    assert 'phrase' in resources
+    assert await resources['phrase'].value() == 'woot'
 
-        elif index == 2:  # 'messages' created
-            assert 'phrase' in resources
-            assert resources['phrase']['value'] == 'wootwootwoot'
-            assert 'messages' in resources
+    resources = await anext(updates)  # phrase.get()
+    resources = await anext(updates)  # phrase.set(big_phrase())
+    assert 'phrase' in resources
+    assert await resources['phrase'].value() == 'wootwootwoot'
 
-            await historian.record_external_event('messages', None, 'put', 'quuz')
+    resources = await anext(updates)  # messages created
+    assert 'phrase' in resources
+    assert await resources['phrase'].value() == 'wootwootwoot'
 
-        elif index == 3:  # 'phrase.set(+ message)'
-            assert 'phrase' in resources
-            assert resources['phrase']['value'] == 'wootwootwootquuz'
-            assert 'messages' in resources
+    assert 'messages' in resources
+    await resources['messages'].put('quuz')
 
-        elif index == 4:  # 'messages' deleted
-            assert 'phrase' in resources
-            assert resources['phrase']['value'] == 'wootwootwootquuz'
-            assert 'messages' not in resources
+    resources = await anext(updates)  # messages.get()
+    resources = await anext(updates)  # phrase.get()
+    resources = await anext(updates)  # phrase.set(+ message)
+    assert 'phrase' in resources
+    assert await resources['phrase'].value() == 'wootwootwootquuz'
+    assert 'messages' in resources
 
-        elif index == 5:  # 'phrase.set'
-            assert 'phrase' in resources
-            assert resources['phrase']['value'] == 'all done'
+    resources = await anext(updates)  # messages deleted
+    assert 'phrase' in resources
+    assert await resources['phrase'].value() == 'wootwootwootquuz'
+    assert 'messages' not in resources
 
-        elif index == 6:  # 'phrase' deleted
-            assert not resources  # i.e. empty
-            await historian.suspend()
-            return
+    resources = await anext(updates)  # phrase.set
+    assert 'phrase' in resources
+    assert await resources['phrase'].value() == 'all done'
 
-        index += 1
+    resources = await anext(updates)  # phrase deleted
+    assert not resources  # i.e. empty
+
+    resources = await anext(updates)  # workflow complete
+
+    try:
+        resources = await anext(updates)
+        pytest.fail('Should have thrown StopAsyncIteration')
+    except StopAsyncIteration:
+        pass
+
+    await wtask

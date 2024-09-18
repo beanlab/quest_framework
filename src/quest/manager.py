@@ -1,10 +1,9 @@
 import asyncio
-import inspect
 from functools import wraps
 from typing import Protocol, Callable, TypeVar
 
-from .external import State, IdentityQueue, _Wrapper, Queue, Event
-from .historian import Historian
+from .external import State, IdentityQueue, Queue, Event
+from .historian import Historian, _Wrapper
 from .history import History
 from .persistence import BlobStorage
 
