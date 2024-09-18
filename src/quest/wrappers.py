@@ -10,9 +10,14 @@ def step(func):
     if not inspect.iscoroutinefunction(func):
         raise ValueError(f'Step function must be async: {func.__name__}')
 
+    if hasattr(func, '_is_quest_step'):
+        raise ValueError(f'Step function is already wrapped in @step: {func.__name__}')
+
     @wraps(func)
     async def new_func(*args, **kwargs):
         return await find_historian().handle_step(func.__name__, func, *args, **kwargs)
+
+    new_func._is_quest_step = True
 
     return new_func
 
