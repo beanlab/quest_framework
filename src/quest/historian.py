@@ -9,7 +9,7 @@ from functools import wraps
 from typing import Callable, TypeVar
 
 from .history import History
-from .types import ConfigurationRecord, VersionRecord, StepStartRecord, StepEndRecord, \
+from .quest_types import ConfigurationRecord, VersionRecord, StepStartRecord, StepEndRecord, \
     ExceptionDetails, ResourceAccessEvent, ResourceEntry, ResourceLifecycleEvent, TaskEvent
 
 QUEST_VERSIONS = "_quest_versions"

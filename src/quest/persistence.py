@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Protocol, Union
 
 from .history import History
-from .types import EventRecord
+from .quest_types import EventRecord
 
 Blob = Union[dict, list, str, int, bool, float]
 
