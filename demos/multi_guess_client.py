@@ -1,4 +1,7 @@
+import asyncio
+
 from quest import client, step
+
 
 # TODO - write a websocket client
 # this is essentially the interface of WorkflowManager
@@ -38,6 +41,9 @@ async def respond(resources):
 async def main():
     async with client('localhost', '12345') as client:
 
+        # TODO - make sure multiple users can listen on the
+        # same identity (e.g. None) and still get all the events
+
         # TODO - make resource_streams a context
         # so you can close the stream
         # right now, if you stop iterating the stream,
@@ -45,11 +51,14 @@ async def main():
         # We need a way for the user to listen to a stream
         # until they are no longer interested.
 
-        # TODO - make sure multiple users can listen on the
-        # same identity (e.g. None) and still get all the events
+        # What I want:
+        async with client.get_resource_stream('demo', None) as resource_stream:
+            async for resources in resource_stream:
+                pass
 
+        # What we have (that won't quite work):
         # Start listening for public events
-        async for resources in client.stream_resources(None):
+        async for resources in client.stream_resources('demo', None):
 
             # We're expecting an identity queue named "registration"
             if 'registration' in resources:
@@ -60,3 +69,7 @@ async def main():
         # we will listen for those resources events
         async for resources in client.stream_resources(ident):
             await respond(resources)
+
+
+if __name__ == '__main__':
+    asyncio.run(main())
