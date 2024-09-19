@@ -62,6 +62,7 @@ class State:
 
 
 class IdentityQueue:
+    """Put and Get return and identity + the value"""
     def __init__(self, *args, **kwargs):
         self._queue = asyncio.Queue(*args, **kwargs)
 
