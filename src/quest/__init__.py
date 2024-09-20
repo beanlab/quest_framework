@@ -9,6 +9,7 @@ from .history import History
 from .persistence import LocalFileSystemBlobStorage, PersistentHistory
 from .versioning import version, get_version
 from .manager import WorkflowManager, WorkflowFactory
+from .utils import ainput
 
 
 def create_filesystem_historian(save_folder: Path, historian_id: str, function: Callable) -> Historian:

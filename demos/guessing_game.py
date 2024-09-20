@@ -2,7 +2,7 @@ import asyncio
 import random
 from pathlib import Path
 
-from quest import step, create_filesystem_manager
+from quest import step, create_filesystem_manager, ainput
 
 
 @step
@@ -16,8 +16,8 @@ async def display(*args, **kwargs):
 
 
 @step
-async def get_input(*args, **kwargs):
-    return input(*args, **kwargs)
+async def get_input(*args):
+    return await ainput(*args)
 
 
 async def guessing_game():
