@@ -21,15 +21,24 @@ def create_filesystem_historian(save_folder: Path, historian_id: str, function: 
         history
     )
 
-
+# TODO: you can probably copy this function and pass in a sql db connection or something
 def create_filesystem_manager(
         save_folder: Path,
         namespace: str,
         factory: WorkflowFactory
 ) -> WorkflowManager:
+    # TODO: We will just need to create a SqlBlobStorage
     storage = LocalFileSystemBlobStorage(save_folder / namespace)
 
     def create_history(wid: str) -> History:
         return PersistentHistory(wid, LocalFileSystemBlobStorage(save_folder / namespace / wid))
 
     return WorkflowManager(namespace, storage, create_history, factory)
+
+def create_sql_manager(
+        db_path: Path,
+        namespace: str,
+        factory: WorkflowFactory
+) -> WorkflowManager:
+
+    pass

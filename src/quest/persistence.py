@@ -1,8 +1,12 @@
 # Enable event histories to be persistent
 import json
 from hashlib import md5
+from json.decoder import JSONObject
 from pathlib import Path
 from typing import Protocol, Union
+from sqlalchemy import create_engine, Column, Integer, String, JSON
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 from .history import History
 from .quest_types import EventRecord
@@ -78,6 +82,40 @@ class LocalFileSystemBlobStorage(BlobStorage):
 
     def delete_blob(self, key: str):
         self._get_file(key).unlink()
+
+class SqlBlobStorage(BlobStorage):
+    Base = declarative_base()
+
+    class SqlRecord(Base):
+        __tablename__ = 'records'
+
+        key = Column(String, primary_key=True)
+        blob = Column(JSON)
+
+    def __init__(self, db_file: Path, base=Base):
+        self._engine = create_engine(f'sqlite:///{db_file}', echo=True)
+        base.metadata.create_all(self._engine)
+        self._session = sessionmaker(bind=self._engine)()
+
+    def write_blob(self, key: str, blob: Blob):
+        record = self.SqlRecord(key=key, blob=blob)
+        self._session.add(record)
+        self._session.commit()
+
+
+
+
+
+
+    def create_table(self):
+        self._cursor.execute('''
+            CREATE TABLE IF NOT EXISTS  (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL
+        )
+        ''')
+
+
 
 
 class InMemoryBlobStorage(BlobStorage):
