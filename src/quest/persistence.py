@@ -1,10 +1,9 @@
 # Enable event histories to be persistent
 import json
 from hashlib import md5
-from json.decoder import JSONObject
 from pathlib import Path
 from typing import Protocol, Union
-from sqlalchemy import create_engine, Column, Integer, String, JSON
+from sqlalchemy import create_engine, Column, Integer, String, JSON, select, delete
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
@@ -92,8 +91,9 @@ class SqlBlobStorage(BlobStorage):
         key = Column(String, primary_key=True)
         blob = Column(JSON)
 
+    # TODO: How does create_workflow work?
     def __init__(self, db_file: Path, base=Base):
-        self._engine = create_engine(f'sqlite:///{db_file}', echo=True)
+        self._engine = create_engine(f'sqlite:///{db_file.as_posix()}.db', echo=True)
         base.metadata.create_all(self._engine)
         self._session = sessionmaker(bind=self._engine)()
 
@@ -101,6 +101,29 @@ class SqlBlobStorage(BlobStorage):
         record = self.SqlRecord(key=key, blob=blob)
         self._session.add(record)
         self._session.commit()
+
+    def read_blob(self, key: str) -> Blob:
+        stmt = select(self.SqlRecord).where(self.SqlRecord.key == key)
+        record = self._session.execute(stmt).one_or_none()
+        if record:
+            return record.blob[0]
+        else:
+            raise KeyError("No record found for key")
+
+    def has_blob(self, key: str) -> bool:
+        stmt = select(self.SqlRecord).where(self.SqlRecord.key == key)
+        record = self._session.execute(stmt).scalar_one_or_none()
+        if record:
+            return True
+        else:
+            return False
+
+    def delete_blob(self, key: str):
+        stmt = delete(self.SqlRecord).where(self.SqlRecord.key == key)
+        self._session.execute(stmt)
+        self._session.commit()
+
+
 
 
 

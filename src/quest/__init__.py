@@ -6,7 +6,7 @@ from .wrappers import step, task
 from .external import state, queue, identity_queue, event
 from .historian import Historian
 from .history import History
-from .persistence import LocalFileSystemBlobStorage, PersistentHistory
+from .persistence import LocalFileSystemBlobStorage, SqlBlobStorage, PersistentHistory
 from .versioning import version, get_version
 from .manager import WorkflowManager, WorkflowFactory
 from .utils import ainput
@@ -40,5 +40,9 @@ def create_sql_manager(
         namespace: str,
         factory: WorkflowFactory
 ) -> WorkflowManager:
+    storage = SqlBlobStorage(db_path / namespace)
 
-    pass
+    def create_history(wid: str) -> History:
+        return PersistentHistory(wid, SqlBlobStorage(db_path / namespace / wid))
+
+    return WorkflowManager(namespace, storage, create_history, factory)
