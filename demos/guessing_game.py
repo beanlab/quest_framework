@@ -35,6 +35,7 @@ async def guessing_game():
 
 
 async def main():
+    # TODO: Make a SQL backend for Blobstorage
     async with create_filesystem_manager(
             Path('state'),
             'guess_game_demo',
