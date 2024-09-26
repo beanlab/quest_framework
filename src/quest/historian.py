@@ -2,6 +2,7 @@ import asyncio
 import inspect
 import logging
 import traceback
+import uuid
 from asyncio import Task
 from contextvars import ContextVar
 from datetime import datetime
@@ -983,6 +984,8 @@ class Historian:
 
         logging.debug(f'Resource stream created for {identity}')
 
+        stream_id = uuid.uuid4()
+
         # _handle_resource_updates puts on this queue when the resources have changed
         self._resource_queues.setdefault(identity, asyncio.Queue())
 
@@ -997,9 +1000,18 @@ class Historian:
 
         while not self._workflow_completed:
             # Yield new resources updates as they become available
+            self._resource_events[identity].clear()
             await self._resource_queues[identity].get()
-            yield await self.get_resources(identity)
             self._resource_events[identity].set()
+            yield await self.get_resources(identity)
+
+    async def close_resource_stream(self, identity):
+        if self._resource_events.get(identity) is not None:
+            self._resource_events.pop(identity)
+        if self._resource_queues.get(identity) is not None:
+            self._resource_queues.pop(identity)
+
+        logging.debug(f'Resource stream closed for {identity}')
 
     async def _handle_resource_update(self, identity):
         # If the user with `identity` has not called `stream_resources`, an update is not needed
@@ -1007,7 +1019,6 @@ class Historian:
             # If the user has called stream_resources, there should be a resource_event for `identity`
             assert self._resource_events.get(identity) is not None
 
-            self._resource_events[identity].clear()
             await resource_queue.put('Resource Update')
             await self._resource_events[identity].wait()
 
