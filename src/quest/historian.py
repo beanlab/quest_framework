@@ -234,7 +234,7 @@ class Historian:
         # An asyncio.event by identity that is used to handle resource stream updates
         # and force the application to yield and update to a user before moving on.
         # Instantiated by stream_resources()
-        self._resource_events: dict[str, asyncio.Event] = {}
+        self._resource_events: dict[str, dict[str, asyncio.Event]] = {}
 
         # We keep track of all open tasks so we can properly suspend them
         self._open_tasks: list[Task] = []
@@ -980,16 +980,18 @@ class Historian:
         # resources before continuing on
         # (otherwise the historian would move until blocked,
         # and the observer wouldn't get a chance to respond to resource changes)
-        self._resource_events.setdefault(identity, asyncio.Event())
+        self._resource_events.setdefault(identity, {})
+        self._resource_events[identity].setdefault('stream_gate', asyncio.Event())
+        self._resource_events[identity].setdefault('stream_request', asyncio.Event().set())
 
         # Yield the current resources immediately
         yield await self.get_resources(identity)
 
         while not self._workflow_completed:
             # Yield new resources updates as they become available
-            self._resource_events[identity].clear()
+            self._resource_events[identity]['stream_request'].set()
             await self._resource_queues[identity].get()
-            self._resource_events[identity].set()
+            self._resource_events[identity]['stream_gate'].set()
             yield await self.get_resources(identity)
 
     async def close_resource_stream(self, identity):
@@ -1006,8 +1008,11 @@ class Historian:
             # If the user has called stream_resources, there should be a resource_event for `identity`
             assert self._resource_events.get(identity) is not None
 
-            await resource_queue.put('Resource Update')
-            await self._resource_events[identity].wait()
+            if self._resource_events[identity]['stream_request'].is_set():
+                self._resource_events[identity]['stream_request'].clear()
+                await resource_queue.put('Resource Update')
+                await self._resource_events[identity]['stream_gate'].wait()
+                self._resource_events[identity]['stream_gate'].clear()
 
     async def wait_for_completion(self, identity):
         """
