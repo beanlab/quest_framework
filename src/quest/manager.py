@@ -1,4 +1,5 @@
 import asyncio
+from contextvars import ContextVar
 from functools import wraps
 from typing import Protocol, Callable, TypeVar
 
@@ -18,6 +19,10 @@ class WorkflowFactory(Protocol):
 
 T = TypeVar('T')
 
+workflow_manager = ContextVar('workflow_manager')
+
+
+
 
 class WorkflowManager:
     """
@@ -34,6 +39,7 @@ class WorkflowManager:
         self._workflow_data = []
         self._workflows: dict[str, Historian] = {}
         self._workflow_tasks: dict[str, asyncio.Task] = {}
+        self._alias_dictionary = {}
 
     async def __aenter__(self) -> 'WorkflowManager':
         """Load the workflows and get them running again"""
@@ -84,9 +90,11 @@ class WorkflowManager:
         self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs, background=True)
 
     def has_workflow(self, workflow_id: str) -> bool:
+        # TODO: Here check for alias
         return workflow_id in self._workflows
 
     def get_workflow(self, workflow_id: str) -> asyncio.Task:
+        # TODO: Here check for alias
         return self._workflow_tasks[workflow_id]
 
     async def suspend_workflow(self, workflow_id: str):
@@ -151,3 +159,8 @@ class WorkflowManager:
     async def get_identity_queue(self, workflow_id: str, name: str, identity: str | None) -> IdentityQueue:
         await self._check_resource(workflow_id, name, identity)
         return self._wrap(IdentityQueue(), workflow_id, name, identity)
+
+
+def find_workflow_manager() -> WorkflowManager:
+        if (manager := workflow_manager.get()) is not None:
+            return manager
