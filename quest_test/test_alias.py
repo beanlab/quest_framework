@@ -1,23 +1,26 @@
 import asyncio
 import pytest
 
-from src.quest import step
+from src.quest import step, queue
 from src.quest.historian import Historian
 from src.quest.wrappers import task
-from src.quest.manager_wrappers import Alias
+from src.quest.manager_wrappers import alias
 from utils import timeout
 
+
 def test_alias():
+    gate = asyncio.Event()
 
-@step
-async def append_data(array: [], data):
-    array.append(data)
-    return array
+    @task
+    async def workflow_a():
+        async with queue('data', None) as q:
+            async with alias('the_foo'):
+                await q.get()
+            await gate.wait()
+            await q.get()
 
-@task
-async def workflow1(data):
-    array = await append_data([], data)
-    return array
+
+    pass
 
 counters = {}
 pauses = {}

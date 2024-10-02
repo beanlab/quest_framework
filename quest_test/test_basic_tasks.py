@@ -1,7 +1,7 @@
 import asyncio
 import pytest
 
-from src.quest import step
+from src.quest import step, queue
 from src.quest.historian import Historian
 from src.quest.wrappers import task
 from utils import timeout

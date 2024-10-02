@@ -90,11 +90,17 @@ class WorkflowManager:
         self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs, background=True)
 
     def has_workflow(self, workflow_id: str) -> bool:
-        # TODO: Here check for alias
+        # TODO: Here check for alias, assuming alias will be passed in here?
+        if self._check_alias(workflow_id):
+            return self._get_workflow_id_from_alias(workflow_id) in self._workflows
+
         return workflow_id in self._workflows
 
     def get_workflow(self, workflow_id: str) -> asyncio.Task:
-        # TODO: Here check for alias
+        # TODO: Here check for alias, improve check/get
+        if self._check_alias(workflow_id):
+            return self._workflow_tasks[self._get_workflow_id_from_alias(workflow_id)]
+
         return self._workflow_tasks[workflow_id]
 
     async def suspend_workflow(self, workflow_id: str):
@@ -160,6 +166,21 @@ class WorkflowManager:
         await self._check_resource(workflow_id, name, identity)
         return self._wrap(IdentityQueue(), workflow_id, name, identity)
 
+    def register_alias(self, alias: str, workflow_id: str):
+        if alias not in self._alias_dictionary:
+            self._alias_dictionary[alias] = workflow_id
+        # TODO: What do we want to do if there is a conflict?
+
+    def deregister_alias(self, alias: str):
+        if alias in self._alias_dictionary:
+            del self._alias_dictionary[alias]
+
+    def _check_alias(self, alias: str):
+        return True if alias in self._alias_dictionary else False
+
+    def _get_workflow_id_from_alias(self, alias: str) -> str:
+        if alias in self._alias_dictionary:
+            return self._alias_dictionary[alias]
 
 def find_workflow_manager() -> WorkflowManager:
         if (manager := workflow_manager.get()) is not None:
