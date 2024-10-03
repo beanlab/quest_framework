@@ -7,20 +7,55 @@ from src.quest.wrappers import task
 from src.quest.manager_wrappers import alias
 from utils import timeout
 
+# TODO: test exception on alias dict collision
 
-def test_alias():
-    gate = asyncio.Event()
+@pytest.mark.asyncio
+async def test_alias():
+    gate_a = asyncio.Event()
+    gate_b = asyncio.Event()
 
     @task
     async def workflow_a():
+        data = []
         async with queue('data', None) as q:
             async with alias('the_foo'):
-                await q.get()
-            await gate.wait()
-            await q.get()
+                data.append(await q.get())
+            await gate_a.wait()
+            data.append(await q.get())
 
+    @task
+    async def workflow_b():
+        # TODO: How should I check the data?
+        data = []
+        async with queue('data', None) as q:
+            await gate_b.wait()
+            async with alias('the_foo'):
+                data.append(await q.get())
+            data.append(await q.get())
+        return data
 
-    pass
+    async def run_workflows():
+        # TODO: Is this how I should be switching off alias?
+        res_a = await workflow_a()
+        res_b = await workflow_b()
+        gate_b.set()
+        gate_a.set()
+
+        print(res_a)
+        print(res_b)
+
+    history = []
+    # TODO: Does historian wrap the workflow stuff?
+    historian = Historian(
+        'test',
+        run_workflows,
+        history,
+    )
+
+    async with queue('data', None) as q:
+        # TODO: Check Bean's messages
+        await q.put('foo')
+        await q.put('bar')
 
 counters = {}
 pauses = {}
