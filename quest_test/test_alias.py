@@ -38,8 +38,6 @@ async def test_alias():
         # TODO: Is this how I should be switching off alias?
         res_a = await workflow_a()
         res_b = await workflow_b()
-        gate_b.set()
-        gate_a.set()
 
         print(res_a)
         print(res_b)
@@ -51,6 +49,14 @@ async def test_alias():
         run_workflows,
         history,
     )
+
+    # TODO: Which way is correct? Here or ln 61
+    resources = await historian.get_resources(None)
+    data_queue = resources.get('data')
+    data_queue.put('foo')
+
+    gate_b.set()
+    gate_a.set()
 
     async with queue('data', None) as q:
         # TODO: Check Bean's messages
