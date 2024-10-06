@@ -34,6 +34,13 @@ async def test_alias():
                 data_b.append(await q.get())
             data_b.append(await q.get())
 
+    async def create_workflow(wid: str):
+        match(wid):
+            case 'workflow_a':
+                return workflow_a()
+            case 'workflow_b':
+                return workflow_b()
+
     storage = InMemoryBlobStorage()
     histories = {}
 
@@ -42,21 +49,19 @@ async def test_alias():
             histories[wid] = PersistentHistory(wid, InMemoryBlobStorage())
         return histories[wid]
 
-    async with WorkflowManager('test_alias', storage, create_history, lambda w_type: workflow_a) as manager:
+    async with WorkflowManager('test_alias', storage, create_history, lambda w_type: create_workflow) as manager:
         manager.start_workflow('workflow_a', 'wid_a')
+        manager.start_workflow('workflow_b', 'wid_b')
         foo_resources = await manager.get_resources('the_foo', None)
         a_resources = await manager.get_resources('wid_a', None)
+        b_resources = await manager.get_resources('workflow_b', None)
         # TODO: Will there be two different queues here?
         data_foo = foo_resources['data']
         data_a = a_resources['data']
-        await data_a.put('I am Workflow A')
+        data_b = b_resources['data']
+        await data_a.put('I am Workflow A (1)')
+        await data_b.put('I am Workflow B (1)')
         await data_foo.put('I am the FOO')
-
-    async with WorkflowManager('test_alias', storage, create_history, lambda w_type: workflow_b) as manager:
-        manager.start_workflow('workflow_b', 'wid_b')
-        resources = await manager.get_resources('the_foo', None)
-        data_foo = resources['data']
-        # Now pause the manager and all workflows
 
     assert 'wid1' in histories
     assert counter_a == 1
