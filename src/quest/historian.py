@@ -12,6 +12,7 @@ from typing import Callable, TypeVar
 from .history import History
 from .quest_types import ConfigurationRecord, VersionRecord, StepStartRecord, StepEndRecord, \
     ExceptionDetails, ResourceAccessEvent, ResourceEntry, ResourceLifecycleEvent, TaskEvent
+from .resources import ResourceStreamManager
 
 QUEST_VERSIONS = "_quest_versions"
 GLOBAL_VERSION = "_global_version"
@@ -227,14 +228,8 @@ class Historian:
         # See also external.py
         self._resources: dict[str, ResourceEntry] = {}
 
-        # These are asyncio.queues that are used to signal resource updates across
-        # the workflow. Instantiated by stream_resources()
-        self._resource_queues: dict[str, asyncio.Queue] = {}
-
-        # An asyncio.event by identity that is used to handle resource stream updates
-        # and force the application to yield and update to a user before moving on.
-        # Instantiated by stream_resources()
-        self._resource_events: dict[str, dict[str, asyncio.Event]] = {}
+        # This is the resource stream manager that handles calls to stream the historian's resources
+        self._resource_stream_manager = ResourceStreamManager()
 
         # We keep track of all open tasks so we can properly suspend them
         self._open_tasks: list[Task] = []
@@ -701,7 +696,7 @@ class Historian:
                 kwargs=kwargs,
                 result=result
             ))
-            await self._handle_resource_update(identity)
+            await self.update_resource_stream(identity)
 
         else:
             with next_record as record:
@@ -741,7 +736,7 @@ class Historian:
                 resource_id=resource_id,
                 resource_type=_get_type_name(resource)
             ))
-            await self._handle_resource_update(identity)
+            await self.update_resource_stream(identity)
 
         else:
             with next_record as record:
@@ -770,7 +765,7 @@ class Historian:
                     resource_id=resource_id,
                     resource_type=resource_entry['type']
                 ))
-                await self._handle_resource_update(identity)
+                await self.update_resource_stream(identity)
 
             else:
                 with next_record as record:
@@ -833,7 +828,7 @@ class Historian:
         kwargs = await self.handle_step('kwargs', lambda: kwargs)
         result = await self.handle_step(get_function_name(self.workflow), self.workflow, *args, **kwargs)
         self._workflow_completed = True
-        await self._handle_resource_update(None)
+        await self.update_resource_stream(None)
         return result
 
     async def _run_with_exception_handling(self, *args, **kwargs):
@@ -956,70 +951,15 @@ class Historian:
         return {k: wrap_methods_as_historian_events(res, k, identity, self, internal=False) for k, res in
                 resources.items()}
 
-    async def stream_resources(self, identity):
-        """
-        Provide a stream of resource snapshots for this workflow.
-        Everytime the workflow resource state changes, an update will be published.
+    async def get_resource_stream(self, identity):
+        return self._resource_stream_manager.get_resource_stream(
+            identity,
+            lambda: self.get_resources(identity),
+            lambda: self._workflow_completed
+        )
 
-        NOTE: Once you start the resource stream,
-        the workflow will not progress unless you iterate this stream.
-        Use wait_for_completion() to automatically iterate (and ignore) the remaining updates.
-        """
-
-        # The caller of this function lives outside the step management of the historian
-        #         -> don't replay, just yield event changes in realtime
-
-        logging.debug(f'Resource stream created for {identity}')
-
-        stream_id = uuid.uuid4()
-
-        # _handle_resource_updates puts on this queue when the resources have changed
-        self._resource_queues.setdefault(identity, asyncio.Queue())
-
-        # this event ensures that the historian yields to whoever is using the
-        # resources before continuing on
-        # (otherwise the historian would move until blocked,
-        # and the observer wouldn't get a chance to respond to resource changes)
-        self._resource_events.setdefault(identity, {})
-        self._resource_events[identity].setdefault('stream_gate', asyncio.Event())
-        self._resource_events[identity].setdefault('stream_request', asyncio.Event().set())
-
-        # Yield the current resources immediately
-        yield await self.get_resources(identity)
-
-        while not self._workflow_completed:
-            # Yield new resources updates as they become available
-            self._resource_events[identity]['stream_request'].set()
-            await self._resource_queues[identity].get()
-            self._resource_events[identity]['stream_gate'].set()
-            yield await self.get_resources(identity)
-
-    async def close_resource_stream(self, identity):
-        if self._resource_events.get(identity) is not None:
-            self._resource_events.pop(identity)
-        if self._resource_queues.get(identity) is not None:
-            self._resource_queues.pop(identity)
-
-        logging.debug(f'Resource stream closed for {identity}')
-
-    async def _handle_resource_update(self, identity):
-        # If the user with `identity` has not called `stream_resources`, an update is not needed
-        if (resource_queue := self._resource_queues.get(identity)) is not None:
-            # If the user has called stream_resources, there should be a resource_event for `identity`
-            assert self._resource_events.get(identity) is not None
-
-            if self._resource_events[identity]['stream_request'].is_set():
-                self._resource_events[identity]['stream_request'].clear()
-                await resource_queue.put('Resource Update')
-                await self._resource_events[identity]['stream_gate'].wait()
-                self._resource_events[identity]['stream_gate'].clear()
-
-    async def wait_for_completion(self, identity):
-        """
-        Wait for the workflow to complete after starting the resource stream
-        """
-        async for _ in self.stream_resources(identity):
-            pass
+    async def update_resource_stream(self, identity):
+        await self._resource_stream_manager.update(identity)
 
 
 class HistorianNotFoundException(Exception):
