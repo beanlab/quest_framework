@@ -1,5 +1,5 @@
-from manager import find_workflow_manager
-from historian import find_historian
+from .manager import find_workflow_manager
+from .historian import find_historian
 
 
 class Alias:

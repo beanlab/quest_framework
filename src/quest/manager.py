@@ -58,6 +58,9 @@ class WorkflowManager:
             await historian.suspend()
 
     def _get_workflow(self, workflow_id: str):
+        # TODO: I should check here too? What is the difference?
+        if (alias := self._get_workflow_id_from_alias(workflow_id)) is not None:
+            return self._workflows[alias]
         return self._workflows[workflow_id]  # TODO check for key, throw error
 
     def _remove_workflow(self, workflow_id: str):
@@ -173,6 +176,12 @@ class WorkflowManager:
             del self._alias_dictionary[alias]
 
     def _get_workflow_id_from_alias(self, alias: str) -> str | None:
+        """Return a workflow id associated with given alias
+
+        Best if used with :=
+
+        Returns a str if alias exists, None if it doesn't
+        """
         return self._alias_dictionary.get(alias)
 
 def find_workflow_manager() -> WorkflowManager:
