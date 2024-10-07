@@ -21,6 +21,7 @@ async def test_alias():
 
     async def workflow_a():
         async with queue('data', None) as q:
+            # Take alias first
             async with alias('the_foo'):
                 data_a.append(await q.get())
             await pause.wait()
@@ -29,6 +30,7 @@ async def test_alias():
     async def workflow_b():
         async with queue('data', None) as q:
             await pause.wait()
+            # Take alias second
             async with alias('the_foo'):
                 data_b.append(await q.get())
             data_b.append(await q.get())
