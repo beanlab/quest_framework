@@ -27,7 +27,6 @@ async def test_alias():
             data_a.append(await q.get())
 
     async def workflow_b():
-        # TODO: How should I check the data?
         async with queue('data', None) as q:
             await pause.wait()
             async with alias('the_foo'):
@@ -50,53 +49,46 @@ async def test_alias():
         return histories[wid]
 
     async with WorkflowManager('test_alias', storage, create_history, lambda w_type: create_workflow) as manager:
+
+        # Start both workflows
         manager.start_workflow('workflow_a', 'wid_a')
         manager.start_workflow('workflow_b', 'wid_b')
+
+        # Gather resources
+        # TODO: Do I need to grab this again after the alias switches?
         foo_resources = await manager.get_resources('the_foo', None)
         a_resources = await manager.get_resources('wid_a', None)
         b_resources = await manager.get_resources('workflow_b', None)
-        # TODO: Will there be two different queues here?
+
+        # TODO: Will there be two different queues here? One for A and one for B?
         data_foo = foo_resources['data']
-        data_a = a_resources['data']
-        data_b = b_resources['data']
-        await data_a.put('I am Workflow A (1)')
-        await data_b.put('I am Workflow B (1)')
+        data_queue_a = a_resources['data']
+        data_queue_b = b_resources['data']
+
+        # Put first round info
+        await data_queue_a.put('I am Workflow A (1)')
+        await data_queue_b.put('I am Workflow B (1)')
         await data_foo.put('I am the FOO')
 
-    assert 'wid1' in histories
-    assert counter_a == 1
-    assert counter_b == 0
+        # Check while workflow is suspended
+        assert 'I am Workflow A (1)' in data_a
+        assert 'I am Workflow B (1)' in data_b
+        assert 'I am the FOO' in data_a
 
-    async with WorkflowManager('test-manager', storage, create_history, lambda w_type: workflow) as manager:
-        # At this point, all workflows should be resumed
+        # Restart workflows
         pause.set()
-        await asyncio.sleep(0.1)
-        result = await manager.get_workflow('wid1')
-        assert result == 11
 
-    assert counter_a == 2
-    assert counter_b == 1
+        # Send second set of data
+        await data_queue_a.put('I am Workflow A (2)')
+        await data_queue_b.put('I am Workflow B (2)')
+        await data_foo.put('I am the FOO')
 
-    history = []
-    # TODO: Does historian wrap the workflow stuff?
-    historian = Historian(
-        'test',
-        run_workflows,
-        history,
-    )
+        # Check alias switched
+        assert 'I am Workflow A (2)' in data_a
+        assert 'I am Workflow B (2)' in data_b
+        assert 'I am the FOO' in data_b
 
-    # TODO: Which way is correct? Here or ln 61
-    resources = await historian.get_resources(None)
-    data_queue = resources.get('data')
-    data_queue.put('foo')
 
-    gate_b.set()
-    gate_a.set()
-
-    async with queue('data', None) as q:
-        # TODO: Check Bean's messages
-        await q.put('foo')
-        await q.put('bar')
 
 counters = {}
 pauses = {}
