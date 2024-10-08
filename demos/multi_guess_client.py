@@ -52,7 +52,7 @@ async def main():
         # until they are no longer interested.
 
         # What I want:
-        async with client.get_resource_stream('demo', None) as resource_stream:
+        async with client.stream_resources('demo', None) as resource_stream:
             async for resources in resource_stream:
                 pass
 

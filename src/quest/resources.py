@@ -11,7 +11,8 @@ class ResourceStreamManager:
         def __init__(self, on_close: Callable):
             self._on_close = on_close
 
-        def __aenter__(self):
+        # TODO: Neither of these seem to actually need to be async? Can we make them normal? Problems with doing async things under and normal with context?
+        async def __aenter__(self):
             logging.debug(f'Resource stream opened for {id(self)}')
             return self
 
@@ -66,10 +67,18 @@ class ResourceStreamManager:
             is_workflow_complete,
             lambda res_stream: self.resource_streams[identity].remove(res_stream)
         )
+        if identity not in self.resource_streams:
+            self.resource_streams[identity] = set()
         self.resource_streams[identity].add(rs)
         return rs
 
     async def update(self, identity):
+        # If there is no resources stream associated with `identity`, no update needed.
+        if identity not in self.resource_streams:
+            return
+
+        # TODO: Say a stream is added but then removed, the identity still exists as a key but just has an empty set.
+        # Is it okay to leave it as such?
         for stream in self.resource_streams[identity]:
             stream._update_event.set()
             await stream._stream_gate.wait()

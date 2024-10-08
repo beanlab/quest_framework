@@ -1,37 +1,43 @@
 import asyncio
+import random
 
-my_queue = asyncio.Queue()
 
-async def fetch_data():
-    input_num = input('Please enter your number: ')
-    return f'The given number is: {input_num}'
+class StreamContextManager:
+    def __init__(self):
+        pass
 
-async def async_generator():
-    for number in range(8):
-        await my_queue.get()
-        print('Got resource update from queue!')
-        print('Yielding data from resource update')
-        yield number
+    async def __aenter__(self):
+        print('aenter called')
+        return self
 
-async def resource_queue_puts():
-    while True:
-        print('Simulating time between resource events...')
-        await asyncio.sleep(8)
-        await my_queue.put('task')
-        print('Resource update happened! Put onto queue!')
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        print('aexit called')
+
+
+class ResourceStream:
+    def __init__(self):
+        pass
+
+    async def __aiter__(self):
+        async with StreamContextManager():
+            for i in range(10):
+                yield random.randint(1, 100)
+
+async def client():
+    index = 0
+    try:
+        async for num in ResourceStream():
+            # if index == 3:
+            #     raise Exception('foobarbaz')
+            print(num)
+            index += 1
+    except Exception as ex:
+        assert 'foobarbaz' in str(ex)
+
 
 async def main():
-    put_queue_task = asyncio.create_task(resource_queue_puts())
-    # Use the async generator
-    index = 0
-    async for data in async_generator():
-        if index == 0:
-            assert data == 1
-            print(f'Resource update: {data}. Assert passed')
-        elif index == 1:
-            assert data == 2
-            print(f'Resource update: {data}. Assert passed')
-        index += 1
+    await client()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
