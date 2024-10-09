@@ -96,7 +96,7 @@ class WorkflowManager:
         return await self._get_workflow(workflow_id).get_resources(identity)
 
     def stream_resources(self, workflow_id: str, identity):
-        return self._get_workflow(workflow_id).stream_resources(identity)
+        return self._get_workflow(workflow_id).get_resource_stream(identity)
 
     async def wait_for_completion(self, workflow_id: str, identity):
         return await self._get_workflow(workflow_id).wait_for_completion(identity)

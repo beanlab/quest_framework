@@ -7,19 +7,6 @@ class ResourceStreamManager:
     def __init__(self):
         self.resource_streams: dict[str, set[ResourceStreamManager.ResourceStream]] = {}
 
-    class ResourceStreamContext:
-        def __init__(self, on_close: Callable):
-            self._on_close = on_close
-
-        # TODO: Neither of these seem to actually need to be async? Can we make them normal? Problems with doing async things under and normal with context?
-        async def __aenter__(self):
-            logging.debug(f'Resource stream opened for {id(self)}')
-            return self
-
-        async def __aexit__(self, exc_type, exc_value, traceback):
-            self._on_close()
-            logging.debug(f'Resource stream closed for {id(self)}')
-
     class ResourceStream:
         def __init__(self,
                      get_resources: Callable[[], Coroutine],
@@ -31,7 +18,17 @@ class ResourceStreamManager:
             self._get_resources = get_resources
             self._is_workflow_complete = is_workflow_complete
             self._on_close = on_close
+            self._is_entered = False
             # TODO - set any gates?
+
+        async def __aenter__(self):
+            self._is_entered = True
+            logging.debug(f'Resource stream opened for {id(self)}')
+            return self
+
+        async def __aexit__(self, exc_type, exc_value, traceback):
+            self._on_close(self)
+            logging.debug(f'Resource stream closed for {id(self)}')
 
         async def __aiter__(self):
             """
@@ -43,19 +40,21 @@ class ResourceStreamManager:
             Use wait_for_completion() to automatically iterate (and ignore) the remaining updates.
             """
 
+            if not self._is_entered:
+                raise Exception('ResourceStream must be used in a `with` context.')
+
             # The caller of this function lives outside the step management of the historian
             #         -> don't replay, just yield event changes in realtime
 
-            async with ResourceStreamManager.ResourceStreamContext(lambda: self._on_close(self)):
-                # Yield the current resources immediately
-                yield await self._get_resources()
+            # Yield the current resources immediately
+            yield await self._get_resources()
 
-                while not self._is_workflow_complete():
-                    # Yield new resources updates as they become available
-                    await self._update_event.wait()
-                    self._update_event.clear()
-                    yield await self._get_resources()
-                    self._stream_gate.set()
+            while not self._is_workflow_complete():
+                # Yield new resources updates as they become available
+                await self._update_event.wait()
+                self._update_event.clear()
+                yield await self._get_resources()
+                self._stream_gate.set()
 
     def get_resource_stream(self,
                             identity,
