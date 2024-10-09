@@ -18,14 +18,17 @@ async def test_alias():
     data_b = []
 
     async def workflow_a():
-        async with queue('data', None) as q:
-            # Take alias first
-            async with alias('the_foo'):
+        # TODO: Which format is correct?
+        nonlocal data_a
+        async with alias('the_foo'):
+            async with queue('data', None) as q:
+                # Take alias first
                 data_a.append(await q.get())
-            await pause.wait()
-            data_a.append(await q.get())
+        await pause.wait()
+        data_a.append(await q.get())
 
     async def workflow_b():
+        nonlocal data_b
         async with queue('data', None) as q:
             await pause.wait()
             # Take alias second
@@ -48,17 +51,27 @@ async def test_alias():
             histories[wid] = PersistentHistory(wid, InMemoryBlobStorage())
         return histories[wid]
 
-    async with WorkflowManager('test_alias', storage, create_history, lambda w_type: create_workflow) as manager:
-
-        # Start both workflows
+    async with WorkflowManager('test_alias', storage, create_history, lambda w_type: workflow_a) as manager:
         manager.start_workflow('workflow_a', 'wid_a')
-        manager.start_workflow('workflow_b', 'wid_b')
 
+        await asyncio.sleep(0.1)
+
+    # async with WorkflowManager('test_alias', storage, create_history, lambda w_type: create_workflow) as manager:
+    #
+    #     # Start both workflows
+    #     manager.start_workflow_background('workflow_a', 'wid_a')
+    #     manager.start_workflow_background('workflow_b', 'wid_b')
+    #
+    #     await asyncio.sleep(0.1)
+    #     # await manager.wait_for_completion('wid_a', None)
+    #     # await manager.wait_for_completion('wid_b', None)
+
+    async with WorkflowManager('test_alias', storage, create_history, lambda w_type: create_workflow) as manager:
         # Gather resources
         # TODO: Do I need to grab this again after the alias switches?
         foo_resources = await manager.get_resources('the_foo', None)
         a_resources = await manager.get_resources('wid_a', None)
-        b_resources = await manager.get_resources('workflow_b', None)
+        b_resources = await manager.get_resources('wid_b', None)
 
         # TODO: Will there be two different queues here? One for A and one for B?
         data_foo = foo_resources['data']
