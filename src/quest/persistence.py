@@ -6,6 +6,7 @@ from typing import Protocol, Union
 
 from .history import History
 from .quest_types import EventRecord
+from .serializer import MasterSerializer
 
 Blob = Union[dict, list, str, int, bool, float]
 
@@ -21,9 +22,10 @@ class BlobStorage(Protocol):
 
 
 class PersistentHistory(History):
-    def __init__(self, namespace: str, storage: BlobStorage):
+    def __init__(self, namespace: str, storage: BlobStorage, masterserializer: MasterSerializer = None):
         self._namespace = namespace
         self._storage = storage
+        self._masterserializer = masterserializer if masterserializer is not None else MasterSerializer()
         # TODO - use linked list instead of array list
         # master stores head/tail keys
         # each blob is item, prev, next
@@ -35,7 +37,10 @@ class PersistentHistory(History):
         if storage.has_blob(namespace):
             self._keys = storage.read_blob(namespace)
             for key in self._keys:
-                self._items.append(storage.read_blob(key))
+                serialized_item = self._storage.read_blob(key)
+                # Deserialize the item that is read from storage
+                item = self._masterserializer.deserialize(serialized_item)
+                self._items.append(item)
 
     def _get_key(self, item: EventRecord) -> str:
         return self._namespace + '.' + md5((item['timestamp'] + item['step_id'] + item['type']).encode()).hexdigest()
@@ -43,7 +48,9 @@ class PersistentHistory(History):
     def append(self, item: EventRecord):
         self._items.append(item)
         self._keys.append(key := self._get_key(item))
-        self._storage.write_blob(key, item)
+        # Serialize before writing to storage
+        serialized_item = self._masterserializer.serialize(item)
+        self._storage.write_blob(key, serialized_item)
         self._storage.write_blob(self._namespace, self._keys)
 
     def remove(self, item: EventRecord):
