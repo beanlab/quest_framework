@@ -11,12 +11,11 @@ class ResourceStreamManager:
         def __init__(self, on_close: Callable):
             self._on_close = on_close
 
-        # TODO: Neither of these seem to actually need to be async? Can we make them normal? Problems with doing async things under and normal with context?
-        async def __aenter__(self):
+        def __enter__(self):
             logging.debug(f'Resource stream opened for {id(self)}')
             return self
 
-        async def __aexit__(self, exc_type, exc_value, traceback):
+        def __exit__(self, exc_type, exc_value, traceback):
             self._on_close()
             logging.debug(f'Resource stream closed for {id(self)}')
 
@@ -31,7 +30,6 @@ class ResourceStreamManager:
             self._get_resources = get_resources
             self._is_workflow_complete = is_workflow_complete
             self._on_close = on_close
-            # TODO - set any gates?
 
         async def __aiter__(self):
             """
@@ -46,7 +44,7 @@ class ResourceStreamManager:
             # The caller of this function lives outside the step management of the historian
             #         -> don't replay, just yield event changes in realtime
 
-            async with ResourceStreamManager.ResourceStreamContext(lambda: self._on_close(self)):
+            with ResourceStreamManager.ResourceStreamContext(lambda: self._on_close(self)):
                 # Yield the current resources immediately
                 yield await self._get_resources()
 
@@ -65,7 +63,7 @@ class ResourceStreamManager:
         rs = ResourceStreamManager.ResourceStream(
             get_resources,
             is_workflow_complete,
-            lambda res_stream: self.resource_streams[identity].remove(res_stream)
+            lambda res_stream: self._on_close(identity, res_stream)
         )
         if identity not in self.resource_streams:
             self.resource_streams[identity] = set()
@@ -83,3 +81,9 @@ class ResourceStreamManager:
             stream._update_event.set()
             await stream._stream_gate.wait()
             stream._stream_gate.clear()
+
+    def _on_close(self, identity, res_stream: ResourceStream):
+        self.resource_streams[identity].remove(res_stream)
+        rs_set = self.resource_streams.get(identity)
+        if len(rs_set) == 0:
+            self.resource_streams.pop(identity)
