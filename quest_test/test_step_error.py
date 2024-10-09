@@ -1,0 +1,69 @@
+import asyncio
+import pytest
+
+from custom_errors.custom_error import MyError
+from quest_test.utils import timeout
+from src.quest import step
+from src.quest.historian import Historian
+
+
+double_calls = 0
+foo_calls = 0
+
+
+@step
+async def double(text):
+    global double_calls
+    double_calls += 1
+    return text * 2
+
+
+@step
+async def add_foo(text):
+    global foo_calls
+    foo_calls += 1
+    raise MyError(text + "foo")
+
+
+block_workflow = asyncio.Event()
+
+
+async def longer_workflow(text):
+    text = await double(text)
+    try:
+        await add_foo(text)
+    except MyError as e:
+        text = e.message
+    except Exception:
+        assert False
+    await block_workflow.wait()
+    text = await double(text)
+    return text
+
+
+@pytest.mark.asyncio
+@timeout(3)
+async def test_resume():
+    history = []
+    historian = Historian(
+        'test',
+        longer_workflow,
+        history
+    )
+
+    workflow = historian.run('abc')
+    await asyncio.sleep(0.01)
+    await historian.suspend()
+
+    assert history  # should not be empty
+
+    # Allow workflow to proceed
+    block_workflow.set()
+
+    # Start the workflow again
+    result = await historian.run('abc')
+
+    assert result == 'abcabcfooabcabcfoo'
+    assert double_calls == 2
+    assert foo_calls ==1
+

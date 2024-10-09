@@ -8,6 +8,7 @@ from datetime import datetime
 from functools import wraps
 from typing import Callable, TypeVar
 
+
 from .history import History
 from .quest_types import ConfigurationRecord, VersionRecord, StepStartRecord, StepEndRecord, \
     ExceptionDetails, ResourceAccessEvent, ResourceEntry, ResourceLifecycleEvent, TaskEvent
@@ -183,6 +184,12 @@ def get_function_name(func):
     else:  # Callable classes
         return func.__class__.__name__
 
+def get_exception_class(exception_type: str):
+    module_name, class_name = exception_type.rsplit('.', 1)
+    module = __import__(module_name, fromlist=[class_name])
+    exception_class = getattr(module, class_name)
+    return exception_class
+
 
 class Historian:
     def __init__(self, workflow_id: str, workflow: Callable, history: History):
@@ -197,6 +204,7 @@ class Historian:
 
         # These things need to be serialized
         self._history: History = history
+
 
         # The remaining properties defined in __init__
         # are reset every time you call start_workflow
@@ -530,7 +538,9 @@ class Historian:
                     if record['exception'] is None:
                         return record['result']
                     else:
-                        raise globals()[record['exception']['type']](*record['exception']['args'])
+                        exception_class = get_exception_class(record['exception']['type'])
+                        exception_args = record['exception']['args']
+                        raise exception_class(*exception_args)
                 else:
                     assert record['type'] == 'start'
 
@@ -620,6 +630,11 @@ class Historian:
         else:
             result = function(*args, **kwargs)
 
+        serializer = self._serializers.get(type(result))
+        if serializer:
+            result = serializer.to_json(result)
+
+
         self._history.append(ResourceAccessEvent(
             type='external',
             timestamp=_get_current_timestamp(),
@@ -644,6 +659,11 @@ class Historian:
             self._resources[record['resource_id']]['resource'],
             record['action']
         )(*record['args'], **record['kwargs'])
+
+        serializer = self._serializers.get(type(result))
+        if serializer:
+            result = serializer.from_json(record['result'])
+
 
         if inspect.iscoroutine(result):
             result = await result
