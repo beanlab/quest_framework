@@ -3,14 +3,11 @@ import random
 
 
 class StreamContextManager:
-    def __init__(self):
-        pass
-
-    async def __aenter__(self):
+    def __enter__(self):
         print('aenter called')
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, exc_tb):
         print('aexit called')
 
 
@@ -19,7 +16,7 @@ class ResourceStream:
         pass
 
     async def __aiter__(self):
-        async with StreamContextManager():
+        with StreamContextManager():
             for i in range(10):
                 yield random.randint(1, 100)
 
@@ -27,8 +24,8 @@ async def client():
     index = 0
     try:
         async for num in ResourceStream():
-            # if index == 3:
-            #     raise Exception('foobarbaz')
+            if index == 3:
+                raise Exception('foobarbaz')
             print(num)
             index += 1
     except Exception as ex:
