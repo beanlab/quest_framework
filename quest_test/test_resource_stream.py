@@ -6,6 +6,7 @@ from pathlib import Path
 from quest import Historian
 from src.quest import step, create_filesystem_manager
 from src.quest.external import state, queue
+from utils import timeout
 
 
 @pytest.mark.asyncio
@@ -52,6 +53,7 @@ async def test_resource_stream():
 # This is from old version of test stream resources
 
 @pytest.mark.asyncio
+@timeout(3)
 async def test_vanilla():
     @step
     async def big_phrase(phrase):
@@ -74,7 +76,7 @@ async def test_vanilla():
     )
 
     wtask = historian.run()
-    
+
     with historian.get_resource_stream(None) as resource_stream:
         updates = aiter(resource_stream)
         resources = await anext(updates)  # empty - start of workflow

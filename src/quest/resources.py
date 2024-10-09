@@ -21,12 +21,12 @@ class ResourceStreamManager:
             self._is_entered = False
             # TODO - set any gates?
 
-        async def __aenter__(self):
+        def __enter__(self):
             self._is_entered = True
             logging.debug(f'Resource stream opened for {id(self)}')
             return self
 
-        async def __aexit__(self, exc_type, exc_value, traceback):
+        def __exit__(self, exc_type, exc_value, traceback):
             self._on_close(self)
             logging.debug(f'Resource stream closed for {id(self)}')
 
@@ -64,13 +64,14 @@ class ResourceStreamManager:
         rs = ResourceStreamManager.ResourceStream(
             get_resources,
             is_workflow_complete,
-            lambda res_stream: self.resource_streams[identity].remove(res_stream)
+            lambda res_stream: self._on_close(identity, res_stream)
         )
         if identity not in self.resource_streams:
             self.resource_streams[identity] = set()
         self.resource_streams[identity].add(rs)
         return rs
 
+    # noinspection PyProtectedMember
     async def update(self, identity):
         # If there is no resources stream associated with `identity`, no update needed.
         if identity not in self.resource_streams:
@@ -82,3 +83,8 @@ class ResourceStreamManager:
             stream._update_event.set()
             await stream._stream_gate.wait()
             stream._stream_gate.clear()
+
+    def _on_close(self, identity, res_stream: ResourceStream):
+        self.resource_streams[identity].remove(res_stream)
+        if not self.resource_streams.get(identity):
+            self.resource_streams.pop(identity)
