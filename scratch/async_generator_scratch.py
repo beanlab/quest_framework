@@ -8,7 +8,7 @@ class StreamContextManager:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        print('aexit called')
+        print('aexit called', exc_type, exc_val, exc_tb)
 
 
 class ResourceStream:
@@ -30,6 +30,7 @@ async def client():
             index += 1
     except Exception as ex:
         assert 'foobarbaz' in str(ex)
+    print('leaving client')
 
 
 async def main():
