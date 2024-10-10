@@ -4,36 +4,76 @@ import logging
 
 from quest import WorkflowManager
 from quest.persistence import InMemoryBlobStorage, PersistentHistory
-from src.quest import step, queue
-from src.quest.historian import Historian
-from src.quest.wrappers import task
+from src.quest import queue, Historian
 from src.quest.manager_wrappers import alias
+from utils import timeout
+
+
+@pytest.mark.asyncio
+@timeout(3)
+async def test_alias():
+    first_pause = asyncio.Event()
+    second_pause = asyncio.Event()
+    data = []
+
+    async def workflow():
+        async with queue('data', None) as q:
+            data.append(await q.get())
+            await first_pause.wait()
+            async with alias('the_foo'):
+                data.append(await q.get())
+            await second_pause.wait()
+            data.append(await q.get())
+
+    storage = InMemoryBlobStorage()
+    histories = {}
+
+    def create_history(wid: str):
+        if wid not in histories:
+            histories[wid] = PersistentHistory(wid, InMemoryBlobStorage())
+        return histories[wid]
+
+    def create_workflow():
+        return workflow()
+
+    async with WorkflowManager('test_alias', storage, create_history, lambda w_type: create_workflow) as manager:
+        manager.start_workflow('workflow', 'wid')
+
+        await asyncio.sleep(0.1)
+
+        await manager.send_event('wid', 'data', None, 'put', 'data 1')
+
+        assert 'data 1' in data
 
 # TODO: test exception on alias dict collision
 
 @pytest.mark.asyncio
-async def test_alias():
-    pause = asyncio.Event()
+@timeout(3)
+async def test_alias_trade():
+    first_pause = asyncio.Event()
+    second_pause = asyncio.Event()
+    third_pause = asyncio.Event()
     data_a = []
     data_b = []
 
     async def workflow_a():
-        # TODO: Which format is correct?
-        nonlocal data_a
-        async with alias('the_foo'):
-            async with queue('data', None) as q:
-                # Take alias first
+        async with queue('data', None) as q:
+            async with alias('the_foo'):
+                await first_pause.wait()
                 data_a.append(await q.get())
-        await pause.wait()
-        data_a.append(await q.get())
+                data_a.append(await q.get())
+            await second_pause.wait()
+            await third_pause.wait()
+            data_a.append(await q.get())
 
     async def workflow_b():
-        nonlocal data_b
         async with queue('data', None) as q:
-            await pause.wait()
-            # Take alias second
-            async with alias('the_foo'):
-                data_b.append(await q.get())
+            await first_pause.wait()
+            data_b.append(await q.get())
+        await second_pause.wait()
+        async with alias('the_foo'):
+            await third_pause.wait()
+            data_b.append(await q.get())
             data_b.append(await q.get())
 
     async def create_workflow(wid: str):
@@ -51,56 +91,34 @@ async def test_alias():
             histories[wid] = PersistentHistory(wid, InMemoryBlobStorage())
         return histories[wid]
 
-    async with WorkflowManager('test_alias', storage, create_history, lambda w_type: workflow_a) as manager:
-        manager.start_workflow('workflow_a', 'wid_a')
-
-        await asyncio.sleep(0.1)
-
-    # async with WorkflowManager('test_alias', storage, create_history, lambda w_type: create_workflow) as manager:
-    #
-    #     # Start both workflows
-    #     manager.start_workflow_background('workflow_a', 'wid_a')
-    #     manager.start_workflow_background('workflow_b', 'wid_b')
-    #
-    #     await asyncio.sleep(0.1)
-    #     # await manager.wait_for_completion('wid_a', None)
-    #     # await manager.wait_for_completion('wid_b', None)
-
     async with WorkflowManager('test_alias', storage, create_history, lambda w_type: create_workflow) as manager:
         # Gather resources
-        # TODO: Do I need to grab this again after the alias switches?
-        foo_resources = await manager.get_resources('the_foo', None)
-        a_resources = await manager.get_resources('wid_a', None)
-        b_resources = await manager.get_resources('wid_b', None)
+        manager.start_workflow('workflow_a', 'wid_a')
+        manager.start_workflow('workflow_b', 'wid_b')
 
-        # TODO: Will there be two different queues here? One for A and one for B?
-        data_foo = foo_resources['data']
-        data_queue_a = a_resources['data']
-        data_queue_b = b_resources['data']
+        logging.info('Workflows started')
+        await asyncio.sleep(0.1)
 
-        # Put first round info
-        await data_queue_a.put('I am Workflow A (1)')
-        await data_queue_b.put('I am Workflow B (1)')
-        await data_foo.put('I am the FOO')
+        first_pause.set()
+        await manager.send_event('wid_a', 'data', None, 'put', 'data a 1')
+        await manager.send_event('wid_b', 'data', None, 'put', 'data b 1')
+        await manager.send_event('the_foo', 'data', None, 'put', 'data foo 1')
+        await asyncio.sleep(0.1)  # yield to the workflows
 
-        # Check while workflow is suspended
-        assert 'I am Workflow A (1)' in data_a
-        assert 'I am Workflow B (1)' in data_b
-        assert 'I am the FOO' in data_a
+        # now both should be waiting on second gate and no one should be the foo
+        assert not manager.has_workflow('the_foo')
+        second_pause.set()
+        await asyncio.sleep(0.1)  # yield
 
-        # Restart workflows
-        pause.set()
+        # now workflow b should be the foo
+        await manager.send_event('wid_a', 'data', None, 'put', 'data a 2')
+        await manager.send_event('wid_b', 'data', None, 'put', 'data b 2')
+        await manager.send_event('the_foo', 'data', None, 'put', 'data foo 2')
+        third_pause.set()
+        await asyncio.sleep(0.1)  # yield to the workflows
 
-        # Send second set of data
-        await data_queue_a.put('I am Workflow A (2)')
-        await data_queue_b.put('I am Workflow B (2)')
-        await data_foo.put('I am the FOO')
-
-        # Check alias switched
-        assert 'I am Workflow A (2)' in data_a
-        assert 'I am Workflow B (2)' in data_b
-        assert 'I am the FOO' in data_b
-
+        assert data_a == ['data a 1', 'data foo 1', 'data a 2']
+        assert data_b == ['data b 1', 'data b 2', 'data foo 2']
 
 
 

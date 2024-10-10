@@ -1,5 +1,6 @@
 import asyncio
-from contextvars import ContextVar
+from contextvars import ContextVar, copy_context
+from decimal import Context
 from functools import wraps
 from typing import Protocol, Callable, TypeVar, Any
 
@@ -186,5 +187,8 @@ class WorkflowManager:
         return self._alias_dictionary.get(alias)
 
 def find_workflow_manager() -> WorkflowManager:
-        if (manager := workflow_manager.get()) is not None:
-            return manager
+    # TODO: TESTING
+    ctx = copy_context()
+    return list(ctx.items())
+    # if (manager := workflow_manager.get()) is not None:
+    #         return manager
