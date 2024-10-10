@@ -2,7 +2,6 @@ import asyncio
 import inspect
 import logging
 import traceback
-import uuid
 from asyncio import Task
 from contextvars import ContextVar
 from datetime import datetime
@@ -696,7 +695,7 @@ class Historian:
                 kwargs=kwargs,
                 result=result
             ))
-            await self.update_resource_stream(identity)
+            await self._update_resource_stream(identity)
 
         else:
             with next_record as record:
@@ -736,7 +735,7 @@ class Historian:
                 resource_id=resource_id,
                 resource_type=_get_type_name(resource)
             ))
-            await self.update_resource_stream(identity)
+            await self._update_resource_stream(identity)
 
         else:
             with next_record as record:
@@ -765,7 +764,7 @@ class Historian:
                     resource_id=resource_id,
                     resource_type=resource_entry['type']
                 ))
-                await self.update_resource_stream(identity)
+                await self._update_resource_stream(identity)
 
             else:
                 with next_record as record:
@@ -828,7 +827,7 @@ class Historian:
         kwargs = await self.handle_step('kwargs', lambda: kwargs)
         result = await self.handle_step(get_function_name(self.workflow), self.workflow, *args, **kwargs)
         self._workflow_completed = True
-        await self.update_resource_stream(None)
+        await self._update_resource_stream(None)
         return result
 
     async def _run_with_exception_handling(self, *args, **kwargs):
@@ -958,7 +957,7 @@ class Historian:
             lambda: self._workflow_completed
         )
 
-    async def update_resource_stream(self, identity):
+    async def _update_resource_stream(self, identity):
         await self._resource_stream_manager.update(identity)
 
 
