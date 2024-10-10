@@ -1,6 +1,8 @@
 import asyncio
+from contextvars import ContextVar, copy_context
+from decimal import Context
 from functools import wraps
-from typing import Protocol, Callable, TypeVar
+from typing import Protocol, Callable, TypeVar, Any
 
 from .external import State, IdentityQueue, Queue, Event
 from .historian import Historian, _Wrapper
@@ -18,6 +20,7 @@ class WorkflowFactory(Protocol):
 
 T = TypeVar('T')
 
+workflow_manager = ContextVar('workflow_manager')
 
 class WorkflowManager:
     """
@@ -34,8 +37,11 @@ class WorkflowManager:
         self._workflow_data = []
         self._workflows: dict[str, Historian] = {}
         self._workflow_tasks: dict[str, asyncio.Task] = {}
+        self._alias_dictionary = {}
 
     async def __aenter__(self) -> 'WorkflowManager':
+        # TODO: Is this where I should put this? Won't be set outside of a context, but probably don't need to right?
+        workflow_manager.set(self)
         """Load the workflows and get them running again"""
         if self._storage.has_blob(self._namespace):
             self._workflow_data = self._storage.read_blob(self._namespace)
@@ -52,6 +58,9 @@ class WorkflowManager:
             await historian.suspend()
 
     def _get_workflow(self, workflow_id: str):
+        # TODO: I should check here too? What is the difference?
+        if (alias := self._check_alias(workflow_id)) is not None:
+            return self._workflows[alias]
         return self._workflows[workflow_id]  # TODO check for key, throw error
 
     def _remove_workflow(self, workflow_id: str):
@@ -64,6 +73,8 @@ class WorkflowManager:
                         workflow_type: str, workflow_id: str, workflow_args, workflow_kwargs,
                         background=False):
         workflow_function = self._create_workflow(workflow_type)
+
+        workflow_manager.set(self)
 
         history = self._create_history(workflow_id)
         historian: Historian = Historian(workflow_id, workflow_function, history)
@@ -84,9 +95,13 @@ class WorkflowManager:
         self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs, background=True)
 
     def has_workflow(self, workflow_id: str) -> bool:
+        if (alias := self._check_alias(workflow_id)) is not None:
+            return alias in self._workflows
         return workflow_id in self._workflows
 
     def get_workflow(self, workflow_id: str) -> asyncio.Task:
+        if (alias := self._check_alias(workflow_id)) is not None:
+            return self._workflow_tasks[alias]
         return self._workflow_tasks[workflow_id]
 
     async def suspend_workflow(self, workflow_id: str):
@@ -151,3 +166,29 @@ class WorkflowManager:
     async def get_identity_queue(self, workflow_id: str, name: str, identity: str | None) -> IdentityQueue:
         await self._check_resource(workflow_id, name, identity)
         return self._wrap(IdentityQueue(), workflow_id, name, identity)
+
+    def register_alias(self, alias: str, workflow_id: str):
+        if alias not in self._alias_dictionary:
+            self._alias_dictionary[alias] = workflow_id
+        else:
+            raise Exception('Alias already exists')
+
+    def deregister_alias(self, alias: str):
+        if alias in self._alias_dictionary:
+            del self._alias_dictionary[alias]
+
+
+    # TODO refactor, deduplicate
+    def _check_alias(self, alias: str) -> str | None:
+        """Check to see if an alias exists
+
+        Returns a str of the workflow id if alias exists, None if it doesn't
+        """
+        return self._alias_dictionary.get(alias)
+
+def find_workflow_manager() -> WorkflowManager:
+    # TODO: TESTING
+    ctx = copy_context()
+    return list(ctx.items())
+    # if (manager := workflow_manager.get()) is not None:
+    #         return manager
