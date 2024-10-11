@@ -2,7 +2,6 @@ import asyncio
 import inspect
 import logging
 import traceback
-import uuid
 from asyncio import Task
 from contextvars import ContextVar
 from datetime import datetime
