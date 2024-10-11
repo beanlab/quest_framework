@@ -2,7 +2,7 @@ import asyncio
 import uuid
 from typing import TypeVar, Generic
 
-from .historian import find_historian, SUSPENDED, Historian, wrap_methods_as_historian_events
+from .historian import find_historian, SUSPENDED, wrap_methods_as_historian_events
 
 
 #
