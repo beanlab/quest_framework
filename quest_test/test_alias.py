@@ -4,8 +4,7 @@ import logging
 
 from quest import WorkflowManager
 from quest.persistence import InMemoryBlobStorage, PersistentHistory
-from src.quest import queue, Historian
-from src.quest.manager_wrappers import alias
+from quest import queue, Historian, alias
 from utils import timeout
 
 
@@ -19,8 +18,9 @@ async def test_alias():
     async def workflow():
         async with queue('data', None) as q:
             data.append(await q.get())
-            await first_pause.wait()
             async with alias('the_foo'):
+                # Create the alias but wait for the data to get sent to it
+                await first_pause.wait()
                 data.append(await q.get())
             await second_pause.wait()
             data.append(await q.get())
@@ -38,12 +38,28 @@ async def test_alias():
 
     async with WorkflowManager('test_alias', storage, create_history, lambda w_type: create_workflow) as manager:
         manager.start_workflow('workflow', 'wid')
-
         await asyncio.sleep(0.1)
 
-        await manager.send_event('wid', 'data', None, 'put', 'data 1')
+        await manager.send_event('wid', 'data', None, 'put', '1')
+        await asyncio.sleep(0.1)
 
-        assert 'data 1' in data
+        assert '1' in data
+
+        await manager.send_event('the_foo', 'data', None, 'put', 'foo')
+        first_pause.set()
+        await asyncio.sleep(0.1)
+
+        assert 'foo' in data
+
+        await manager.send_event('wid', 'data', None, 'put', '2')
+        second_pause.set()
+        await asyncio.sleep(0.1)
+
+        assert '2' in data
+
+        await manager.wait_for_completion('wid', None)
+
+
 
 # TODO: test exception on alias dict collision
 

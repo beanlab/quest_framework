@@ -167,13 +167,13 @@ class WorkflowManager:
         await self._check_resource(workflow_id, name, identity)
         return self._wrap(IdentityQueue(), workflow_id, name, identity)
 
-    def register_alias(self, alias: str, workflow_id: str):
+    async def register_alias(self, alias: str, workflow_id: str):
         if alias not in self._alias_dictionary:
             self._alias_dictionary[alias] = workflow_id
         else:
             raise Exception('Alias already exists')
 
-    def deregister_alias(self, alias: str):
+    async def deregister_alias(self, alias: str):
         if alias in self._alias_dictionary:
             del self._alias_dictionary[alias]
 
@@ -187,8 +187,5 @@ class WorkflowManager:
         return self._alias_dictionary.get(alias)
 
 def find_workflow_manager() -> WorkflowManager:
-    # TODO: TESTING
-    ctx = copy_context()
-    return list(ctx.items())
-    # if (manager := workflow_manager.get()) is not None:
-    #         return manager
+    if (manager := workflow_manager.get()) is not None:
+            return manager
