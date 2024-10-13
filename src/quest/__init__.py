@@ -10,6 +10,7 @@ from .persistence import LocalFileSystemBlobStorage, PersistentHistory
 from .versioning import version, get_version
 from .manager import WorkflowManager, WorkflowFactory
 from .utils import ainput
+from .serializer import MasterSerializer
 
 
 def create_filesystem_historian(save_folder: Path, historian_id: str, function: Callable) -> Historian:
@@ -29,7 +30,7 @@ def create_filesystem_manager(
 ) -> WorkflowManager:
     storage = LocalFileSystemBlobStorage(save_folder / namespace)
 
-    def create_history(wid: str) -> History:
-        return PersistentHistory(wid, LocalFileSystemBlobStorage(save_folder / namespace / wid))
+    def create_history(wid: str, master_serializer: MasterSerializer) -> History:
+        return PersistentHistory(wid, LocalFileSystemBlobStorage(save_folder / namespace / wid), master_serializer)
 
     return WorkflowManager(namespace, storage, create_history, factory)
