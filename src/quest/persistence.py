@@ -3,6 +3,7 @@ import json
 from hashlib import md5
 from pathlib import Path
 from typing import Protocol, Union
+import asyncio
 
 from .history import History
 from .quest_types import EventRecord
@@ -22,10 +23,10 @@ class BlobStorage(Protocol):
 
 
 class PersistentHistory(History):
-    def __init__(self, namespace: str, storage: BlobStorage, masterserializer: MasterSerializer = None):
+    def __init__(self, namespace: str, storage: BlobStorage, master_serializer: MasterSerializer = None):
         self._namespace = namespace
         self._storage = storage
-        self._masterserializer = masterserializer if masterserializer is not None else MasterSerializer()
+        self._master_serializer = master_serializer or MasterSerializer()
         # TODO - use linked list instead of array list
         # master stores head/tail keys
         # each blob is item, prev, next
@@ -39,17 +40,17 @@ class PersistentHistory(History):
             for key in self._keys:
                 serialized_item = self._storage.read_blob(key)
                 # Deserialize the item that is read from storage
-                item = self._masterserializer.deserialize(serialized_item)
+                item = asyncio.run(self._master_serializer.deserialize(serialized_item))
                 self._items.append(item)
 
     def _get_key(self, item: EventRecord) -> str:
         return self._namespace + '.' + md5((item['timestamp'] + item['step_id'] + item['type']).encode()).hexdigest()
 
-    def append(self, item: EventRecord):
+    async def append(self, item: EventRecord):
         self._items.append(item)
         self._keys.append(key := self._get_key(item))
         # Serialize before writing to storage
-        serialized_item = self._masterserializer.serialize(item)
+        serialized_item = await self._master_serializer.serialize(item)
         self._storage.write_blob(key, serialized_item)
         self._storage.write_blob(self._namespace, self._keys)
 

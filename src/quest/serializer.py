@@ -1,65 +1,67 @@
 from typing import Any, Dict, Tuple
 import importlib
 
+from .utils import get_obj_name, import_object
+
 
 class MasterSerializer:
-    def serialize(self, obj: Any) -> Any:
+    def __init__(self, type_serializers=None):
+        # Initialize with a dictionary of custom serializers - default to empty dict
+        self._type_serializers = type_serializers or {}
+
+    async def serialize(self, obj: Any) -> Any:
         # Check if it is a known type - directly serializable to JSON
         if isinstance(obj, (int, float, str, bool, type(None))):
             return obj
         elif isinstance(obj, dict):
-            return {self.serialize(k): self.serialize(v) for k, v in obj.items()}
+            return {await self.serialize(k): await self.serialize(v) for k, v in obj.items()}
         elif isinstance(obj, list):
-            return [self.serialize(v) for v in obj]
+            return [await self.serialize(v) for v in obj]
         elif isinstance(obj, tuple):
-            return tuple(self.serialize(v) for v in obj)
-        # Unknown type (Object) - serialize using type and constructor arguments
-        else:
-            args, kwargs = self._get_constructor_args(obj)
+            return tuple([await self.serialize(v) for v in obj])
+
+        # Check if custom serializer is registered for the object's type
+        serializer = self._type_serializers.get(type(obj))
+        if serializer:
+            factory, args, kwargs = serializer(obj)
+            # Get full name of the factory (function, class)
+            factory_name = get_obj_name(factory)
             return {
-                '_ms_type': obj.__module__ + '.' + obj.__class__.__name__,
-                'args': self.serialize(args),
-                'kwargs': self.serialize(kwargs)
+                '_ms_factory': factory_name,
+                'args': await self.serialize(args),
+                'kwargs': await self.serialize(kwargs)
             }
+        else:
+            # Default - return object as-is
+            return obj
 
     # Reconstruct original python object using dictionary
-    def deserialize(self, data: Any) -> Any:
+    async def deserialize(self, data: Any) -> Any:
         # Check data - JSON-serializable type
         if isinstance(data, (int, float, str, bool, type(None))):
             return data
         elif isinstance(data, list):
-            return [self.deserialize(v) for v in data]
+            return [await self.deserialize(v) for v in data]
         elif isinstance(data, tuple):
-            return tuple(self.deserialize(v) for v in data)
+            return tuple([await self.deserialize(v) for v in data])
         elif isinstance(data, dict):
             if '_ms_type' in data:
-                # Reconstruct object using the type and constructor arguments in the dictionary
-                cls = self._import_class(data['_ms_type'])
+                # Import factory using full name
+                factory = import_object(data['_ms_type'])
                 # Recursively deserialize - args and kwargs might be serialized object
-                args = self.deserialize(data.get('args', []))
-                kwargs = self.deserialize(data.get('kwargs', {}))
+                args = await self.deserialize(data.get('args', []))
+                kwargs = await self.deserialize(data.get('kwargs', {}))
+
+                # Check if the factory is coroutine function?
+
                 # Instantiate object
-                return cls(*args, **kwargs)
+                return factory(*args, **kwargs)
             else:
-                return {self.deserialize(k): self.deserialize(v) for k, v in data.items()}
+                return {await self.deserialize(k): await self.deserialize(v) for k, v in data.items()}
         else:
+            # Default - return data as-is
             return data
 
-    # Retrieves the constructor arguments from the object's __dict__
-    def _get_constructor_args(self, obj: Any) -> Tuple[Tuple, Dict]:
-        args = ()
-        if hasattr(obj, '__getstate__'):
-            kwargs = obj.__getstate__()
-        else:
-            kwargs = obj.__dict__.copy()
-        return args, kwargs
-
-    # Imports and returns the class with full module and class name(string)
-    def _import_class(self, full_class_string: str):
-        # split class string -> module path, class name
-        module_path, class_name = full_class_string.rsplit('.', 1)
-        module = importlib.import_module(module_path)
-        # Retrieve class from module
-        cls = getattr(module, class_name)
-        # class object
-        return cls
+    def register_serializer(self, obj_type: type, serializer_func):
+        # Store serializer function using the given object type
+        self._type_serializers[obj_type] = serializer_func

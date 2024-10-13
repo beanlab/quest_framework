@@ -1,9 +1,6 @@
 import asyncio
 import random
 from pathlib import Path
-import sys
-
-sys.path.append(str(Path(__file__).resolve().parent / 'src'))
 
 from quest import step, create_filesystem_manager, ainput
 
