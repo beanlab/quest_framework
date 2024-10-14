@@ -5,7 +5,7 @@ from typing import Callable, Coroutine
 
 class ResourceStreamManager:
     def __init__(self):
-        self.resource_streams: dict[str, set[ResourceStreamManager.ResourceStream]] = {}
+        self._resource_streams: dict[str, set[ResourceStreamManager.ResourceStream]] = {}
 
     class ResourceStream:
         def __init__(self,
@@ -27,6 +27,8 @@ class ResourceStreamManager:
             return self
 
         def __exit__(self, exc_type, exc_value, traceback):
+            # TODO: How do we let the workflow continue if it is already awaiting the stream_gate?
+            self._stream_gate.set()
             self._on_close(self)
             logging.debug(f'Resource stream closed for {id(self)}')
 
@@ -66,25 +68,25 @@ class ResourceStreamManager:
             is_workflow_complete,
             lambda res_stream: self._on_close(identity, res_stream)
         )
-        if identity not in self.resource_streams:
-            self.resource_streams[identity] = set()
-        self.resource_streams[identity].add(rs)
+        if identity not in self._resource_streams:
+            self._resource_streams[identity] = set()
+        self._resource_streams[identity].add(rs)
         return rs
 
     # noinspection PyProtectedMember
     async def update(self, identity):
         # If there is no resources stream associated with `identity`, no update needed.
-        if identity not in self.resource_streams:
+        if identity not in self._resource_streams:
             return
 
         # TODO: Say a stream is added but then removed, the identity still exists as a key but just has an empty set.
         # Is it okay to leave it as such?
-        for stream in self.resource_streams[identity]:
+        for stream in self._resource_streams[identity]:
             stream._update_event.set()
             await stream._stream_gate.wait()
             stream._stream_gate.clear()
 
     def _on_close(self, identity, res_stream: ResourceStream):
-        self.resource_streams[identity].remove(res_stream)
-        if not self.resource_streams.get(identity):
-            self.resource_streams.pop(identity)
+        self._resource_streams[identity].remove(res_stream)
+        if not self._resource_streams.get(identity):
+            self._resource_streams.pop(identity)
