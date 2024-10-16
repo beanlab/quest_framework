@@ -1,6 +1,6 @@
 import asyncio
 from functools import wraps
-from typing import Protocol, Callable, TypeVar
+from typing import Protocol, Callable, TypeVar, Any
 
 from .external import State, IdentityQueue, Queue, Event
 from .historian import Historian, _Wrapper
@@ -34,6 +34,7 @@ class WorkflowManager:
         self._workflow_data = []
         self._workflows: dict[str, Historian] = {}
         self._workflow_tasks: dict[str, asyncio.Task] = {}
+
 
     async def __aenter__(self) -> 'WorkflowManager':
         """Load the workflows and get them running again"""

@@ -19,7 +19,7 @@ class WeirdCustomException(Exception):
         return self.code
 
 
-# quest_test/custom_errors/custom_error.py
+
 class CustomTestException(Exception):
     def __init__(self, message, code):
         self.message = message

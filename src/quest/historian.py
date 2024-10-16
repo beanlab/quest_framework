@@ -397,12 +397,16 @@ class Historian:
                 def complete(r, exc_type, exc_val, exc_tb):
                     if exc_type is not None:
                         exc_info = "".join(traceback.format_exception(exc_type, exc_val, exc_tb))
-                        logging.error(f'Error while handling {r}: \n{exc_info}')
-                        self._record_gates[_get_id(r)].set_exception(exc_val)
-                    else:
-                        logging.debug(f'{task_id} completing {r}')
-                        self._record_gates[_get_id(r)].set_result(None)
-
+                        logging.debug(f'Noting that record {r} raised: \n{exc_info}')
+                    # Note:
+                    # While Futures, the record gates are only used as gates
+                    # The return values are never used
+                    # Thus, even if there was an error when the task completed
+                    # we simply want to indicate the gate is finished
+                    # The relevant error will be raised in handle_step
+                    logging.debug(f'{task_id} completing {r}')
+                    self._record_gates[_get_id(r)].set_result(None)
+                    
                 # noinspection PyUnboundLocalVariable
                 logging.debug(f'{self._get_task_name()} replaying {record}')
                 yield self._NextRecord(record, complete)
@@ -630,10 +634,6 @@ class Historian:
         else:
             result = function(*args, **kwargs)
 
-        serializer = self._serializers.get(type(result))
-        if serializer:
-            result = serializer.to_json(result)
-
 
         self._history.append(ResourceAccessEvent(
             type='external',
@@ -659,11 +659,6 @@ class Historian:
             self._resources[record['resource_id']]['resource'],
             record['action']
         )(*record['args'], **record['kwargs'])
-
-        serializer = self._serializers.get(type(result))
-        if serializer:
-            result = serializer.from_json(record['result'])
-
 
         if inspect.iscoroutine(result):
             result = await result
