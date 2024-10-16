@@ -4,7 +4,7 @@ import logging
 
 from quest import WorkflowManager
 from quest.persistence import InMemoryBlobStorage, PersistentHistory
-from quest import queue, Historian, alias
+from quest import queue, alias
 from utils import timeout
 
 
@@ -93,11 +93,11 @@ async def test_alias_trade():
             data_b.append(await q.get())
 
     async def create_workflow(wid: str):
-        match(wid):
+        match wid:
             case 'workflow_a':
-                return workflow_a()
+                return workflow_a
             case 'workflow_b':
-                return workflow_b()
+                return workflow_b
 
     storage = InMemoryBlobStorage()
     histories = {}
@@ -110,7 +110,9 @@ async def test_alias_trade():
     async with WorkflowManager('test_alias', storage, create_history, lambda w_type: create_workflow) as manager:
         # Gather resources
         manager.start_workflow('workflow_a', 'wid_a')
+        await asyncio.sleep(0.1)
         manager.start_workflow('workflow_b', 'wid_b')
+        await asyncio.sleep(0.1)
 
         logging.info('Workflows started')
         await asyncio.sleep(0.1)
@@ -123,6 +125,10 @@ async def test_alias_trade():
 
         # now both should be waiting on second gate and no one should be the foo
         assert not manager.has_workflow('the_foo')
+        assert 'data a 1' in data_a
+        assert 'data foo 1' in data_a
+        assert 'data b 1' in data_b
+
         second_pause.set()
         await asyncio.sleep(0.1)  # yield
 
