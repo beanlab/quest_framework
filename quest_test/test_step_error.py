@@ -24,7 +24,6 @@ async def add_foo(text):
     raise MyError(text + "foo")
 
 
-
 block_workflow = asyncio.Event()
 
 
@@ -68,11 +67,10 @@ async def test_custom_exception():
     assert foo_calls == 1
 
 
-
 @step
 async def add_foo2(text):
-    global foo_calls
-    foo_calls = foo_calls/0
+    return 1 / 0
+
 
 async def longer_workflow2(text):
     text = await double(text)

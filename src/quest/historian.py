@@ -8,7 +8,6 @@ from datetime import datetime
 from functools import wraps
 from typing import Callable, TypeVar
 
-
 from .history import History
 from .quest_types import ConfigurationRecord, VersionRecord, StepStartRecord, StepEndRecord, \
     ExceptionDetails, ResourceAccessEvent, ResourceEntry, ResourceLifecycleEvent, TaskEvent
@@ -184,6 +183,7 @@ def get_function_name(func):
     else:  # Callable classes
         return func.__class__.__name__
 
+
 def _get_exception_class(exception_type: str):
     module_name, class_name = exception_type.rsplit('.', 1)
     module = __import__(module_name, fromlist=[class_name])
@@ -204,7 +204,6 @@ class Historian:
 
         # These things need to be serialized
         self._history: History = history
-
 
         # The remaining properties defined in __init__
         # are reset every time you call start_workflow
@@ -406,7 +405,7 @@ class Historian:
                     # The relevant error will be raised in handle_step
                     logging.debug(f'{task_id} completing {r}')
                     self._record_gates[_get_id(r)].set_result(None)
-                    
+
                 # noinspection PyUnboundLocalVariable
                 logging.debug(f'{self._get_task_name()} replaying {record}')
                 yield self._NextRecord(record, complete)
@@ -633,7 +632,6 @@ class Historian:
             result = await function(*args, **kwargs)
         else:
             result = function(*args, **kwargs)
-
 
         self._history.append(ResourceAccessEvent(
             type='external',

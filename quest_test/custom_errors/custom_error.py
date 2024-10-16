@@ -1,4 +1,3 @@
-
 class MyError(Exception):
     def __init__(self, message):
         self.message = message
@@ -17,7 +16,6 @@ class WeirdCustomException(Exception):
 
     def get_code(self):
         return self.code
-
 
 
 class CustomTestException(Exception):
