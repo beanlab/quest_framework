@@ -184,7 +184,7 @@ def get_function_name(func):
     else:  # Callable classes
         return func.__class__.__name__
 
-def get_exception_class(exception_type: str):
+def _get_exception_class(exception_type: str):
     module_name, class_name = exception_type.rsplit('.', 1)
     module = __import__(module_name, fromlist=[class_name])
     exception_class = getattr(module, class_name)
@@ -542,7 +542,7 @@ class Historian:
                     if record['exception'] is None:
                         return record['result']
                     else:
-                        exception_class = get_exception_class(record['exception']['type'])
+                        exception_class = _get_exception_class(record['exception']['type'])
                         exception_args = record['exception']['args']
                         raise exception_class(*exception_args)
                 else:

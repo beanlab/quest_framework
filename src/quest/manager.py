@@ -1,6 +1,6 @@
 import asyncio
 from functools import wraps
-from typing import Protocol, Callable, TypeVar, Any
+from typing import Protocol, Callable, TypeVar
 
 from .external import State, IdentityQueue, Queue, Event
 from .historian import Historian, _Wrapper

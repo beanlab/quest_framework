@@ -31,5 +31,5 @@ def test_weird_custom_exception():
     exception_class = get_exception_class('quest_test.custom_errors.custom_error.WeirdCustomException')
     with pytest.raises(exception_class) as exc_info:
         raise exception_class("This is a weird custom error", 404)
-    assert str(exc_info.value) == "This is a weird custom error (Error Code: 404)"
-    assert exc_info.value.get_code() == 404
+        assert str(exc_info.value) == "This is a weird custom error (Error Code: 404)"
+        assert exc_info.value.get_code() == 404
