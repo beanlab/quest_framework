@@ -3,9 +3,10 @@ import pytest
 import logging
 
 from quest import WorkflowManager
+from quest.manager import DuplicateAliasException
 from quest.persistence import InMemoryBlobStorage, PersistentHistory
 from quest import queue, alias
-from utils import timeout
+from utils import timeout, create_in_memory_workflow_manager
 
 
 @pytest.mark.asyncio
@@ -84,11 +85,11 @@ async def test_alias_trade():
         async with queue('data', None) as q:
             await first_pause.wait()
             data_b.append(await q.get())
-        await second_pause.wait()
-        async with alias('the_foo'):
-            await third_pause.wait()
-            data_b.append(await q.get())
-            data_b.append(await q.get())
+            await second_pause.wait()
+            async with alias('the_foo'):
+                await third_pause.wait()
+                data_b.append(await q.get())
+                data_b.append(await q.get())
 
     async def create_workflow(wid: str):
         logging.info('in create_workflow')
@@ -101,23 +102,20 @@ async def test_alias_trade():
                 return await workflow_b()
         logging.debug('No workflow started')
 
-    storage = InMemoryBlobStorage()
-    histories = {}
 
-    def create_history(wid: str):
-        if wid not in histories:
-            histories[wid] = PersistentHistory(wid, InMemoryBlobStorage())
-        return histories[wid]
+    workflows = {
+        'workflow_a': workflow_a,
+        'workflow_b': workflow_b,
+    }
 
-    async with WorkflowManager('test_alias', storage, create_history, lambda w_type: create_workflow) as manager:
+    async with create_in_memory_workflow_manager(workflows) as manager:
         # Gather resources
-        manager.start_workflow('workflow_a', 'wid_a', 'workflow_a')
-        await asyncio.sleep(1)
-        manager.start_workflow('workflow_b', 'wid_b', 'workflow_b')
+        manager.start_workflow('workflow_a', 'wid_a')
+        await asyncio.sleep(0.1)
+        manager.start_workflow('workflow_b', 'wid_b')
         await asyncio.sleep(0.1)
 
         logging.info('Workflows started')
-        await asyncio.sleep(0.1)
 
         first_pause.set()
         await manager.send_event('wid_a', 'data', None, 'put', 'data a 1')
@@ -136,13 +134,46 @@ async def test_alias_trade():
 
         # now workflow b should be the foo
         await manager.send_event('wid_a', 'data', None, 'put', 'data a 2')
-        await manager.send_event('wid_b', 'data', None, 'put', 'data b 2') # TODO: Why does this fail?
+        await manager.send_event('wid_b', 'data', None, 'put', 'data b 2')
         await manager.send_event('the_foo', 'data', None, 'put', 'data foo 2')
+
         third_pause.set()
         await asyncio.sleep(0.1)  # yield to the workflows
 
         assert data_a == ['data a 1', 'data foo 1', 'data a 2']
         assert data_b == ['data b 1', 'data b 2', 'data foo 2']
+
+@pytest.mark.asyncio
+@timeout(3)
+async def test_alias_exception():
+    pause = asyncio.Event()
+    async def workflow_a():
+        async with alias('the_foo'):
+            await pause.wait()
+
+    async def workflow_b():
+        try:
+            async with alias('the_foo'):
+                await pause.wait()
+        except DuplicateAliasException:
+            return
+        pytest.fail('Should have raised DuplicateAliasException')
+
+    workflows = {
+        'workflow_a': workflow_a,
+        'workflow_b': workflow_b,
+    }
+    async with create_in_memory_workflow_manager(workflows) as manager:
+        manager.start_workflow('workflow_a', 'wid1')
+        manager.start_workflow('workflow_b', 'wid2')
+
+        await asyncio.sleep(0.1)
+        pause.set()
+
+        await manager.get_workflow('wid1')
+        await manager.get_workflow('wid2')
+
+
 
 
 

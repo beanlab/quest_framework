@@ -22,6 +22,9 @@ T = TypeVar('T')
 
 workflow_manager = ContextVar('workflow_manager')
 
+class DuplicateAliasException(Exception):
+    ...
+
 class WorkflowManager:
     """
     Runs workflow tasks
@@ -171,7 +174,7 @@ class WorkflowManager:
         if alias not in self._alias_dictionary:
             self._alias_dictionary[alias] = workflow_id
         else:
-            raise Exception('Alias already exists')
+            raise DuplicateAliasException(f'Alias "{alias}" already exists')
 
     async def deregister_alias(self, alias: str):
         if alias in self._alias_dictionary:
