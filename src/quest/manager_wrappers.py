@@ -16,7 +16,6 @@ class Alias:
 
 
 def alias(alias: str) -> Alias:
-    # TODO: TESTING
     manager = find_workflow_manager()
     workflow_id = find_historian().workflow_id
     return Alias(alias, manager, workflow_id)

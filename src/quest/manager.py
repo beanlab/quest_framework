@@ -43,8 +43,6 @@ class WorkflowManager:
         self._alias_dictionary = {}
 
     async def __aenter__(self) -> 'WorkflowManager':
-        # TODO: Is this where I should put this? Won't be set outside of a context, but probably don't need to right?
-        workflow_manager.set(self)
         """Load the workflows and get them running again"""
         if self._storage.has_blob(self._namespace):
             self._workflow_data = self._storage.read_blob(self._namespace)
@@ -61,10 +59,9 @@ class WorkflowManager:
             await historian.suspend()
 
     def _get_workflow(self, workflow_id: str):
-        # TODO: I should check here too? What is the difference?
         if (alias := self._check_alias(workflow_id)) is not None:
             return self._workflows[alias]
-        return self._workflows[workflow_id]  # TODO check for key, throw error
+        return self._workflows[workflow_id]
 
     def _remove_workflow(self, workflow_id: str):
         self._workflows.pop(workflow_id)
@@ -181,7 +178,6 @@ class WorkflowManager:
             del self._alias_dictionary[alias]
 
 
-    # TODO refactor, deduplicate
     def _check_alias(self, alias: str) -> str | None:
         """Check to see if an alias exists
 
