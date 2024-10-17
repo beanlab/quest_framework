@@ -59,8 +59,7 @@ class WorkflowManager:
             await historian.suspend()
 
     def _get_workflow(self, workflow_id: str):
-        if (alias := self._check_alias(workflow_id)) is not None:
-            return self._workflows[alias]
+        workflow_id = self._alias_dictionary.get(workflow_id, workflow_id)
         return self._workflows[workflow_id]
 
     def _remove_workflow(self, workflow_id: str):
@@ -95,13 +94,11 @@ class WorkflowManager:
         self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs, background=True)
 
     def has_workflow(self, workflow_id: str) -> bool:
-        if (alias := self._check_alias(workflow_id)) is not None:
-            return alias in self._workflows
+        workflow_id = self._alias_dictionary.get(workflow_id, workflow_id)
         return workflow_id in self._workflows
 
     def get_workflow(self, workflow_id: str) -> asyncio.Task:
-        if (alias := self._check_alias(workflow_id)) is not None:
-            return self._workflow_tasks[alias]
+        workflow_id = self._alias_dictionary.get(workflow_id, workflow_id)
         return self._workflow_tasks[workflow_id]
 
     async def suspend_workflow(self, workflow_id: str):
@@ -176,14 +173,6 @@ class WorkflowManager:
     async def _deregister_alias(self, alias: str):
         if alias in self._alias_dictionary:
             del self._alias_dictionary[alias]
-
-
-    def _check_alias(self, alias: str) -> str | None:
-        """Check to see if an alias exists
-
-        Returns a str of the workflow id if alias exists, None if it doesn't
-        """
-        return self._alias_dictionary.get(alias)
 
 def find_workflow_manager() -> WorkflowManager:
     if (manager := workflow_manager.get()) is not None:
