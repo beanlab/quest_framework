@@ -167,13 +167,13 @@ class WorkflowManager:
         await self._check_resource(workflow_id, name, identity)
         return self._wrap(IdentityQueue(), workflow_id, name, identity)
 
-    async def register_alias(self, alias: str, workflow_id: str):
+    async def _register_alias(self, alias: str, workflow_id: str):
         if alias not in self._alias_dictionary:
             self._alias_dictionary[alias] = workflow_id
         else:
             raise DuplicateAliasException(f'Alias "{alias}" already exists')
 
-    async def deregister_alias(self, alias: str):
+    async def _deregister_alias(self, alias: str):
         if alias in self._alias_dictionary:
             del self._alias_dictionary[alias]
 
