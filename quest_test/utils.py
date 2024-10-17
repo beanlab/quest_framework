@@ -34,4 +34,4 @@ def create_in_memory_workflow_manager(workflows: dict):
     def create_workflow(wtype: str):
         return workflows[wtype]
 
-    return WorkflowManager('test_alias', storage, create_history, create_workflow)
+    return WorkflowManager('test', storage, create_history, create_workflow)

@@ -2,9 +2,7 @@ import asyncio
 import pytest
 import logging
 
-from quest import WorkflowManager
 from quest.manager import DuplicateAliasException
-from quest.persistence import InMemoryBlobStorage, PersistentHistory
 from quest import queue, alias
 from utils import timeout, create_in_memory_workflow_manager
 
@@ -26,18 +24,11 @@ async def test_alias():
             await second_pause.wait()
             data.append(await q.get())
 
-    storage = InMemoryBlobStorage()
-    histories = {}
+    workflows = {
+        'workflow': workflow
+    }
 
-    def create_history(wid: str):
-        if wid not in histories:
-            histories[wid] = PersistentHistory(wid, InMemoryBlobStorage())
-        return histories[wid]
-
-    def create_workflow():
-        return workflow()
-
-    async with WorkflowManager('test_alias', storage, create_history, lambda w_type: create_workflow) as manager:
+    async with create_in_memory_workflow_manager(workflows) as manager:
         manager.start_workflow('workflow', 'wid')
         await asyncio.sleep(0.1)
 
@@ -59,8 +50,6 @@ async def test_alias():
         assert '2' in data
 
         await manager.wait_for_completion('wid', None)
-
-# TODO: test exception on alias dict collision
 
 @pytest.mark.asyncio
 @timeout(3)
@@ -90,18 +79,6 @@ async def test_alias_trade():
                 await third_pause.wait()
                 data_b.append(await q.get())
                 data_b.append(await q.get())
-
-    async def create_workflow(wid: str):
-        logging.info('in create_workflow')
-        match wid:
-            case 'workflow_a':
-                logging.debug('Workflow A started')
-                return await workflow_a()
-            case 'workflow_b':
-                logging.debug('Workflow B started')
-                return await workflow_b()
-        logging.debug('No workflow started')
-
 
     workflows = {
         'workflow_a': workflow_a,
