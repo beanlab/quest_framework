@@ -35,6 +35,7 @@ class WorkflowManager:
         self._workflows: dict[str, Historian] = {}
         self._workflow_tasks: dict[str, asyncio.Task] = {}
 
+
     async def __aenter__(self) -> 'WorkflowManager':
         """Load the workflows and get them running again"""
         if self._storage.has_blob(self._namespace):
