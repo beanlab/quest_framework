@@ -1,7 +1,7 @@
 import pytest
 
-from src.quest import step, Historian
-from src.quest.external import state, queue
+from quest import step, Historian
+from quest.external import state, queue
 
 
 @pytest.mark.asyncio
