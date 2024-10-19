@@ -41,18 +41,18 @@ def create_sql_manager(
         factory: WorkflowFactory
 ) -> WorkflowManager:
     # TODO
-    # Create storage db that will hold tables
+    # Create storage db that will hold tables : Workflow Manager
     # create_history should make a table within the storage db
 
     storage = SqlBlobStorage(db_path / namespace) # TODO: Test this as local filesystem
     # This looks like it is a place to store each namespace
-    # This should probably be the database that accepts new tables
+    # This should probably be the database that accepts new tables : Workflow Manager
 
 
     def create_history(wid: str) -> History:
         # TODO: And this as sql? Create a db per workflow rn?
         return PersistentHistory(wid, SqlBlobStorage(db_path / namespace / wid))
-        # This looks like it is what is used to create a single history for a workflow
+        # This looks like it is what is used to create a single history for a workflow : Workflow
         # This should probably just produce a table that can accept blobs
 
     return WorkflowManager(namespace, storage, create_history, factory)

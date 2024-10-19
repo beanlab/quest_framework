@@ -35,7 +35,7 @@ async def guessing_game():
 
 
 async def main():
-    async with create_sql_manager(
+    async with create_filesystem_manager(
             Path('state'),
             'guess_game_demo',
             lambda wid: guessing_game

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Protocol, Union
 from sqlalchemy import create_engine, Column, Integer, String, JSON, select, delete
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from sqlalchemy.orm import sessionmaker, DeclarativeBase, declared_attr
 
 from .history import History
 from .quest_types import EventRecord
@@ -81,6 +81,39 @@ class LocalFileSystemBlobStorage(BlobStorage):
 
     def delete_blob(self, key: str):
         self._get_file(key).unlink()
+
+Base = declarative_base()
+
+class Database: # TODO: This should just be a basic Database class that creates a connection on a URL
+
+    def __init__(self, save_folder: Path, db_name: str):
+        self._save_folder = save_folder
+        self._db_name = db_name
+        self.engine = create_engine(f'sqlite:///{db_name}.db')
+
+    def connect(self):
+        self.session = sessionmaker(bind=self._db_name)()
+
+class InMemoryDatabase(Database): # TODO: This class will create a database in the local filesystem
+
+class BaseSqlBlobStorage(Base):
+    __abstract__ = True
+
+    id = Column(String, primary_key=True)
+    blob = Column(JSON)
+
+    def __repr__(self):
+        return f'<{self.__class__.__name__}: {self.id}>'
+
+class DynamicSqlBlobStorage(BaseSqlBlobStorage):
+    @declared_attr
+    def __tablename__(cls):
+        return cls.table_name
+
+    @classmethod
+    def create_table_class(cls, table_name):
+        """Class method to create a new table class dynamically"""
+        return type(table_name, (cls,), {'table_name': table_name})
 
 class SqlBlobStorage(BlobStorage):
     Base = declarative_base()
