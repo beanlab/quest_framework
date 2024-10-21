@@ -23,40 +23,45 @@ class BlobStorage(Protocol):
 
 
 class PersistentHistory(History):
-    def __init__(self, namespace: str, storage: BlobStorage, master_serializer: MasterSerializer = None):
+    def __init__(self, namespace: str, storage: BlobStorage, master_serializer):
         self._namespace = namespace
         self._storage = storage
-        self._master_serializer = master_serializer or MasterSerializer()
+        self._master_serializer = master_serializer
         # TODO - use linked list instead of array list
         # master stores head/tail keys
         # each blob is item, prev, next
         # only need to modify blobs for altered nodes
         # on add/delete, and rarely change master head/tail blob
-        self._items = []
+        self._items = []  # for deserialized event records
         self._keys: list[str] = []
+        self._serialized_items = []  # for serialized event records
 
-        if storage.has_blob(namespace):
-            self._keys = storage.read_blob(namespace)
-            for key in self._keys:
-                serialized_item = self._storage.read_blob(key)
-                # Deserialize the item that is read from storage
-                item = asyncio.run(self._master_serializer.deserialize(serialized_item))
+    async def load_history(self):
+        if self._storage.has_blob(self._namespace):
+            self._keys = self._storage.read_blob(self._namespace)
+            self._serialized_items = [self._storage.read_blob(key) for key in self._keys]
+            self._items = []
+            for serialized_item in self._serialized_items:
+                item = await self._master_serializer.deserialize(serialized_item)
                 self._items.append(item)
 
     def _get_key(self, item: EventRecord) -> str:
         return self._namespace + '.' + md5((item['timestamp'] + item['step_id'] + item['type']).encode()).hexdigest()
 
-    async def append(self, item: EventRecord):
+    async def append(self, item: EventRecord, master_serializer):
         self._items.append(item)
         self._keys.append(key := self._get_key(item))
-        # Serialize before writing to storage
-        serialized_item = await self._master_serializer.serialize(item)
+        serialized_item = await master_serializer.serialize(item)
+        self._serialized_items.append(serialized_item)
         self._storage.write_blob(key, serialized_item)
         self._storage.write_blob(self._namespace, self._keys)
 
     def remove(self, item: EventRecord):
+        index = self._items.index(item)
         self._items.remove(item)
         self._keys.remove(key := self._get_key(item))
+        key = self._keys.pop(index)
+        self._serialized_items.pop(index)  # _keys, _items, _serialized_items share same index for same EventRecord
         self._storage.delete_blob(key)
         self._storage.write_blob(self._namespace, self._keys)
 

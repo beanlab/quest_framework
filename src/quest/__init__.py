@@ -12,10 +12,12 @@ from .manager import WorkflowManager, WorkflowFactory
 from .utils import ainput
 from .serializer import MasterSerializer
 
+master_serializer = MasterSerializer()
+
 
 def create_filesystem_historian(save_folder: Path, historian_id: str, function: Callable) -> Historian:
     storage = LocalFileSystemBlobStorage(save_folder)
-    history = PersistentHistory(historian_id, storage)
+    history = PersistentHistory(historian_id, storage, master_serializer)
     return Historian(
         historian_id,
         function,
@@ -30,7 +32,7 @@ def create_filesystem_manager(
 ) -> WorkflowManager:
     storage = LocalFileSystemBlobStorage(save_folder / namespace)
 
-    def create_history(wid: str, master_serializer: MasterSerializer) -> History:
+    def create_history(wid: str) -> History:
         return PersistentHistory(wid, LocalFileSystemBlobStorage(save_folder / namespace / wid), master_serializer)
 
     return WorkflowManager(namespace, storage, create_history, factory)

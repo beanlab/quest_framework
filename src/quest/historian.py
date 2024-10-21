@@ -11,6 +11,7 @@ from typing import Callable, TypeVar
 from .history import History
 from .quest_types import ConfigurationRecord, VersionRecord, StepStartRecord, StepEndRecord, \
     ExceptionDetails, ResourceAccessEvent, ResourceEntry, ResourceLifecycleEvent, TaskEvent
+from .serializer import MasterSerializer
 
 QUEST_VERSIONS = "_quest_versions"
 GLOBAL_VERSION = "_global_version"
@@ -185,11 +186,12 @@ def get_function_name(func):
 
 
 class Historian:
-    def __init__(self, workflow_id: str, workflow: Callable, history: History):
+    def __init__(self, workflow_id: str, workflow: Callable, history: History, master_serializer: MasterSerializer):
         # TODO - change nomenclature (away from workflow)? Maybe just use workflow.__name__?
         self.workflow_id = workflow_id
         self.workflow = workflow
         self._configurations: list[tuple[Callable, list, dict]] = []
+        self._master_serializer = master_serializer
 
         # This indicates whether the workflow function has completed
         # Suspending the workflow does not affect this value
@@ -466,20 +468,32 @@ class Historian:
             self._record_version_event(version_name, version)
         self._discovered_versions = {}
 
-    def _record_version_event(self, version_name, version):
+    async def load_history(self):
+        await self._history.load_history(self._master_serializer)
+        # items from persistent history - list of deserialized event records
+        self._existing_history = self._history._items
+
+    async def _append_event_record(self, event_record):
+        await self._history.append(event_record)
+
+    async def _record_version_event(self, version_name, version):
         if self._versions.get(version_name, None) == version:
             return  # Version not changed
 
         logging.debug(f'Version record: {version_name} = {version}')
         self._versions[version_name] = version
 
-        self._history.append(VersionRecord(
+        # Create the VersionRecord
+        event_record = VersionRecord(
             type='set_version',
             timestamp=_get_current_timestamp(),
             step_id=version_name,
             task_id=self._get_external_task_name(),  # the external task owns these
             version=version
-        ))
+        )
+
+        # Append the event record using the appropriate method
+        await self._append_event_record(event_record)
 
     def _replay_version(self, record: VersionRecord):
         logging.debug(f'{self._get_task_name()} setting version {record["step_id"]} = "{record["version"]}"')
@@ -536,12 +550,13 @@ class Historian:
 
         if next_record is None:
             logging.debug(f'{self._get_task_name()} starting step {func_name} with {args} and {kwargs}')
-            self._history.append(StepStartRecord(
+            event_record = StepStartRecord(
                 type='start',
                 timestamp=_get_current_timestamp(),
                 task_id=self._get_task_name(),
                 step_id=step_id
-            ))
+            )
+            await self._append_event_record(event_record)
 
         prune_on_exit = True
         try:

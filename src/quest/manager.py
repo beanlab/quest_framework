@@ -10,7 +10,7 @@ from .serializer import MasterSerializer
 
 
 class HistoryFactory(Protocol):
-    def __call__(self, workflow_id: str, master_serializer: MasterSerializer)-> History: ...
+    def __call__(self, workflow_id: str) -> History: ...
 
 
 class WorkflowFactory(Protocol):
@@ -43,7 +43,7 @@ class WorkflowManager:
             self._workflow_data = self._storage.read_blob(self._namespace)
 
         for wtype, wid, args, kwargs, background in self._workflow_data:
-            self._start_workflow(wtype, wid, args, kwargs, background=background)
+            await self._start_workflow(wtype, wid, args, kwargs, background=background)
 
         return self
 
@@ -65,13 +65,14 @@ class WorkflowManager:
     def register_serializer(self, obj_type, serializer_func):
         self._master_serializer.register_serializer(obj_type, serializer_func)
 
-    def _start_workflow(self,
-                        workflow_type: str, workflow_id: str, workflow_args, workflow_kwargs,
-                        background=False):
+    async def _start_workflow(self,
+                              workflow_type: str, workflow_id: str, workflow_args, workflow_kwargs,
+                              background=False):
         workflow_function = self._create_workflow(workflow_type)
-
-        history = self._create_history(workflow_id, self._master_serializer)
-        historian: Historian = Historian(workflow_id, workflow_function, history)
+        history = self._create_history(workflow_id)
+        historian: Historian = Historian(workflow_id, workflow_function, history, self._master_serializer)
+        self._workflows[workflow_id] = historian
+        await historian.load_history()
         self._workflows[workflow_id] = historian
 
         self._workflow_tasks[workflow_id] = (task := historian.run(*workflow_args, **workflow_kwargs))
