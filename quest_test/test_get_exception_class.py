@@ -1,15 +1,6 @@
 import pytest
 
-from quest_test.custom_errors.custom_error import MyError
 from src.quest.historian import _get_exception_class
-
-
-class CustomExceptionOne(Exception):
-    pass
-
-
-class CustomExceptionTwo(Exception):
-    pass
 
 
 def test_standard_exceptions():

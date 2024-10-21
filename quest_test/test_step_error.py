@@ -7,9 +7,8 @@ from src.quest import step
 from src.quest.historian import Historian
 
 double_calls = 0
-foo_calls = 0
-
 double_calls2 = 0
+foo_calls = 0
 foo_calls2 = 0
 
 
