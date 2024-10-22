@@ -35,7 +35,7 @@ def create_filesystem_manager(
     return WorkflowManager(namespace, storage, create_history, factory)
 
 def create_sql_manager( # This is what I want
-        db_url: str,
+        db_url: str, # TODO authentication?
         namespace: str,
         factory: WorkflowFactory
 ) -> WorkflowManager:
