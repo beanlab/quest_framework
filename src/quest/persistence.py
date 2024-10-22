@@ -3,7 +3,7 @@ import json
 from hashlib import md5
 from pathlib import Path
 from typing import Protocol, Union, Dict, Type
-from sqlalchemy import create_engine, Column, Integer, String, JSON, select, delete, MetaData
+from sqlalchemy import create_engine, Column, Integer, String, JSON, select, delete, MetaData, Engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, DeclarativeBase, declared_attr
 from typing_extensions import TypeVar
@@ -84,80 +84,49 @@ class LocalFileSystemBlobStorage(BlobStorage):
         self._get_file(key).unlink()
 
 Base = declarative_base()
-metadata = MetaData()
 
-T = TypeVar('T', bound='BaseRecordModel')
+class RecordModel(Base):
 
-class BaseRecordModel(Base):
-    __abstract__ = True
-
-    key = Column(String, primary_key=True)
+    name = Column(String, primary_key=True) # TODO good name for this?
+    key = Column(String)
     blob = Column(JSON)
-
-    def __init__(self,
-                 key: str,
-                 blob: Blob):
-        self.id = key
-        self.blob = json.dumps(blob) # TODO should I do this here or in the blob storage?
 
     def __repr__(self):
         return f'<{self.__class__.__name__}: {self.id}>'
 
+class SQLDatabase: # TODO: This should just be a basic Database class that creates a connection on a URL
+
+    def __init__(self, db_url: str):
+        self._db_url = db_url
+        self._engine = create_engine(db_url)
+
+        Base.metadata.create_all(self._engine)
+
+    def get_engine(self) -> Engine:
+        return self._engine
+
 class SqlBlobStorage(BlobStorage):
-    def __init__(self, workflow_name, record_model: BaseRecordModel, db):
-        self._workflow_name = workflow_name
-        self.record_model = record_model
-        self._db = db
+    def __init__(self, name, engine):
+        self._name = name
+        self._engine = engine
+
+    def _get_session(self):
+        return sessionmaker(bind=self._engine)()
 
     def write_blob(self, key: str, blob: Blob):
-        with self._db.get_session() as session:
-            new_record = self.record_model.__init__(key, blob) # TODO Do I need to directly call dunder here?
+        with self._get_session() as session:
+            new_record = RecordModel(name=self._name, key=key, blob=blob)
             session.add(new_record)
             session.commit()
 
     def read_blob(self, key: str) -> Blob:
-        with self._db.get_session() as session:
-            query = session.query(self.record_model)
-            query = query.filter(getattr(self.record_model, 'key') == key)
-            return query.all() # TODO This should just return the blob
+        with self._get_session() as session:
+            if record := session.query(RecordModel).filter(RecordModel.key == key):
+                return record.blob # TODO This should just return the blob
 
     def has_blob(self, key: str) -> bool: ...
 
     def delete_blob(self, key: str): ...
-
-class Database: # TODO: This should just be a basic Database class that creates a connection on a URL
-
-    def __init__(self, db_url: str):
-        self._db_url = db_url
-        self.engine = create_engine(db_url)
-        self.Session = sessionmaker(bind=self.engine)
-        self.workflow_tables: Dict[str, Type[Base]] = {}
-
-    def create_workflow_table(self, workflow_name) -> Type[Base]:
-        if workflow_name in self.workflow_tables:
-            return self.workflow_tables[workflow_name]
-
-        workflow_table_attrs = {
-            '__tablename__': workflow_name,
-            'id': Column(String, primary_key=True),
-            'blob': Column(JSON) # TODO: Expand this into the separate columns desired
-        }
-
-        workflow_table = type(
-            workflow_name,
-            (Base,),
-            workflow_table_attrs
-        )
-
-        self.workflow_tables[workflow_name] = workflow_table
-
-        Base.metadata.create_all(self.engine)
-
-# TODO
-# I want PersistentHistory to have an instance of the SqlBlobStorage that is connected to the database and is 1:1 with
-#  a table so I can add, remove, etc. on that table for one workflow. In order to do this, there needs to be
-#  a Database (in the workflow manager) that creates the tables and passes them into persistent history as BlobStorage
-#  objects.
 
 
 class InMemoryBlobStorage(BlobStorage):

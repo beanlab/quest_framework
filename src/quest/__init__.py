@@ -6,7 +6,7 @@ from .wrappers import step, task
 from .external import state, queue, identity_queue, event
 from .historian import Historian
 from .history import History
-from .persistence import LocalFileSystemBlobStorage, SqlBlobStorage, PersistentHistory
+from .persistence import LocalFileSystemBlobStorage, SqlBlobStorage, PersistentHistory, SQLDatabase
 from .versioning import version, get_version
 from .manager import WorkflowManager, WorkflowFactory
 from .utils import ainput
@@ -27,7 +27,6 @@ def create_filesystem_manager(
         namespace: str,
         factory: WorkflowFactory
 ) -> WorkflowManager:
-    # TODO: We will just need to create a SqlBlobStorage
     storage = LocalFileSystemBlobStorage(save_folder / namespace)
 
     def create_history(wid: str) -> History:
@@ -41,13 +40,13 @@ def create_sql_manager( # This is what I want
         factory: WorkflowFactory
 ) -> WorkflowManager:
 
-    # TODO I want this to create a database/connection to the url the user provides
-    database = Database(db_url)
+    # TODO This is basically just a wrapper for the engine/table creation, do I need this?
+    database = SQLDatabase(db_url)
 
-    storage = database.create_workflow_table(namespace)
+    # TODO Each blobstorage carries a reference to the engine and uses it to create sessions when needed
+    storage = SqlBlobStorage(namespace, database.get_engine())
 
     def create_history(wid: str) -> History:
-        # TODO I want this to create the table and return a reference to a BlobStorage object that can add, remove, etc.
-        return PersistentHistory(wid, database.create_workflow_table(wid))
+        return PersistentHistory(wid, SqlBlobStorage(wid, database.get_engine()))
 
     return WorkflowManager(namespace, storage, create_history, factory)
