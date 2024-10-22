@@ -1,13 +1,41 @@
-from typing import Any, Dict, Tuple
-import importlib
+from typing import Any, Dict, Protocol, TypeVar, Callable
+from utils import get_obj_name, import_object
 
-from .utils import get_obj_name, import_object
+T = TypeVar('T')
 
 
-class MasterSerializer:
-    def __init__(self, type_serializers=None):
-        # Initialize with a dictionary of custom serializers - default to empty dict
+class StepSerializer(Protocol):
+    async def serialize(self, obj: Any) -> Any:
+        ...
+
+    async def deserialize(self, data: Any) -> Any:
+        ...
+
+
+class TypeSerializer(Protocol[T]):
+    async def serialize(self, obj: T) -> Dict[str, Any]:
+        ...
+
+    async def deserialize(self, data: Dict[str, Any]) -> T:
+        ...
+
+
+class NoopSerializer(StepSerializer):
+    async def serialize(self, obj: Any) -> Any:
+        # object already JSON-serializable
+        return obj
+
+    async def deserialize(self, data: Any) -> Any:
+        return data
+
+
+class MasterSerializer(StepSerializer):
+    def __init__(self, type_serializers: Dict[type, TypeSerializer[Any]] = None):
         self._type_serializers = type_serializers or {}
+        self._default_serializer = NoopSerializer()
+
+    def register_serializer(self, obj_type: type, serializer: TypeSerializer[Any]):
+        self._type_serializers[obj_type] = serializer
 
     async def serialize(self, obj: Any) -> Any:
         # Check if it is a known type - directly serializable to JSON
@@ -21,19 +49,18 @@ class MasterSerializer:
             return tuple([await self.serialize(v) for v in obj])
 
         # Check if custom serializer is registered for the object's type
-        serializer = self._type_serializers.get(type(obj))
-        if serializer:
-            factory, args, kwargs = serializer(obj)
-            # Get full name of the factory (function, class)
+        serializer = self._get_serializer_for_type(type(obj))
+        if serializer is not self._default_serializer:
+            factory, args, kwargs = await serializer.serialize(obj)
             factory_name = get_obj_name(factory)
             return {
                 '_ms_factory': factory_name,
                 'args': await self.serialize(args),
                 'kwargs': await self.serialize(kwargs)
             }
-        else:
-            # Default - return object as-is
-            return obj
+
+        # serializer = _default_serializer
+        return await serializer.serialize(obj)
 
     # Reconstruct original python object using dictionary
     async def deserialize(self, data: Any) -> Any:
@@ -45,23 +72,41 @@ class MasterSerializer:
         elif isinstance(data, tuple):
             return tuple([await self.deserialize(v) for v in data])
         elif isinstance(data, dict):
-            if '_ms_type' in data:
+            if '_ms_factory' in data:
                 # Import factory using full name
-                factory = import_object(data['_ms_type'])
+                factory_name = data['_ms_factory']
+                factory = import_object(factory_name)
                 # Recursively deserialize - args and kwargs might be serialized object
                 args = await self.deserialize(data.get('args', []))
                 kwargs = await self.deserialize(data.get('kwargs', {}))
 
-                # Check if the factory is coroutine function?
-
-                # Instantiate object
-                return factory(*args, **kwargs)
-            else:
-                return {await self.deserialize(k): await self.deserialize(v) for k, v in data.items()}
+                # Reconstruct object
+                serializer = self._get_serializer_for_factory(factory)
+                if serializer is not self._default_serializer:
+                    return await serializer.deserialize(factory, args, kwargs)
+                else:
+                    return factory(*args, **kwargs)
         else:
             # Default - return data as-is
             return data
 
-    def register_serializer(self, obj_type: type, serializer_func):
-        # Store serializer function using the given object type
-        self._type_serializers[obj_type] = serializer_func
+    def _get_serializer_for_type(self, obj_type: type) -> TypeSerializer[Any]:
+        # If the object's type registered in self._type_serializers dictionary
+        if obj_type in self._type_serializers:
+            return self._type_serializers[obj_type]
+        # check if obj_type is subclass of registered type
+        for registered_type, serializer in self._type_serializers.items():
+            if issubclass(obj_type, registered_type):
+                return serializer
+        # Nothing match
+        return self._default_serializer
+
+    def _get_serializer_for_factory(self, factory: Callable) -> TypeSerializer[Any]:
+        # Retrieve serializer using output type of the factory
+        for obj_type, serializer in self._type_serializers.items():
+            # Direct match - factory = MyClass
+            # Match with constructor (__init__) - factory = MyClass.__init__
+            if factory == obj_type or (callable(obj_type) and factory == obj_type.__init__):
+                return serializer
+        # Nothing match
+        return self._default_serializer

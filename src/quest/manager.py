@@ -1,12 +1,12 @@
 import asyncio
 from functools import wraps
-from typing import Protocol, Callable, TypeVar
+from typing import Protocol, Callable, TypeVar, Any
 
 from .external import State, IdentityQueue, Queue, Event
 from .historian import Historian, _Wrapper
 from .history import History
 from .persistence import BlobStorage
-from .serializer import MasterSerializer
+from .serializer import MasterSerializer, StepSerializer, TypeSerializer
 
 
 class HistoryFactory(Protocol):
@@ -35,7 +35,7 @@ class WorkflowManager:
         self._workflow_data = []
         self._workflows: dict[str, Historian] = {}
         self._workflow_tasks: dict[str, asyncio.Task] = {}
-        self._master_serializer = MasterSerializer()
+        self._serializer: StepSerializer = MasterSerializer()
 
     async def __aenter__(self) -> 'WorkflowManager':
         """Load the workflows and get them running again"""
@@ -62,17 +62,16 @@ class WorkflowManager:
         data = next(d for d in self._workflow_data if d[1] == workflow_id)
         self._workflow_data.remove(data)
 
-    def register_serializer(self, obj_type, serializer_func):
-        self._master_serializer.register_serializer(obj_type, serializer_func)
+    def register_serializer(self, obj_type: type, serializer: TypeSerializer[Any]):
+        self._serializer.register_serializer(obj_type, serializer)
 
-    async def _start_workflow(self,
-                              workflow_type: str, workflow_id: str, workflow_args, workflow_kwargs,
-                              background=False):
+    def _start_workflow(self,
+                        workflow_type: str, workflow_id: str, workflow_args, workflow_kwargs,
+                        background=False):
         workflow_function = self._create_workflow(workflow_type)
+
         history = self._create_history(workflow_id)
-        historian: Historian = Historian(workflow_id, workflow_function, history, self._master_serializer)
-        self._workflows[workflow_id] = historian
-        await historian.load_history()
+        historian: Historian = Historian(workflow_id, workflow_function, history, serializer=self._serializer)
         self._workflows[workflow_id] = historian
 
         self._workflow_tasks[workflow_id] = (task := historian.run(*workflow_args, **workflow_kwargs))

@@ -14,5 +14,5 @@ def get_obj_name(obj):
 def import_object(full_name: str):
     # Import and return object with its full name
     module_name, attr_name = full_name.rsplit('.', 1)
-    module = importlib.import_module(module_name)
+    module = __import__(module_name, fromlist=[attr_name])
     return getattr(module, attr_name)
