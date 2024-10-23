@@ -1,6 +1,6 @@
 import pytest
 
-from src.quest.historian import _get_exception_class
+from quest.historian import _get_exception_class
 
 
 def test_standard_exceptions():

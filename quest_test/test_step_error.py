@@ -3,8 +3,8 @@ import pytest
 
 from custom_errors.custom_error import MyError
 from quest_test.utils import timeout
-from src.quest import step
-from src.quest.historian import Historian
+from quest import step
+from quest.historian import Historian
 
 double_calls = 0
 double_calls2 = 0
