@@ -4,6 +4,7 @@ from hashlib import md5
 from pathlib import Path
 from typing import Protocol, Union, Dict, Type
 from sqlalchemy import create_engine, Column, Integer, String, JSON, select, delete, MetaData, Engine
+from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, DeclarativeBase, declared_attr
 from typing_extensions import TypeVar
@@ -86,13 +87,15 @@ class LocalFileSystemBlobStorage(BlobStorage):
 Base = declarative_base()
 
 class RecordModel(Base):
+    __tablename__ = 'records'
 
-    name = Column(String, primary_key=True) # TODO good name for this?
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String) # TODO good name for this?
     key = Column(String)
     blob = Column(JSON)
 
     def __repr__(self):
-        return f'<{self.__class__.__name__}: {self.id}>'
+        return f'<{self.__class__.__name__}: {self.name}>'
 
 class SQLDatabase: # TODO: This should just be a basic Database class that creates a connection on a URL
 
@@ -114,20 +117,39 @@ class SqlBlobStorage(BlobStorage):
         return sessionmaker(bind=self._engine)()
 
     def write_blob(self, key: str, blob: Blob):
+        # Check to see if a blob exists, if so rewrite it
         with self._get_session() as session:
-            new_record = RecordModel(name=self._name, key=key, blob=blob)
-            session.add(new_record)
+            records = session.query(RecordModel).filter(RecordModel.name == self._name).all()
+            record_to_update = next((record for record in records if record.key == key), None)
+            if record_to_update:
+                record_to_update.blob = blob
+            else:
+                new_record = RecordModel(name=self._name, key=key, blob=blob)
+                session.add(new_record)
             session.commit()
 
-    def read_blob(self, key: str) -> Blob:
+    def read_blob(self, key: str) -> Blob | None:
         with self._get_session() as session:
-            if record := session.query(RecordModel).filter(RecordModel.key == key):
-                return record.blob # TODO This should just return the blob
+            records = session.query(RecordModel).filter(RecordModel.name == self._name).all()
+            for record in records:
+                if record.key == key:
+                    return record.blob
 
-    def has_blob(self, key: str) -> bool: ...
+    def has_blob(self, key: str) -> bool:
+        with self._get_session() as session:
+            records = session.query(RecordModel).filter(RecordModel.name == self._name).all()
+            for record in records:
+                if record.key == key:
+                    return True
+            return False
 
-    def delete_blob(self, key: str): ...
-
+    def delete_blob(self, key: str):
+        with self._get_session() as session:
+            records = session.query(RecordModel).filter(RecordModel.name == self._name).all()
+            for record in records:
+                if record.key == key:
+                    session.delete(record)
+                    session.commit()
 
 class InMemoryBlobStorage(BlobStorage):
     def __init__(self):
