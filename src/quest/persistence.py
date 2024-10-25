@@ -1,5 +1,8 @@
 # Enable event histories to be persistent
 import json
+import os
+
+import boto3
 from hashlib import md5
 from pathlib import Path
 from typing import Protocol, Union
@@ -78,6 +81,20 @@ class LocalFileSystemBlobStorage(BlobStorage):
 
     def delete_blob(self, key: str):
         self._get_file(key).unlink()
+
+class DynamoDB:
+    def __init__(self, tablename):
+        self.session = boto3.session.Session(
+            aws_access_key_id='YOUR_ACCESS_KEY', # TODO: Where do we want to store these?
+            aws_secret_access_key='YOUR_SECRET_KEY',
+            region_name='us-west-2'
+        )
+
+        self.dynamodb = self.session.resource('dynamodb')
+        self.table = self.dynamodb.Table(os.environ[tablename])
+
+class DynamoDBBlobStorage(BlobStorage):
+    def __init__(self, namespace: str, storage: DynamoDB):
 
 
 class InMemoryBlobStorage(BlobStorage):
