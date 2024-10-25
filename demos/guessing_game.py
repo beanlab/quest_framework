@@ -2,7 +2,7 @@ import asyncio
 import random
 from pathlib import Path
 
-from quest import step, create_filesystem_manager, create_sql_manager, ainput
+from quest import step, create_filesystem_manager, ainput
 
 
 @step
