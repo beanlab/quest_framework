@@ -185,13 +185,19 @@ def get_function_name(func):
         return func.__class__.__name__
 
 
+def _get_exception_class(exception_type: str):
+    module_name, class_name = exception_type.rsplit('.', 1)
+    module = __import__(module_name, fromlist=[class_name])
+    exception_class = getattr(module, class_name)
+    return exception_class
+
+
 class Historian:
     def __init__(self, workflow_id: str, workflow: Callable, history: History, serializer: StepSerializer = None):
         # TODO - change nomenclature (away from workflow)? Maybe just use workflow.__name__?
         self.workflow_id = workflow_id
         self.workflow = workflow
         self._configurations: list[tuple[Callable, list, dict]] = []
-        self._serializer: StepSerializer = serializer or NoopSerializer()
 
         # This indicates whether the workflow function has completed
         # Suspending the workflow does not affect this value
@@ -199,6 +205,8 @@ class Historian:
 
         # These things need to be serialized
         self._history: History = history
+
+        self._serializer: StepSerializer = serializer
 
         # The remaining properties defined in __init__
         # are reset every time you call start_workflow
@@ -391,11 +399,15 @@ class Historian:
                 def complete(r, exc_type, exc_val, exc_tb):
                     if exc_type is not None:
                         exc_info = "".join(traceback.format_exception(exc_type, exc_val, exc_tb))
-                        logging.error(f'Error while handling {r}: \n{exc_info}')
-                        self._record_gates[_get_id(r)].set_exception(exc_val)
-                    else:
-                        logging.debug(f'{task_id} completing {r}')
-                        self._record_gates[_get_id(r)].set_result(None)
+                        logging.debug(f'Noting that record {r} raised: \n{exc_info}')
+                    # Note:
+                    # While Futures, the record gates are only used as gates
+                    # The return values are never used
+                    # Thus, even if there was an error when the task completed
+                    # we simply want to indicate the gate is finished
+                    # The relevant error will be raised in handle_step
+                    logging.debug(f'{task_id} completing {r}')
+                    self._record_gates[_get_id(r)].set_result(None)
 
                 # noinspection PyUnboundLocalVariable
                 logging.debug(f'{self._get_task_name()} replaying {record}')
@@ -475,14 +487,13 @@ class Historian:
         logging.debug(f'Version record: {version_name} = {version}')
         self._versions[version_name] = version
 
-        # Create the VersionRecord
-        VersionRecord(
+        self._history.append(VersionRecord(
             type='set_version',
             timestamp=_get_current_timestamp(),
             step_id=version_name,
             task_id=self._get_external_task_name(),  # the external task owns these
             version=version
-        )
+        ))
 
     def _replay_version(self, record: VersionRecord):
         logging.debug(f'{self._get_task_name()} setting version {record["step_id"]} = "{record["version"]}"')
@@ -528,23 +539,26 @@ class Historian:
             with next_record as record:
                 assert record['step_id'] == step_id, f'{record["step_id"]} != {step_id}'
                 if record['type'] == 'end':
-                    # Deserialize result
-                    deserialized_result = await self._serializer.deserialize(record['result'])
+                    # Rehydrate step from history
+                    assert record['type'] == 'end'
                     if record['exception'] is None:
+                        deserialized_result = await self._serializer.deserialize(record['result'])
                         return deserialized_result
                     else:
-                        raise globals()[record['exception']['type']](*record['exception']['args'])
+                        exception_class = _get_exception_class(record['exception']['type'])
+                        exception_args = record['exception']['args']
+                        raise exception_class(*exception_args)
                 else:
                     assert record['type'] == 'start'
 
         if next_record is None:
             logging.debug(f'{self._get_task_name()} starting step {func_name} with {args} and {kwargs}')
-            StepStartRecord(
+            self._history.append(StepStartRecord(
                 type='start',
                 timestamp=_get_current_timestamp(),
                 task_id=self._get_task_name(),
                 step_id=step_id
-            )
+            ))
 
         prune_on_exit = True
         try:
