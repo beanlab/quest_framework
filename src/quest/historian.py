@@ -184,6 +184,13 @@ def get_function_name(func):
         return func.__class__.__name__
 
 
+def _get_exception_class(exception_type: str):
+    module_name, class_name = exception_type.rsplit('.', 1)
+    module = __import__(module_name, fromlist=[class_name])
+    exception_class = getattr(module, class_name)
+    return exception_class
+
+
 class Historian:
     def __init__(self, workflow_id: str, workflow: Callable, history: History):
         # TODO - change nomenclature (away from workflow)? Maybe just use workflow.__name__?
@@ -389,11 +396,15 @@ class Historian:
                 def complete(r, exc_type, exc_val, exc_tb):
                     if exc_type is not None:
                         exc_info = "".join(traceback.format_exception(exc_type, exc_val, exc_tb))
-                        logging.error(f'Error while handling {r}: \n{exc_info}')
-                        self._record_gates[_get_id(r)].set_exception(exc_val)
-                    else:
-                        logging.debug(f'{task_id} completing {r}')
-                        self._record_gates[_get_id(r)].set_result(None)
+                        logging.debug(f'Noting that record {r} raised: \n{exc_info}')
+                    # Note:
+                    # While Futures, the record gates are only used as gates
+                    # The return values are never used
+                    # Thus, even if there was an error when the task completed
+                    # we simply want to indicate the gate is finished
+                    # The relevant error will be raised in handle_step
+                    logging.debug(f'{task_id} completing {r}')
+                    self._record_gates[_get_id(r)].set_result(None)
 
                 # noinspection PyUnboundLocalVariable
                 logging.debug(f'{self._get_task_name()} replaying {record}')
@@ -530,7 +541,9 @@ class Historian:
                     if record['exception'] is None:
                         return record['result']
                     else:
-                        raise globals()[record['exception']['type']](*record['exception']['args'])
+                        exception_class = _get_exception_class(record['exception']['type'])
+                        exception_args = record['exception']['args']
+                        raise exception_class(*exception_args)
                 else:
                     assert record['type'] == 'start'
 

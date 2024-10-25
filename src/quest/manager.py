@@ -1,6 +1,8 @@
 import asyncio
+from contextvars import ContextVar, copy_context
+from decimal import Context
 from functools import wraps
-from typing import Protocol, Callable, TypeVar
+from typing import Protocol, Callable, TypeVar, Any
 
 from .external import State, IdentityQueue, Queue, Event
 from .historian import Historian, _Wrapper
@@ -18,6 +20,10 @@ class WorkflowFactory(Protocol):
 
 T = TypeVar('T')
 
+workflow_manager = ContextVar('workflow_manager')
+
+class DuplicateAliasException(Exception):
+    ...
 
 class WorkflowManager:
     """
@@ -34,6 +40,8 @@ class WorkflowManager:
         self._workflow_data = []
         self._workflows: dict[str, Historian] = {}
         self._workflow_tasks: dict[str, asyncio.Task] = {}
+        self._alias_dictionary = {}
+
 
     async def __aenter__(self) -> 'WorkflowManager':
         """Load the workflows and get them running again"""
@@ -52,7 +60,8 @@ class WorkflowManager:
             await historian.suspend()
 
     def _get_workflow(self, workflow_id: str):
-        return self._workflows[workflow_id]  # TODO check for key, throw error
+        workflow_id = self._alias_dictionary.get(workflow_id, workflow_id)
+        return self._workflows[workflow_id]
 
     def _remove_workflow(self, workflow_id: str):
         self._workflows.pop(workflow_id)
@@ -64,6 +73,8 @@ class WorkflowManager:
                         workflow_type: str, workflow_id: str, workflow_args, workflow_kwargs,
                         background=False):
         workflow_function = self._create_workflow(workflow_type)
+
+        workflow_manager.set(self)
 
         history = self._create_history(workflow_id)
         historian: Historian = Historian(workflow_id, workflow_function, history)
@@ -84,9 +95,11 @@ class WorkflowManager:
         self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs, background=True)
 
     def has_workflow(self, workflow_id: str) -> bool:
+        workflow_id = self._alias_dictionary.get(workflow_id, workflow_id)
         return workflow_id in self._workflows
 
     def get_workflow(self, workflow_id: str) -> asyncio.Task:
+        workflow_id = self._alias_dictionary.get(workflow_id, workflow_id)
         return self._workflow_tasks[workflow_id]
 
     async def suspend_workflow(self, workflow_id: str):
@@ -151,3 +164,17 @@ class WorkflowManager:
     async def get_identity_queue(self, workflow_id: str, name: str, identity: str | None) -> IdentityQueue:
         await self._check_resource(workflow_id, name, identity)
         return self._wrap(IdentityQueue(), workflow_id, name, identity)
+
+    async def _register_alias(self, alias: str, workflow_id: str):
+        if alias not in self._alias_dictionary:
+            self._alias_dictionary[alias] = workflow_id
+        else:
+            raise DuplicateAliasException(f'Alias "{alias}" already exists')
+
+    async def _deregister_alias(self, alias: str):
+        if alias in self._alias_dictionary:
+            del self._alias_dictionary[alias]
+
+def find_workflow_manager() -> WorkflowManager:
+    if (manager := workflow_manager.get()) is not None:
+            return manager

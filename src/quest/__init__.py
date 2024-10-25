@@ -10,6 +10,7 @@ from .persistence import LocalFileSystemBlobStorage, SqlBlobStorage, PersistentH
 from .versioning import version, get_version
 from .manager import WorkflowManager, WorkflowFactory
 from .utils import ainput
+from .manager_wrappers import alias
 
 
 def create_filesystem_historian(save_folder: Path, historian_id: str, function: Callable) -> Historian:
