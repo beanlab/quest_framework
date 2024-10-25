@@ -2,7 +2,6 @@ import asyncio
 
 my_queue = asyncio.Queue()
 
-
 async def fetch_data():
     input_num = input('Please enter your number: ')
     return f'The given number is: {input_num}'

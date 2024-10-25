@@ -22,7 +22,6 @@ def create_filesystem_historian(save_folder: Path, historian_id: str, function: 
         history
     )
 
-# TODO: you can probably copy this function and pass in a sql db connection or something
 def create_filesystem_manager(
         save_folder: Path,
         namespace: str,
@@ -35,16 +34,14 @@ def create_filesystem_manager(
 
     return WorkflowManager(namespace, storage, create_history, factory)
 
-def create_sql_manager( # This is what I want
-        db_url: str, # TODO authentication?
+def create_sql_manager(
+        db_url: str,
         namespace: str,
         factory: WorkflowFactory
 ) -> WorkflowManager:
 
-    # TODO This is basically just a wrapper for the engine/table creation, do I need this?
     database = SQLDatabase(db_url)
 
-    # TODO Each blobstorage carries a reference to the engine and uses it to create sessions when needed
     storage = SqlBlobStorage(namespace, database.get_engine())
 
     def create_history(wid: str) -> History:
