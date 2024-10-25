@@ -97,7 +97,7 @@ class RecordModel(Base):
     def __repr__(self):
         return f'<{self.__class__.__name__}: {self.name}>'
 
-class SQLDatabase: # TODO: This should just be a basic Database class that creates a connection on a URL
+class SQLDatabase:
 
     def __init__(self, db_url: str):
         self._db_url = db_url
@@ -128,6 +128,7 @@ class SqlBlobStorage(BlobStorage):
                 session.add(new_record)
             session.commit()
 
+    # noinspection PyTypeChecker
     def read_blob(self, key: str) -> Blob | None:
         with self._get_session() as session:
             records = session.query(RecordModel).filter(RecordModel.name == self._name).all()
