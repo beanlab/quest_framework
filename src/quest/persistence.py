@@ -3,9 +3,13 @@ import json
 import os
 
 import boto3
+from boto3.dynamodb.conditions import Key
 from hashlib import md5
 from pathlib import Path
-from typing import Protocol, Union
+from typing import Protocol, Union, TypedDict
+
+from botocore.exceptions import ClientError
+from sqlalchemy.dialects.mssql.information_schema import key_constraints
 
 from .history import History
 from .quest_types import EventRecord
@@ -82,20 +86,109 @@ class LocalFileSystemBlobStorage(BlobStorage):
     def delete_blob(self, key: str):
         self._get_file(key).unlink()
 
+class DynamoDBTableCreationException(Exception):
+    pass
+
+class DynamoDBConfig(TypedDict):
+    # TODO: Do we want users to configure table_name?
+    # table_name: str
+    key_id_name: str
+    secret_key_name: str
+    region_name: str
+
 class DynamoDB:
-    def __init__(self, tablename):
+    def __init__(self, config: DynamoDBConfig):
         self.session = boto3.session.Session(
-            aws_access_key_id='YOUR_ACCESS_KEY', # TODO: Where do we want to store these?
-            aws_secret_access_key='YOUR_SECRET_KEY',
-            region_name='us-west-2'
+            os.environ[config['key_id_name']],
+            os.environ[config['secret_key_name']],
+            os.environ[config['region_name']]
         )
 
-        self.dynamodb = self.session.resource('dynamodb')
-        self.table = self.dynamodb.Table(os.environ[tablename])
+        self._table_name = 'quest_records'
+        self._dynamodb = self.session.resource('dynamodb')
+        self._table = self._prepare_table()
+
+    def get_table(self):
+        return self._table
+
+    def _prepare_table(self):
+        try:
+            # Check if table already exists
+            table = self._dynamodb.Table(self._table_name)
+            table.load()
+            return table
+        except ClientError as e:
+            # If it doesn't, create it
+            if e.response['Error']['Code'] == 'ResourceNotFoundException':
+                table = self._dynamodb.create_table(
+                    TableName=self._table_name,
+                    KeySchema=[
+                        {
+                            'AttributeName': 'name',
+                            'KeyType': 'HASH'
+                        },
+                        {
+                            'AttributeName': 'key',
+                            'KeyType': 'RANGE'
+                        }
+                    ],
+                    AttributeDefinitions=[
+                        {
+                            'AttributeName': 'name',
+                            'KeyType': 'S'
+                        },
+                        {
+                            'AttributeName': 'key',
+                            'KeyType': 'S'
+                        }
+                    ],
+                    ProvisionedThroughput={
+                        'ReadCapacityUnits': 5,
+                        'WriteCapacityUnits': 5
+                    },
+                )
+                table.meta.client.get_waiter('table_exists').wait(TableName=self._table_name)
+                return table
+            else:
+                raise DynamoDBTableCreationException(f'Error creating DynamoDB table: {e}')
 
 class DynamoDBBlobStorage(BlobStorage):
-    def __init__(self, namespace: str, storage: DynamoDB):
+    def __init__(self, name: str, table):
+        self._name = name
+        self._table = table
 
+    def write_blob(self, key: str, blob: Blob):
+        record = {
+            'name': self._name,
+            'key': key,
+            'blob': blob
+        }
+        self._table.put_item(Item=record)
+
+    def read_blob(self, key: str) -> Blob:
+        primary_key = {
+            'name': self._name,
+            'key': key
+        }
+        item = self._table.get_item(Key=primary_key)
+        return item.get('blob')
+
+    def has_blob(self, key: str):
+        primary_key = {
+            'name': self._name,
+            'key': key
+        }
+        item = self._table.get_item(Key=primary_key)
+        if item.get('blob'):
+            return True
+        return False
+
+    def delete_blob(self, key: str):
+        primary_key = {
+            'name': self._name,
+            'key': key
+        }
+        self._table.delete_item(Key=primary_key)
 
 class InMemoryBlobStorage(BlobStorage):
     def __init__(self):
