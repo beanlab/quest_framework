@@ -3,9 +3,12 @@ import logging
 from typing import Callable, Coroutine
 
 
+# noinspection PyProtectedMember
 class ResourceStreamManager:
     def __init__(self):
         self._resource_streams: dict[str, set[ResourceStreamManager.ResourceStream]] = {}
+        self._streams_to_close = []
+        self._streams_to_open = []
 
     class ResourceStream:
         def __init__(self,
@@ -28,7 +31,7 @@ class ResourceStreamManager:
 
         def __exit__(self, exc_type, exc_value, traceback):
             # TODO: How do we let the workflow continue if it is already awaiting the stream_gate?
-            self._stream_gate.set()
+            # We need to allow the workflow to continue but we can't remove from the set if we are in the for each loop
             self._on_close(self)
             logging.debug(f'Resource stream closed for {id(self)}')
 
@@ -39,7 +42,6 @@ class ResourceStreamManager:
 
             NOTE: Once you start the resource stream,
             the workflow will not progress unless you iterate this stream.
-            Use wait_for_completion() to automatically iterate (and ignore) the remaining updates.
             """
 
             if not self._is_entered:
@@ -48,11 +50,11 @@ class ResourceStreamManager:
             # The caller of this function lives outside the step management of the historian
             #         -> don't replay, just yield event changes in realtime
 
-            # Yield the current resources immediately
-            yield await self._get_resources()
+            yield await self._get_resources()  # Yield the current resources immediately
 
+            # TODO: What if the workflow is complete but we are already in this loop awaiting a update_event? How close?
+            # Yield new resources updates as they become available
             while not self._is_workflow_complete():
-                # Yield new resources updates as they become available
                 await self._update_event.wait()
                 self._update_event.clear()
                 yield await self._get_resources()
@@ -68,25 +70,56 @@ class ResourceStreamManager:
             is_workflow_complete,
             lambda res_stream: self._on_close(identity, res_stream)
         )
-        if identity not in self._resource_streams:
-            self._resource_streams[identity] = set()
-        self._resource_streams[identity].add(rs)
+        self._streams_to_open.append((identity, rs))
         return rs
 
-    # noinspection PyProtectedMember
     async def update(self, identity):
+        # Open any pending resource streams for updates
+        for rs_identity, rs in self._streams_to_open:
+            if rs_identity not in self._resource_streams:
+                self._resource_streams[rs_identity] = set()
+            self._resource_streams[rs_identity].add(rs)
+            self._streams_to_open.clear()
+
         # If there is no resources stream associated with `identity`, no update needed.
         if identity not in self._resource_streams:
             return
 
-        # TODO: Say a stream is added but then removed, the identity still exists as a key but just has an empty set.
-        # Is it okay to leave it as such?
+        # Notify each stream of `identity`
         for stream in self._resource_streams[identity]:
             stream._update_event.set()
             await stream._stream_gate.wait()
             stream._stream_gate.clear()
 
-    def _on_close(self, identity, res_stream: ResourceStream):
-        self._resource_streams[identity].remove(res_stream)
-        if not self._resource_streams.get(identity):
+        """ Problem... It is true that any streams of `identity` will be triggered for close if needed 
+        before update finishes notifying. However isn't it possible that a stream of a different identity
+        is triggered for close after successful notification?
+        
+        - Notify none resource stream about update to resource of none identity
+        - Caller succesfully receives update and calls `anext` allowing `update` to exit.
+        - While waiting for the next update of `none` the caller errors and calls __exit on resource stream.
+        - Now rs of `none` is now triggered for close
+        - workflow triggers an update of identity: `kyle`
+        - update finishes notifying kyle and attempts to clean up streams triggered for close.
+        - assertion fails. identity: `none` != identity: `kyle`
+        
+        This depends on if a caller of resource stream is even given execution time while workflow is running
+        between resource updates. Does a raising of exception in the caller trigger execution?
+        """
+
+        """ Clean up resource streams that were triggered for close.
+        This is done here to avoid changing the resource_streams set while being iterated.
+        It is safe to assume that all streams triggered for close will be of the same identity for this update
+        because update does not complete until 
+        """
+        for rs_identity, rs in self._streams_to_close:
+            assert rs_identity == identity
+            self._resource_streams[identity].remove(rs)
+        self._streams_to_close.clear()
+
+        if not self._resource_streams.get(identity):  # Clean up dictionary values if needed
             self._resource_streams.pop(identity)
+
+    def _on_close(self, identity, res_stream: ResourceStream):
+        self._streams_to_close.append((identity, res_stream))
+        res_stream._stream_gate.set()
