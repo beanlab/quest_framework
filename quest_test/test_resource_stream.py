@@ -6,11 +6,6 @@ from quest import step
 from quest.external import state, queue
 from utils import timeout
 
-"""
-Problem Notes:
-- What if a new listener joins while updates is in the for each loop? Need to process this also after it exits
-"""
-
 @step
 async def big_phrase(phrase):
     return phrase * 3
@@ -237,6 +232,14 @@ async def test_different_identity_streams():
 
     await wtask
 
+"""
+This test shows that with this implementation of closing and opening streams, it is possible for a stream of a one
+identity to be tagged for close while an update of another identity attempts to close streams of identities of its own.
+Specifically here we call updates on the None identity after there are no more updates to be made for None. This
+allows the call to update for None to exit after the stream_gate is set by the call to anext.
+Before waiting for a result to anext, the None listener encounters an error and closes, signaling the stream for close.
+An update for kyle is called and attempts closing streams tagged for close, one of which is of None identity.
+"""
 @pytest.mark.asyncio
 @timeout(3)
 async def test_closing_different_identity_streams():
@@ -244,13 +247,10 @@ async def test_closing_different_identity_streams():
         async with state('phrase', None, 'woot') as phrase:
             await phrase.set(await big_phrase(await phrase.get()))
 
-            # Trying to force None to be added to list of streams to close before update for 'kyle' happens
-            await asyncio.sleep(2)
-            async with queue('messages', 'kyle') as messages:
-                new_message = await messages.get()
-                await phrase.set((await phrase.get()) + new_message)
-
-            await phrase.set('all done')
+        # Allow None to be added to list of streams to close before update for 'kyle' happens
+        await asyncio.sleep(1)
+        async with queue('messages', 'kyle') as messages:
+            new_message = await messages.get()
 
     async def none_listener():
         try:
@@ -268,6 +268,9 @@ async def test_closing_different_identity_streams():
                 assert 'phrase' in resources
                 assert await resources['phrase'].value() == 'wootwootwoot'
 
+                await anext(updates)  # phrase deleted
+                asyncio.create_task(anext(updates))  # Force workflow to continue but don't wait on result
+                await asyncio.sleep(1)  # Allow time for anext to be called
                 raise Exception('None listener errored')
         except Exception as e:
             assert str(e) == 'None listener errored'
