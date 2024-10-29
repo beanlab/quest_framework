@@ -963,8 +963,8 @@ class Historian:
         return {k: wrap_methods_as_historian_events(res, k, identity, self, internal=False) for k, res in
                 resources.items()}
 
-    def get_resource_stream(self, identity):
-        return self._resource_stream_manager.get_resource_stream(
+    async def get_resource_stream(self, identity):
+        return await self._resource_stream_manager.get_resource_stream(
             identity,
             lambda: self.get_resources(identity),
             lambda: self._workflow_completed

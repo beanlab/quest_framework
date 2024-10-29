@@ -9,12 +9,13 @@ class ResourceStreamManager:
         self._resource_streams: dict[str, set[ResourceStreamManager.ResourceStream]] = {}
         self._streams_to_close = []
         self._streams_to_open = []
+        self._streams_set_locks: dict[str, asyncio.Event] = {}
 
     class ResourceStream:
         def __init__(self,
                      get_resources: Callable[[], Coroutine],
                      is_workflow_complete: Callable[[], bool],
-                     on_close: Callable[['ResourceStreamManager.ResourceStream'], None]
+                     on_close: Callable[['ResourceStreamManager.ResourceStream'], Coroutine]
                      ):
             self._stream_gate = asyncio.Event()
             self._update_event = asyncio.Event()
@@ -22,17 +23,14 @@ class ResourceStreamManager:
             self._is_workflow_complete = is_workflow_complete
             self._on_close = on_close
             self._is_entered = False
-            # TODO - set any gates?
 
-        def __enter__(self):
+        async def __aenter__(self):
             self._is_entered = True
             logging.debug(f'Resource stream opened for {id(self)}')
             return self
 
-        def __exit__(self, exc_type, exc_value, traceback):
-            # TODO: How do we let the workflow continue if it is already awaiting the stream_gate?
-            # We need to allow the workflow to continue but we can't remove from the set if we are in the for each loop
-            self._on_close(self)
+        async def __aexit__(self, exc_type, exc_value, traceback):
+            await self._on_close(self)
             logging.debug(f'Resource stream closed for {id(self)}')
 
         async def __aiter__(self):
@@ -47,6 +45,7 @@ class ResourceStreamManager:
             if not self._is_entered:
                 raise Exception('ResourceStream must be used in a `with` context.')
 
+            # TODO: Do we still need this explanation?
             # The caller of this function lives outside the step management of the historian
             #         -> don't replay, just yield event changes in realtime
 
@@ -60,30 +59,36 @@ class ResourceStreamManager:
                 yield await self._get_resources()
                 self._stream_gate.set()
 
-    def get_resource_stream(self,
-                            identity,
-                            get_resources: Callable[[], Coroutine],
-                            is_workflow_complete: Callable[[], bool]
-                            ):
+    # TODO: Change all usages to await
+    async def get_resource_stream(self,
+                                  identity,
+                                  get_resources: Callable[[], Coroutine],
+                                  is_workflow_complete: Callable[[], bool]
+                                  ):
         rs = ResourceStreamManager.ResourceStream(
             get_resources,
             is_workflow_complete,
             lambda res_stream: self._on_close(identity, res_stream)
         )
-        self._streams_to_open.append((identity, rs))
+
+        if identity not in self._resource_streams:
+            assert identity not in self._streams_set_locks
+            self._streams_set_locks[identity] = asyncio.Event()
+            self._streams_set_locks[identity].set()
+
+            self._resource_streams[identity] = set()
+
+        await self._streams_set_locks[identity].wait()
+        self._resource_streams[identity].add(rs)
+
         return rs
 
     async def update(self, identity):
-        # Open any pending resource streams for updates
-        for rs_identity, rs in self._streams_to_open:
-            if rs_identity not in self._resource_streams:
-                self._resource_streams[rs_identity] = set()
-            self._resource_streams[rs_identity].add(rs)
-        self._streams_to_open.clear()
-
         # If there is no resources stream associated with `identity`, no update needed.
         if identity not in self._resource_streams:
             return
+
+        self._streams_set_locks[identity].clear()  # Block other tasks from modifying the resource_streams set
 
         # Notify each stream of `identity`
         for stream in self._resource_streams[identity]:
@@ -91,35 +96,14 @@ class ResourceStreamManager:
             await stream._stream_gate.wait()
             stream._stream_gate.clear()
 
-        """ Problem... It is true that any streams of `identity` will be triggered for close if needed 
-        before update finishes notifying. However isn't it possible that a stream of a different identity
-        is triggered for close after successful notification?
-        
-        - Notify none resource stream about update to resource of none identity
-        - Caller successfully receives update and calls `anext` allowing `update` to exit.
-        - While waiting for the next update of `none` the caller errors and calls __exit on resource stream.
-        - Now rs of `none` is now triggered for close
-        - workflow triggers an update of identity: `kyle`
-        - update finishes notifying kyle and attempts to clean up streams triggered for close.
-        - assertion fails. identity: `none` != identity: `kyle`
-        
-        This depends on if a caller of resource stream is even given execution time while workflow is running
-        between resource updates. Does a raising of exception in the caller trigger execution?
-        """
+        self._streams_set_locks[identity].set()  # Allow other tasks to modify the resource_streams set
 
-        """ Clean up resource streams that were triggered for close.
-        This is done here to avoid changing the resource_streams set while being iterated.
-        It is safe to assume that all streams triggered for close will be of the same identity for this update
-        because update does not complete until 
-        """
-        for rs_identity, rs in self._streams_to_close:
-            assert rs_identity == identity
-            self._resource_streams[identity].remove(rs)
-        self._streams_to_close.clear()
+    async def _on_close(self, identity, res_stream: ResourceStream):
+        res_stream._stream_gate.set()
+
+        await self._streams_set_locks[identity].wait()
+        self._resource_streams[identity].remove(res_stream)
 
         if not self._resource_streams.get(identity):  # Clean up dictionary values if needed
             self._resource_streams.pop(identity)
-
-    def _on_close(self, identity, res_stream: ResourceStream):
-        self._streams_to_close.append((identity, res_stream))
-        res_stream._stream_gate.set()
+            del self._streams_set_locks[identity]
