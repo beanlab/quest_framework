@@ -1,13 +1,14 @@
 import asyncio
 from pathlib import Path
 from typing import Callable
+from dotenv import load_dotenv
 
 import pytest
 
-from quest import SqlBlobStorage
+from quest import SqlBlobStorage, DynamoDBBlobStorage
 from src.quest import step
 from src.quest.historian import Historian
-from src.quest.persistence import PersistentHistory, LocalFileSystemBlobStorage, SQLDatabase
+from src.quest.persistence import PersistentHistory, LocalFileSystemBlobStorage, SQLDatabase, DynamoDB
 from utils import timeout
 
 
@@ -17,6 +18,13 @@ def create_filesystem_storage(path: Path):
 def create_sql_storage(path: Path):
     database = SQLDatabase('sqlite:///:memory:')
     return SqlBlobStorage(path.name, database.get_engine())
+
+def create_dynamodb_storage(path: Path):
+    env_path = Path('../.env')
+    load_dotenv(dotenv_path=env_path)
+    dynamodb = DynamoDB()
+    return DynamoDBBlobStorage(path.name, dynamodb.get_table())
+
 
 @step
 async def simple_step():
@@ -37,6 +45,7 @@ async def simple_workflow():
 @pytest.mark.parametrize("storage_func", [
     create_filesystem_storage,
     create_sql_storage,
+    create_dynamodb_storage,
 ])
 @timeout(3)
 async def test_persistence_basic(tmp_path: Path, storage_func: Callable):
@@ -80,6 +89,7 @@ async def resume_this_workflow():
 @pytest.mark.parametrize("storage_func", [
     create_filesystem_storage,
     create_sql_storage,
+    create_dynamodb_storage,
 ])
 async def test_resume_step_persistence(tmp_path: Path, storage_func: Callable):
     storage = storage_func(tmp_path)

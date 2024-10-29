@@ -158,6 +158,7 @@ class SqlBlobStorage(BlobStorage):
                 if record.key == key:
                     session.delete(record)
                     session.commit()
+
 class DynamoDBTableCreationException(Exception):
     pass
 
@@ -166,6 +167,7 @@ class DynamoDB:
         self.session = boto3.session.Session(
             os.environ['AWS_ACCESS_KEY_ID'],
             os.environ['AWS_SECRET_ACCESS_KEY'],
+            os.environ['AWS_SESSION_TOKEN'],
             os.environ['AWS_REGION']
         )
 
