@@ -89,19 +89,12 @@ class LocalFileSystemBlobStorage(BlobStorage):
 class DynamoDBTableCreationException(Exception):
     pass
 
-class DynamoDBConfig(TypedDict):
-    # TODO: Do we want users to configure table_name?
-    # table_name: str
-    key_id_name: str
-    secret_key_name: str
-    region_name: str
-
 class DynamoDB:
-    def __init__(self, config: DynamoDBConfig):
+    def __init__(self):
         self.session = boto3.session.Session(
-            os.environ[config['key_id_name']],
-            os.environ[config['secret_key_name']],
-            os.environ[config['region_name']]
+            os.environ['AWS_ACCESS_KEY_ID'],
+            os.environ['AWS_SECRET_ACCESS_KEY'],
+            os.environ['AWS_REGION']
         )
 
         self._table_name = 'quest_records'

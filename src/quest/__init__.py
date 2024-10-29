@@ -6,7 +6,7 @@ from .wrappers import step, task
 from .external import state, queue, identity_queue, event
 from .historian import Historian
 from .history import History
-from .persistence import LocalFileSystemBlobStorage, PersistentHistory, DynamoDBConfig, DynamoDB, DynamoDBBlobStorage
+from .persistence import LocalFileSystemBlobStorage, PersistentHistory, DynamoDB, DynamoDBBlobStorage
 from .versioning import version, get_version
 from .manager import WorkflowManager, WorkflowFactory
 from .utils import ainput
@@ -36,11 +36,10 @@ def create_filesystem_manager(
     return WorkflowManager(namespace, storage, create_history, factory)
 
 def create_dynamodb_manager(
-        config: DynamoDBConfig,
         namespace: str,
         factory: WorkflowFactory,
 ) -> WorkflowManager:
-    dynamodb = DynamoDB(config)
+    dynamodb = DynamoDB()
 
     storage = DynamoDBBlobStorage(namespace, dynamodb.get_table())
 
