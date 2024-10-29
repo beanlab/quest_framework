@@ -79,7 +79,7 @@ class ResourceStreamManager:
             if rs_identity not in self._resource_streams:
                 self._resource_streams[rs_identity] = set()
             self._resource_streams[rs_identity].add(rs)
-            self._streams_to_open.clear()
+        self._streams_to_open.clear()
 
         # If there is no resources stream associated with `identity`, no update needed.
         if identity not in self._resource_streams:
@@ -96,7 +96,7 @@ class ResourceStreamManager:
         is triggered for close after successful notification?
         
         - Notify none resource stream about update to resource of none identity
-        - Caller succesfully receives update and calls `anext` allowing `update` to exit.
+        - Caller successfully receives update and calls `anext` allowing `update` to exit.
         - While waiting for the next update of `none` the caller errors and calls __exit on resource stream.
         - Now rs of `none` is now triggered for close
         - workflow triggers an update of identity: `kyle`
