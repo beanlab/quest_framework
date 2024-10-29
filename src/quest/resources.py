@@ -15,17 +15,20 @@ class ResourceStreamManager:
         def __init__(self,
                      get_resources: Callable[[], Coroutine],
                      is_workflow_complete: Callable[[], bool],
+                     on_open: Callable[['ResourceStreamManager.ResourceStream'], Coroutine],
                      on_close: Callable[['ResourceStreamManager.ResourceStream'], Coroutine]
                      ):
             self._stream_gate = asyncio.Event()
             self._update_event = asyncio.Event()
             self._get_resources = get_resources
             self._is_workflow_complete = is_workflow_complete
+            self._on_open = on_open
             self._on_close = on_close
             self._is_entered = False
 
         async def __aenter__(self):
             self._is_entered = True
+            await self._on_open(self)
             logging.debug(f'Resource stream opened for {id(self)}')
             return self
 
@@ -59,18 +62,7 @@ class ResourceStreamManager:
                 yield await self._get_resources()
                 self._stream_gate.set()
 
-    # TODO: Change all usages to await
-    async def get_resource_stream(self,
-                                  identity,
-                                  get_resources: Callable[[], Coroutine],
-                                  is_workflow_complete: Callable[[], bool]
-                                  ):
-        rs = ResourceStreamManager.ResourceStream(
-            get_resources,
-            is_workflow_complete,
-            lambda res_stream: self._on_close(identity, res_stream)
-        )
-
+    async def _on_open(self, identity, res_stream: ResourceStream):
         if identity not in self._resource_streams:
             assert identity not in self._streams_set_locks
             self._streams_set_locks[identity] = asyncio.Event()
@@ -79,8 +71,30 @@ class ResourceStreamManager:
             self._resource_streams[identity] = set()
 
         await self._streams_set_locks[identity].wait()
-        self._resource_streams[identity].add(rs)
+        self._resource_streams[identity].add(res_stream)
 
+    async def _on_close(self, identity, res_stream: ResourceStream):
+        res_stream._stream_gate.set()
+
+        await self._streams_set_locks[identity].wait()
+        self._resource_streams[identity].remove(res_stream)
+
+        if not self._resource_streams.get(identity):  # Clean up dictionary values if needed
+            self._resource_streams.pop(identity)
+            del self._streams_set_locks[identity]
+
+    # TODO: Change all usages to await
+    def get_resource_stream(self,
+                            identity,
+                            get_resources: Callable[[], Coroutine],
+                            is_workflow_complete: Callable[[], bool]
+                            ):
+        rs = ResourceStreamManager.ResourceStream(
+            get_resources,
+            is_workflow_complete,
+            lambda res_stream: self._on_open(identity, res_stream),
+            lambda res_stream: self._on_close(identity, res_stream)
+        )
         return rs
 
     async def update(self, identity):
@@ -97,13 +111,3 @@ class ResourceStreamManager:
             stream._stream_gate.clear()
 
         self._streams_set_locks[identity].set()  # Allow other tasks to modify the resource_streams set
-
-    async def _on_close(self, identity, res_stream: ResourceStream):
-        res_stream._stream_gate.set()
-
-        await self._streams_set_locks[identity].wait()
-        self._resource_streams[identity].remove(res_stream)
-
-        if not self._resource_streams.get(identity):  # Clean up dictionary values if needed
-            self._resource_streams.pop(identity)
-            del self._streams_set_locks[identity]

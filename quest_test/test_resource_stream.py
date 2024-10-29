@@ -22,7 +22,7 @@ async def workflow():
         await phrase.set('all done')
 
 async def default_stream_listener(historian: Historian):
-    async with await historian.get_resource_stream(None) as resource_stream:
+    async with historian.get_resource_stream(None) as resource_stream:
         updates = aiter(resource_stream)
         resources = await anext(updates)  # empty - start of workflow
         assert not resources
@@ -97,7 +97,7 @@ async def test_exception():
     wtask = historian.run()
 
     try:
-        async with await historian.get_resource_stream(None) as resource_stream:
+        async with historian.get_resource_stream(None) as resource_stream:
             updates = aiter(resource_stream)
             resources = await anext(updates)  # empty - start of workflow
             assert not resources
@@ -157,7 +157,7 @@ async def test_different_identity_streams():
             await phrase.set('all done')
 
     async def none_listener():
-        async with await historian.get_resource_stream(None) as resource_stream:
+        async with historian.get_resource_stream(None) as resource_stream:
             updates = aiter(resource_stream)
             resources = await anext(updates)  # empty - start of workflow
             assert not resources
@@ -192,7 +192,7 @@ async def test_different_identity_streams():
                 pass
 
     async def kyle_listener():
-        async with await historian.get_resource_stream('kyle') as resource_stream:
+        async with historian.get_resource_stream('kyle') as resource_stream:
             updates = aiter(resource_stream)
             resources = await anext(updates)  # empty - start of workflow
             assert not resources
@@ -252,7 +252,7 @@ async def test_closing_different_identity_streams():
 
     async def none_listener():
         try:
-            async with await historian.get_resource_stream(None) as resource_stream:
+            async with historian.get_resource_stream(None) as resource_stream:
                 updates = aiter(resource_stream)
                 resources = await anext(updates)  # empty - start of workflow
                 assert not resources
@@ -274,7 +274,7 @@ async def test_closing_different_identity_streams():
             assert str(e) == 'None listener errored'
 
     async def kyle_listener():
-        async with await historian.get_resource_stream('kyle') as resource_stream:
+        async with historian.get_resource_stream('kyle') as resource_stream:
             updates = aiter(resource_stream)
             resources = await anext(updates)  # empty - start of workflow
             assert not resources
