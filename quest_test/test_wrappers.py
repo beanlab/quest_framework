@@ -32,19 +32,21 @@ async def test_wrap_steps():
     historian = Historian('test', workflow, [])
     historian.run()
 
-    updates = aiter(historian.get_resource_stream(None))
-    resources = await anext(updates)  # First update should be empty
-    resources = await anext(updates)  # second event should now show the 'gate' Event
-    assert 'gate' in resources
+    resource_stream = historian.get_resource_stream(None)
+    with resource_stream:
+        updates = aiter(resource_stream)
+        resources = await anext(updates)  # First update should be empty
+        resources = await anext(updates)  # second event should now show the 'gate' Event
+        assert 'gate' in resources
 
-    await historian.suspend()
+        await historian.suspend()
 
     wtask = historian.run()
-    updates = aiter(historian.get_resource_stream(None))
-    resources = await anext(updates)  # should include 'gate' already because that is where the first run left off
-    await resources['gate'].set()
 
-    await historian.wait_for_completion(None)
+    with resource_stream:
+        updates = aiter(resource_stream)
+        resources = await anext(updates)  # should include 'gate' already because that is where the first run left off
+        await resources['gate'].set()
 
     await wtask  # good hygiene
 

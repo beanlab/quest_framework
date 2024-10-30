@@ -7,16 +7,13 @@ from typing import Callable, Coroutine
 class ResourceStreamManager:
     def __init__(self):
         self._resource_streams: dict[str, set[ResourceStreamManager.ResourceStream]] = {}
-        self._streams_to_close = []
-        self._streams_to_open = []
-        self._streams_set_locks: dict[str, asyncio.Event] = {}
 
     class ResourceStream:
         def __init__(self,
                      get_resources: Callable[[], Coroutine],
                      is_workflow_complete: Callable[[], bool],
-                     on_open: Callable[['ResourceStreamManager.ResourceStream'], Coroutine],
-                     on_close: Callable[['ResourceStreamManager.ResourceStream'], Coroutine]
+                     on_open: Callable[['ResourceStreamManager.ResourceStream'], None],
+                     on_close: Callable[['ResourceStreamManager.ResourceStream'], None]
                      ):
             self._stream_gate = asyncio.Event()
             self._update_event = asyncio.Event()
@@ -26,14 +23,15 @@ class ResourceStreamManager:
             self._on_close = on_close
             self._is_entered = False
 
-        async def __aenter__(self):
+        def __enter__(self):
             self._is_entered = True
-            await self._on_open(self)
+            self._on_open(self)
             logging.debug(f'Resource stream opened for {id(self)}')
             return self
 
-        async def __aexit__(self, exc_type, exc_value, traceback):
-            await self._on_close(self)
+        def __exit__(self, exc_type, exc_value, traceback):
+            self._is_entered = False
+            self._on_close(self)
             logging.debug(f'Resource stream closed for {id(self)}')
 
         async def __aiter__(self):
@@ -62,28 +60,19 @@ class ResourceStreamManager:
                 yield await self._get_resources()
                 self._stream_gate.set()
 
-    async def _on_open(self, identity, res_stream: ResourceStream):
+    def _on_open(self, identity, res_stream: ResourceStream):
         if identity not in self._resource_streams:
-            assert identity not in self._streams_set_locks
-            self._streams_set_locks[identity] = asyncio.Event()
-            self._streams_set_locks[identity].set()
-
             self._resource_streams[identity] = set()
 
-        await self._streams_set_locks[identity].wait()
         self._resource_streams[identity].add(res_stream)
 
-    async def _on_close(self, identity, res_stream: ResourceStream):
+    def _on_close(self, identity, res_stream: ResourceStream):
         res_stream._stream_gate.set()
-
-        await self._streams_set_locks[identity].wait()
         self._resource_streams[identity].remove(res_stream)
 
         if not self._resource_streams.get(identity):  # Clean up dictionary values if needed
             self._resource_streams.pop(identity)
-            del self._streams_set_locks[identity]
 
-    # TODO: Change all usages to await
     def get_resource_stream(self,
                             identity,
                             get_resources: Callable[[], Coroutine],
@@ -98,16 +87,26 @@ class ResourceStreamManager:
         return rs
 
     async def update(self, identity):
-        # If there is no resources stream associated with `identity`, no update needed.
-        if identity not in self._resource_streams:
+        # TODO: Do we really need this statement?
+        # If there is no resource stream associated with `identity`, no update needed.
+        if identity is not None and identity not in self._resource_streams:
             return
 
-        self._streams_set_locks[identity].clear()  # Block other tasks from modifying the resource_streams set
+        if identity is None:  # Notify all streams
+            for identity_key in list(self._resource_streams):
+                if identity_key not in self._resource_streams:
+                    continue
+                for stream in list(self._resource_streams[identity_key]):
+                    if stream not in self._resource_streams[identity_key]:
+                        continue
+                    stream._update_event.set()
+                    await stream._stream_gate.wait()
+                    stream._stream_gate.clear()
+            return
 
-        # Notify each stream of `identity`
-        for stream in self._resource_streams[identity]:
+        for stream in list(self._resource_streams[identity]):  # Notify each stream of `identity`
+            if stream not in self._resource_streams[identity]:
+                continue
             stream._update_event.set()
             await stream._stream_gate.wait()
             stream._stream_gate.clear()
-
-        self._streams_set_locks[identity].set()  # Allow other tasks to modify the resource_streams set
