@@ -202,11 +202,11 @@ class DynamoDB:
                     AttributeDefinitions=[
                         {
                             'AttributeName': 'name',
-                            'KeyType': 'S'
+                            'AttributeType': 'S'
                         },
                         {
                             'AttributeName': 'key',
-                            'KeyType': 'S'
+                            'AttributeType': 'S'
                         }
                     ],
                     ProvisionedThroughput={
