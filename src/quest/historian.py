@@ -171,7 +171,7 @@ def _get_qualified_version(module_name, function_name, version_name: str) -> str
 
 
 # Resource names should be unique to the workflow and identity
-def _create_resource_id(name: str, identity: str) -> str:
+def _create_resource_id(name: str, identity: str | None) -> str:
     return f'{name}|{identity}' if identity is not None else name
 
 
@@ -621,7 +621,12 @@ class Historian:
 
         logging.debug(f'External event {step_id} with {args} and {kwargs}')
 
-        resource = self._resources[resource_id]['resource']
+        try:
+            resource = self._resources[resource_id]['resource']
+        except KeyError:
+            resource_id = _create_resource_id(name, None)  # Try accessing by public identity
+            resource = self._resources[resource_id]['resource']
+
         function = getattr(resource, action)
         if inspect.iscoroutinefunction(function):
             result = await function(*args, **kwargs)

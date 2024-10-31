@@ -17,11 +17,12 @@ class ResourceStreamManager:
                      ):
             self._stream_gate = asyncio.Event()
             self._update_event = asyncio.Event()
+            self._is_entered = False
+
             self._get_resources = get_resources
             self._is_workflow_complete = is_workflow_complete
             self._on_open = on_open
             self._on_close = on_close
-            self._is_entered = False
 
         def __enter__(self):
             self._is_entered = True
@@ -40,7 +41,7 @@ class ResourceStreamManager:
             Everytime the workflow resource state changes, an update will be published.
 
             NOTE: Once you start the resource stream,
-            the workflow will not progress unless you iterate this stream.
+            the workflow will not progress unless you iterate this stream or exit the `with` context.
             """
 
             if not self._is_entered:
@@ -93,7 +94,7 @@ class ResourceStreamManager:
             return
 
         if identity is None:  # Notify all streams
-            for identity_key in list(self._resource_streams):
+            for identity_key in list(self._resource_streams):  # Use a copy to avoid set size changed exception
                 if identity_key not in self._resource_streams:
                     continue
                 for stream in list(self._resource_streams[identity_key]):
@@ -104,7 +105,8 @@ class ResourceStreamManager:
                     stream._stream_gate.clear()
             return
 
-        for stream in list(self._resource_streams[identity]):  # Notify each stream of `identity`
+        # Notify each stream of `identity`
+        for stream in list(self._resource_streams[identity]):  # Use a copy to avoid set size changed exception
             if stream not in self._resource_streams[identity]:
                 continue
             stream._update_event.set()
