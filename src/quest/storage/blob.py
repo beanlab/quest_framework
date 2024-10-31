@@ -1,0 +1,13 @@
+from typing import Protocol, Union
+
+Blob = Union[dict, list, str, int, bool, float]
+
+
+class BlobStorage(Protocol):
+    def write_blob(self, key: str, blob: Blob): ...
+
+    def read_blob(self, key: str) -> Blob: ...
+
+    def has_blob(self, key: str) -> bool: ...
+
+    def delete_blob(self, key: str): ...

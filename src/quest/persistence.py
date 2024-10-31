@@ -6,6 +6,7 @@ from typing import Protocol, Union
 
 from .history import History
 from .quest_types import EventRecord
+from .storage import LocalFileSystemBlobStorage
 
 Blob = Union[dict, list, str, int, bool, float]
 
