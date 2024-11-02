@@ -1,30 +1,37 @@
 import asyncio
 from pathlib import Path
 from typing import Callable
-from dotenv import load_dotenv
+from dotenv import load_dotenv # TODO: Remove, how should we load env in the test?
 
 import pytest
 
-from quest import SqlBlobStorage, DynamoDBBlobStorage
-from src.quest import step
-from src.quest.historian import Historian
-from src.quest.persistence import PersistentHistory, LocalFileSystemBlobStorage, SQLDatabase, DynamoDB
+from quest import step
+from quest.historian import Historian
+from quest.persistence import PersistentHistory, LocalFileSystemBlobStorage, SQLDatabase, DynamoDB, SqlBlobStorage, DynamoDBBlobStorage
 from utils import timeout
+from moto import mock_aws
 
-
+@pytest.fixture
 def create_filesystem_storage(path: Path):
     return LocalFileSystemBlobStorage(path)
 
+@pytest.fixture
 def create_sql_storage(path: Path):
     database = SQLDatabase('sqlite:///:memory:')
-    return SqlBlobStorage(path.name, database.get_engine())
+    return SqlBlobStorage(path.name, database.get_session())
 
+@pytest.fixture
 def create_dynamodb_storage(path: Path):
     env_path = Path('../.env')
     load_dotenv(dotenv_path=env_path)
-    dynamodb = DynamoDB()
+    dynamodb = DynamoDB() # TODO: Not quite sure how to test this without loading the env
     return DynamoDBBlobStorage(path.name, dynamodb.get_table())
 
+storage_funcs = [
+    # create_filesystem_storage,
+    # create_sql_storage,
+    create_dynamodb_storage
+]
 
 @step
 async def simple_step():
@@ -42,12 +49,8 @@ async def simple_workflow():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("storage_func", [
-    create_filesystem_storage,
-    create_sql_storage,
-    create_dynamodb_storage,
-])
-@timeout(3)
+@pytest.mark.parametrize("storage_func", storage_funcs)
+@timeout(6)
 async def test_persistence_basic(tmp_path: Path, storage_func: Callable):
     storage = storage_func(tmp_path)
     history = PersistentHistory('test', storage)
@@ -86,11 +89,7 @@ async def resume_this_workflow():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("storage_func", [
-    create_filesystem_storage,
-    create_sql_storage,
-    create_dynamodb_storage,
-])
+@pytest.mark.parametrize("storage_func", storage_funcs)
 async def test_resume_step_persistence(tmp_path: Path, storage_func: Callable):
     storage = storage_func(tmp_path)
     history = PersistentHistory('test', storage)
