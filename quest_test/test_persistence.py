@@ -9,18 +9,14 @@ from quest import step
 from quest.historian import Historian
 from quest.persistence import PersistentHistory, LocalFileSystemBlobStorage, SQLDatabase, DynamoDB, SqlBlobStorage, DynamoDBBlobStorage
 from utils import timeout
-from moto import mock_aws
 
-@pytest.fixture
 def create_filesystem_storage(path: Path):
     return LocalFileSystemBlobStorage(path)
 
-@pytest.fixture
 def create_sql_storage(path: Path):
     database = SQLDatabase('sqlite:///:memory:')
     return SqlBlobStorage(path.name, database.get_session())
 
-@pytest.fixture
 def create_dynamodb_storage(path: Path):
     env_path = Path('../.env')
     load_dotenv(dotenv_path=env_path)
@@ -28,8 +24,8 @@ def create_dynamodb_storage(path: Path):
     return DynamoDBBlobStorage(path.name, dynamodb.get_table())
 
 storage_funcs = [
-    # create_filesystem_storage,
-    # create_sql_storage,
+    create_filesystem_storage,
+    create_sql_storage,
     create_dynamodb_storage
 ]
 
