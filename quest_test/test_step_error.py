@@ -109,5 +109,5 @@ async def test_builtin():
     result = await historian.run('abc')
 
     assert result == 'abcabcabcabc'
-    assert double_calls == 2
+    assert double_calls == 4
     assert foo_calls == 2

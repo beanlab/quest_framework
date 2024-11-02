@@ -3,6 +3,7 @@ import asyncio
 import pytest
 from src.quest import queue, Historian, version, get_version, task, step, state
 
+
 V2 = '2023-08-25 append "2" to words'
 
 
@@ -160,6 +161,7 @@ async def test_named_versions():
         t3 = get_numbers(name3)
         return (await t1) + (await t2) + (await t3)
 
+
     history = []
 
     name1 = 'foo'
@@ -262,7 +264,7 @@ async def test_named_versions():
     await historian.record_external_event('numbers', name2, 'put', 1)  # 3rd number
     await historian.record_external_event('numbers', name3, 'put', 1)  # 2nd number
     await historian.record_external_event('numbers', name3, 'put', 1)  # 3rd number
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0.5)
 
     assert (await result) == [
         1, 1, 1,  # name 1

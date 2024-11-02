@@ -1,10 +1,12 @@
 # Enable event histories to be persistent
 import json
+import copy
 from hashlib import md5
 from pathlib import Path
 from typing import Protocol, Union
 
 from .history import History
+from .protect import Protection
 from .quest_types import EventRecord
 
 Blob = Union[dict, list, str, int, bool, float]
@@ -41,16 +43,18 @@ class PersistentHistory(History):
         return self._namespace + '.' + md5((item['timestamp'] + item['step_id'] + item['type']).encode()).hexdigest()
 
     def append(self, item: EventRecord):
-        self._items.append(item)
-        self._keys.append(key := self._get_key(item))
-        self._storage.write_blob(key, item)
-        self._storage.write_blob(self._namespace, self._keys)
+        with Protection() as protect:
+            self._items.append(item)
+            self._keys.append(key := self._get_key(item))
+            self._storage.write_blob(key, item)
+            self._storage.write_blob(self._namespace, self._keys)
 
     def remove(self, item: EventRecord):
-        self._items.remove(item)
-        self._keys.remove(key := self._get_key(item))
-        self._storage.delete_blob(key)
-        self._storage.write_blob(self._namespace, self._keys)
+        with Protection():
+            self._items.remove(item)
+            self._keys.remove(key := self._get_key(item))
+            self._storage.delete_blob(key)
+            self._storage.write_blob(self._namespace, self._keys)
 
     def __iter__(self):
         return iter(self._items)
@@ -68,7 +72,7 @@ class LocalFileSystemBlobStorage(BlobStorage):
         return self._root / (key + '.json')
 
     def write_blob(self, key: str, blob: Blob):
-        self._get_file(key).write_text(json.dumps(blob))
+        self._get_file(key).write_text(json.dumps(blob, indent=2))
 
     def read_blob(self, key: str) -> Blob:
         return json.loads(self._get_file(key).read_text())
@@ -85,7 +89,7 @@ class InMemoryBlobStorage(BlobStorage):
         self._data = {}
 
     def write_blob(self, key: str, blob: Blob):
-        self._data[key] = blob
+        self._data[key] = copy.deepcopy(blob)
 
     def read_blob(self, key: str) -> Blob:
         return self._data[key]

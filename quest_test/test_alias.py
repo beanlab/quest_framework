@@ -29,7 +29,7 @@ async def test_alias():
     }
 
     async with create_in_memory_workflow_manager(workflows) as manager:
-        manager.start_workflow('workflow', 'wid')
+        manager.start_workflow('workflow', 'wid', False)
         await asyncio.sleep(0.1)
 
         await manager.send_event('wid', 'data', None, 'put', '1')
@@ -87,9 +87,9 @@ async def test_alias_trade():
 
     async with create_in_memory_workflow_manager(workflows) as manager:
         # Gather resources
-        manager.start_workflow('workflow_a', 'wid_a')
+        manager.start_workflow('workflow_a', 'wid_a', False)
         await asyncio.sleep(0.1)
-        manager.start_workflow('workflow_b', 'wid_b')
+        manager.start_workflow('workflow_b', 'wid_b', False)
         await asyncio.sleep(0.1)
 
         logging.info('Workflows started')
@@ -141,8 +141,8 @@ async def test_alias_exception():
         'workflow_b': workflow_b,
     }
     async with create_in_memory_workflow_manager(workflows) as manager:
-        manager.start_workflow('workflow_a', 'wid1')
-        manager.start_workflow('workflow_b', 'wid2')
+        manager.start_workflow('workflow_a', 'wid1', False)
+        manager.start_workflow('workflow_b', 'wid2', False)
 
         await asyncio.sleep(0.1)
         pause.set()

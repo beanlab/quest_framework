@@ -37,7 +37,7 @@ class WorkflowManager:
         self._storage = storage
         self._create_history = create_history
         self._create_workflow = create_workflow
-        self._workflow_data = []
+        self._workflow_data = {}
         self._workflows: dict[str, Historian] = {}
         self._workflow_tasks: dict[str, asyncio.Task] = {}
         self._alias_dictionary = {}
@@ -48,8 +48,8 @@ class WorkflowManager:
         if self._storage.has_blob(self._namespace):
             self._workflow_data = self._storage.read_blob(self._namespace)
 
-        for wtype, wid, args, kwargs, background in self._workflow_data:
-            self._start_workflow(wtype, wid, args, kwargs, background=background)
+        for wtype, wid, args, kwargs, background in self._workflow_data.values():
+            self._start_workflow(wtype, wid, args, kwargs, delete_on_finish=background)
 
         return self
 
@@ -63,37 +63,38 @@ class WorkflowManager:
         workflow_id = self._alias_dictionary.get(workflow_id, workflow_id)
         return self._workflows[workflow_id]
 
-    def _remove_workflow(self, workflow_id: str):
+    def _remove_workflow(self, workflow_id: str, context):
         self._workflows.pop(workflow_id)
         self._workflow_tasks.pop(workflow_id)
-        data = next(d for d in self._workflow_data if d[1] == workflow_id)
-        self._workflow_data.remove(data)
+        del self._workflow_data[workflow_id]
 
     def _start_workflow(self,
                         workflow_type: str, workflow_id: str, workflow_args, workflow_kwargs,
-                        background=False):
+                        delete_on_finish=False):
         workflow_function = self._create_workflow(workflow_type)
 
         workflow_manager.set(self)
 
         history = self._create_history(workflow_id)
-        historian: Historian = Historian(workflow_id, workflow_function, history)
+        historian: Historian = Historian(workflow_id, workflow_function, history, abort_callback=self._suspend_all_workflows_and_exit)
         self._workflows[workflow_id] = historian
 
         self._workflow_tasks[workflow_id] = (task := historian.run(*workflow_args, **workflow_kwargs))
-        if background:
-            task.add_done_callback(lambda t: self._remove_workflow(workflow_id))
+        if delete_on_finish:
+            task.add_done_callback(lambda t: self._remove_workflow(workflow_id, t))
 
-    def start_workflow(self, workflow_type: str, workflow_id: str, *workflow_args, **workflow_kwargs):
-        """Start the workflow"""
-        self._workflow_data.append((workflow_type, workflow_id, workflow_args, workflow_kwargs, False))
-        self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs)
+    def start_workflow(self, workflow_type: str, workflow_id: str,
+                           delete_on_finish: bool, *workflow_args, **workflow_kwargs) -> asyncio.Task:
 
-    def start_workflow_background(self, workflow_type: str, workflow_id: str, *workflow_args, **workflow_kwargs):
-        """Start the workflow"""
-        self._workflow_data.append((workflow_type, workflow_id, workflow_args, workflow_kwargs, True))
-        self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs, background=True)
+            """Start the workflow.
+                Returns the asyncio.Task associated with the workflow.
+                This allows the workflow to be awaited and the result retrieved."""
+            if workflow_id not in self._workflow_data.keys():
+                self._workflow_data[workflow_id] = (
+                workflow_type, workflow_id, workflow_args, workflow_kwargs, delete_on_finish)
+                self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs, delete_on_finish)
 
+            return self._workflow_tasks[workflow_id]
     def has_workflow(self, workflow_id: str) -> bool:
         workflow_id = self._alias_dictionary.get(workflow_id, workflow_id)
         return workflow_id in self._workflows
@@ -102,8 +103,15 @@ class WorkflowManager:
         workflow_id = self._alias_dictionary.get(workflow_id, workflow_id)
         return self._workflow_tasks[workflow_id]
 
+
     async def suspend_workflow(self, workflow_id: str):
         await self._get_workflow(workflow_id).suspend()
+
+    async def _suspend_all_workflows_and_exit(self):
+        for historian in self._workflows.values():
+            if not historian.suspending_in_process:
+                print(f"suspending {historian.workflow_id}")
+                await historian.suspend()
 
     async def get_resources(self, workflow_id: str, identity):
         return await self._get_workflow(workflow_id).get_resources(identity)
@@ -116,6 +124,11 @@ class WorkflowManager:
 
     async def send_event(self, workflow_id: str, name: str, identity, action, *args, **kwargs):
         return await self._get_workflow(workflow_id).record_external_event(name, identity, action, *args, **kwargs)
+        #workflow_task = self._workflow_tasks[workflow_id]
+        #if not workflow_task.done():
+        #    return await self._get_workflow(workflow_id).record_external_event(name, identity, action, *args, **kwargs)
+        #else:
+        #    raise Exception("Attempted to send event to a completed workflow.")
 
     def _make_wrapper_func(self, workflow_id: str, name: str, identity, field, attr):
         # Why have _make_wrapper_func?
