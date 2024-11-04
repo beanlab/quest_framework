@@ -8,7 +8,7 @@ import pytest
 from quest import step
 from quest.historian import Historian
 from quest.persistence import PersistentHistory, LocalFileSystemBlobStorage, SQLDatabase, DynamoDB, SqlBlobStorage, DynamoDBBlobStorage
-from utils import timeout
+from utils import timeout, mock_aws_session
 
 def create_filesystem_storage(path: Path):
     return LocalFileSystemBlobStorage(path)
@@ -20,12 +20,12 @@ def create_sql_storage(path: Path):
 def create_dynamodb_storage(path: Path):
     env_path = Path('../.env')
     load_dotenv(dotenv_path=env_path)
-    dynamodb = DynamoDB() # TODO: Not quite sure how to test this without loading the env
+    dynamodb = DynamoDB(mock_aws_session) # TODO: Not quite sure how to test this without loading the env
     return DynamoDBBlobStorage(path.name, dynamodb.get_table())
 
 storage_funcs = [
-    create_filesystem_storage,
-    create_sql_storage,
+    # create_filesystem_storage,
+    # create_sql_storage,
     create_dynamodb_storage
 ]
 

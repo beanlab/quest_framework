@@ -35,3 +35,42 @@ def create_in_memory_workflow_manager(workflows: dict):
         return workflows[wtype]
 
     return WorkflowManager('test', storage, create_history, create_workflow)
+
+from moto import mock_dynamodb
+import boto3
+
+@mock_aws
+def mock_aws_session():
+    return boto3.session.Session()
+
+# from moto import mock_dynamodb
+# import boto3
+#
+# def mock_dynamodb(func):
+#     @wraps(func)
+#     def wrapper(*args, **kwargs):
+#         @mock_aws
+#         def create_mock_table:
+#             # Set up the mock environment
+#             dynamodb = boto3.resource('dynamodb')
+#             # Create a mock table (this can be adjusted as needed)
+#             dynamodb.create_table(
+#                 TableName='mock_table',
+#                 KeySchema=[
+#                     {
+#                         'AttributeName': 'id',
+#                         'KeyType': 'HASH'  # Partition key
+#                     }
+#                 ],
+#                 AttributeDefinitions=[
+#                     {
+#                         'AttributeName': 'id',
+#                         'AttributeType': 'S'  # String type
+#                     }
+#                 ],
+#                 ProvisionedThroughput={
+#                     'ReadCapacityUnits': 1,
+#                     'WriteCapacityUnits': 1
+#                 }
+#             )
+#         return func(*args, **kwargs)
