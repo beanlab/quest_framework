@@ -10,6 +10,7 @@ from .persistence import LocalFileSystemBlobStorage, PersistentHistory
 from .versioning import version, get_version
 from .manager import WorkflowManager, WorkflowFactory
 from .utils import ainput
+from .manager_wrappers import alias
 from .serializer import StepSerializer, MasterSerializer, NoopSerializer
 
 
