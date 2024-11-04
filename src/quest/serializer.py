@@ -1,5 +1,5 @@
 from typing import Any, Dict, Protocol, TypeVar, Callable, Tuple, TypedDict
-from utils import get_obj_name, import_object
+from .utils import get_obj_name, import_object
 import inspect
 
 T = TypeVar('T')
