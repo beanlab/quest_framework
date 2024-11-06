@@ -47,10 +47,6 @@ class ResourceStreamManager:
             if not self._is_entered:
                 raise Exception('ResourceStream must be used in a `with` context.')
 
-            # TODO: Do we still need this explanation?
-            # The caller of this function lives outside the step management of the historian
-            #         -> don't replay, just yield event changes in realtime
-
             yield await self._get_resources()  # Yield the current resources immediately
 
             # TODO: What if the workflow is complete but we are already in this loop awaiting a update_event? How close?
@@ -71,7 +67,7 @@ class ResourceStreamManager:
         res_stream._stream_gate.set()
         self._resource_streams[identity].remove(res_stream)
 
-        if not self._resource_streams.get(identity):  # Clean up dictionary values if needed
+        if not self._resource_streams[identity]:  # Clean up dictionary values if needed
             self._resource_streams.pop(identity)
 
     def get_resource_stream(self,

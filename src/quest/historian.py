@@ -621,11 +621,7 @@ class Historian:
 
         logging.debug(f'External event {step_id} with {args} and {kwargs}')
 
-        try:
-            resource = self._resources[resource_id]['resource']
-        except KeyError:
-            resource_id = _create_resource_id(name, None)  # Try accessing by public identity
-            resource = self._resources[resource_id]['resource']
+        resource = self._resources[resource_id]['resource']
 
         function = getattr(resource, action)
         if inspect.iscoroutinefunction(function):
@@ -952,21 +948,20 @@ class Historian:
         if self._fatal_exception.done():
             await self._fatal_exception
 
-        # Get public resources first
-        resources = {
-            entry['name']: entry['resource']
-            for entry in self._resources.values()
-            if entry['identity'] is None
-        }
-
-        # Now add in (and override) identity-specific resources
+        # Return a dictionary of resources wrapped in register_external_event wrappers
+        resources = {}
         for entry in self._resources.values():
-            if entry['identity'] == identity:
-                resources[entry['name']] = entry['resource']
+            # Always return public resources and any private resources that match the identity
+            if entry['identity'] is None or entry['identity'] == identity:
+                resources[entry['name']] = wrap_methods_as_historian_events(
+                    entry['resource'],
+                    entry['name'],
+                    entry['identity'],
+                    self,
+                    internal=False
+                )
 
-        # Now wrap the resources in register_external_event wrappers
-        return {k: wrap_methods_as_historian_events(res, k, identity, self, internal=False) for k, res in
-                resources.items()}
+        return resources
 
     def get_resource_stream(self, identity):
         return self._resource_stream_manager.get_resource_stream(
