@@ -18,15 +18,14 @@ def get_subprocess(is_fresh=False):
     err_file = open("kill-test_stderr.txt", "w")
     if(is_fresh): # delete json files after a full clean run
         if printing:
-            p = subprocess.Popen([sys.executable, "./main.py", "--no-destruct"], stdout=out_file, stderr=out_file)
+            p = subprocess.Popen([sys.executable, "./main2.py", "--no-destruct"], stdout=out_file, stderr=out_file)
         else:
-            p = subprocess.Popen([sys.executable, "./main.py", "--no-print", "--no-destruct"], stdout=out_file, stderr=out_file)
+            p = subprocess.Popen([sys.executable, "./main2.py", "--no-print", "--no-destruct"], stdout=out_file, stderr=out_file)
     else:
         if printing:
-            p = subprocess.Popen([sys.executable, "./main.py", "--restart", "--no-destruct"], stdout=out_file, stderr=out_file)
+            p = subprocess.Popen([sys.executable, "./main2.py", "--restart", "--no-destruct"], stdout=out_file, stderr=out_file)
         else:
-            p = subprocess.Popen([sys.executable, "./main.py", "--restart", "--no-print", "--no-destruct"], stdout=out_file, stderr=out_file)
-
+            p = subprocess.Popen([sys.executable, "./main2.py", "--restart", "--no-print", "--no-destruct"], stdout=out_file, stderr=out_file)
     if wait_time > 0:
         wait = wait_time
     else:

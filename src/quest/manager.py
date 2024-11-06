@@ -45,6 +45,7 @@ class WorkflowManager:
 
     async def __aenter__(self) -> 'WorkflowManager':
         """Load the workflows and get them running again"""
+        # register sigint handler
         if self._storage.has_blob(self._namespace):
             self._workflow_data = self._storage.read_blob(self._namespace)
 
@@ -55,6 +56,9 @@ class WorkflowManager:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Save whatever state is necessary before exiting"""
+        # deregister sigint handler
+        # create separate mothod for cleanup and aenter only calls cleanup if cleanup hasn't been called yet
+        # use a flag to check if cleanup has been called
         self._storage.write_blob(self._namespace, self._workflow_data)
         for wid, historian in self._workflows.items():
             await historian.suspend()

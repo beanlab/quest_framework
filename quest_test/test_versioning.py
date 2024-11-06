@@ -264,9 +264,9 @@ async def test_named_versions():
     await historian.record_external_event('numbers', name2, 'put', 1)  # 3rd number
     await historian.record_external_event('numbers', name3, 'put', 1)  # 2nd number
     await historian.record_external_event('numbers', name3, 'put', 1)  # 3rd number
-    await asyncio.sleep(0.5)
-
-    assert (await result) == [
+    await asyncio.sleep(0.1)
+    result = await result
+    assert (result) == [
         1, 1, 1,  # name 1
         1, 1, 4,  # name 2
         1, 1, 5,  # name 3
