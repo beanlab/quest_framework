@@ -6,7 +6,8 @@ from .wrappers import step, task
 from .external import state, queue, identity_queue, event
 from .historian import Historian
 from .history import History
-from .persistence import LocalFileSystemBlobStorage, SqlBlobStorage, PersistentHistory, SQLDatabase, DynamoDB, DynamoDBBlobStorage
+from .sql import SQLDatabase, SqlBlobStorage
+from .persistence import LocalFileSystemBlobStorage, PersistentHistory, DynamoDB, DynamoDBBlobStorage, BlobStorage, Blob
 from .versioning import version, get_version
 from .manager import WorkflowManager, WorkflowFactory
 from .utils import ainput
@@ -34,20 +35,10 @@ def create_filesystem_manager(
 
     return WorkflowManager(namespace, storage, create_history, factory)
 
-def create_sql_manager(
-        db_url: str,
-        namespace: str,
-        factory: WorkflowFactory
-) -> WorkflowManager:
-
-    database = SQLDatabase(db_url)
-
-    storage = SqlBlobStorage(namespace, database.get_engine())
-
-    def create_history(wid: str) -> History:
-        return PersistentHistory(wid, SqlBlobStorage(wid, database.get_engine()))
-
-    return WorkflowManager(namespace, storage, create_history, factory)
+try:
+    from .sql import create_sql_manager
+except ImportError:
+    raise ImportError("quest[sql] is not installed. To use SQL databases, install quest with the sql extra: pip install quest[sql]")
 
 def create_dynamodb_manager(
         namespace: str,

@@ -12,14 +12,11 @@ python = "^3.11"
 pytest = "^7.4.0"
 pytest-asyncio = "^0.21.0"
 
-[tool.poetry.group.sql]
-optional = true
-[tool.poetry.group.sql.dependencies]
-sqlalchemy = "^2.0.36"
+dynamodb = { version = "^1.0.0", optional = true }
 
-[tool.poetry.plugins."quest.sql"]
-sql_db = "quest.storage.sql:SQLDatabase"
-sql_blob = "quest.storage.sql:SQLBlobStorage"
+[tool.poetry.extras]
+#sql = ["sqlalchemy"]
+dynamodb = ["boto3", "os"]
 
 [tool.pytest.ini_options]
 log_cli = true
