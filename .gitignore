@@ -6,4 +6,4 @@ __pycache__/
 /venv/
 /quest_test/event_tests/.pytest_cache
 poetry.lock
-.env
+/quest_test/.integration.test.env

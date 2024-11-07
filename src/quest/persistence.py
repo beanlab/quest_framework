@@ -160,19 +160,17 @@ class DynamoDBTableCreationException(Exception):
 
 
 class DynamoDB:
-    def __init__(self, aws_session):
-        # self.session = boto3.session.Session(
-        #     os.environ['AWS_ACCESS_KEY_ID'],
-        #     os.environ['AWS_SECRET_ACCESS_KEY'],
-        #     os.environ['AWS_SESSION_TOKEN'],
-        #     os.environ['AWS_REGION']
-        # )
+    def __init__(self):
         # TODO: Do we want the AWS session being created in here? Or injected?
-
-        self._session = aws_session
+        self.session = boto3.session.Session(
+            os.environ['AWS_ACCESS_KEY_ID'],
+            os.environ['AWS_SECRET_ACCESS_KEY'],
+            os.environ['AWS_SESSION_TOKEN'],
+            os.environ['AWS_REGION']
+        )
 
         self._table_name = 'quest_records'
-        self._dynamodb = self._session.resource('dynamodb')
+        self._dynamodb = self.session.resource('dynamodb')
         self._table = self._prepare_table()
 
     def get_table(self):
