@@ -18,7 +18,7 @@ def create_sql_storage(path: Path):
     return SqlBlobStorage(path.name, database.get_session())
 
 def create_dynamodb_storage(path: Path):
-    env_path = Path('.integration.test.env')
+    env_path = Path('.env.integration')
     load_dotenv(dotenv_path=env_path)
     dynamodb = DynamoDB() # TODO: Not quite sure how to test this without loading the env
     return DynamoDBBlobStorage(path.name, dynamodb.get_table())
