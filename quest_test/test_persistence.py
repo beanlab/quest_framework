@@ -1,14 +1,15 @@
 import asyncio
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Callable
 from dotenv import load_dotenv
 
 import pytest
 
-from quest import SqlBlobStorage, DynamoDBBlobStorage
-from src.quest import step
-from src.quest.historian import Historian
-from src.quest.persistence import PersistentHistory, LocalFileSystemBlobStorage, DynamoDB
+from quest import SqlBlobStorage
+from quest import step
+from quest.historian import Historian
+from quest.persistence import PersistentHistory, LocalFileSystemBlobStorage, DynamoDB
 from utils import timeout
 from quest.sql import SQLDatabase, SqlBlobStorage
 
@@ -32,6 +33,41 @@ storage_funcs = [
     # create_dynamodb_storage
 ]
 
+class FileSystemStorageContext:
+    def __enter__(self):
+        self.tmp_dir = Path(TemporaryDirectory().__enter__())
+        storage = LocalFileSystemBlobStorage(self.tmp_dir)
+        return storage
+
+    def __exit__(self, *args):
+        return self.tmp_dir.__exit__(*args)
+
+class SqlStorageContext:
+    def __enter__(self):
+        database = SQLDatabase('sqlite:///:memory:')
+        storage = SqlBlobStorage('test', database.get_session())
+        return storage
+
+    def __exit__(self, *args):
+        return True
+
+class DynamoDBStorageContext:
+    def __enter__(self):
+        env_path = Path('.env.integration')
+        load_dotenv(dotenv_path=env_path)
+        dynamodb = DynamoDB()
+        storage = DynamoDBBlobStorage('test', dynamodb.get_table())
+        return storage
+
+    def __exit__(self, *args):
+        return True
+
+storages = [
+    FileSystemStorageContext,
+    SqlStorageContext,
+    # DynamoDBStorageContext
+]
+
 @step
 async def simple_step():
     return 7
@@ -48,30 +84,31 @@ async def simple_workflow():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("storage_func", storage_funcs)
+@pytest.mark.parametrize(storages)
 @timeout(3)
-async def test_persistence_basic(tmp_path: Path, storage_func: Callable):
-    storage = storage_func(tmp_path)
-    history = PersistentHistory('test', storage)
-    historian = Historian(
-        'test',
-        simple_workflow,
-        history
-    )
+async def test_persistence_basic(storage_ctx):
+    with storage_ctx as storage:
 
-    workflow = historian.run()
-    await asyncio.sleep(0.01)
-    await historian.suspend()
+        history = PersistentHistory('test', storage)
+        historian = Historian(
+            'test',
+            simple_workflow,
+            history
+        )
 
-    pause.set()
-    history = PersistentHistory('test', storage)
-    historian = Historian(
-        'test',
-        simple_workflow,
-        history
-    )
-    result = await historian.run()
-    assert result == 14
+        workflow = historian.run()
+        await asyncio.sleep(0.01)
+        await historian.suspend()
+
+        pause.set()
+        history = PersistentHistory('test', storage)
+        historian = Historian(
+            'test',
+            simple_workflow,
+            history
+        )
+        result = await historian.run()
+        assert result == 14
 
 
 event = asyncio.Event()

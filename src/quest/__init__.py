@@ -38,7 +38,7 @@ def create_filesystem_manager(
 try:
     from .sql import create_sql_manager
 except ImportError:
-    raise ImportError("quest[sql] is not installed. To use SQL databases, install quest with the sql extra: pip install quest[sql]")
+    raise ImportError("quest[sql] is not installed. To use SQL databases, install quest with the sql extra: pip install quest-py[sql]")
 
 def create_dynamodb_manager(
         namespace: str,
