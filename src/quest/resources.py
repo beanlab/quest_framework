@@ -6,7 +6,7 @@ from typing import Callable, Coroutine
 # noinspection PyProtectedMember
 class ResourceStreamManager:
     def __init__(self):
-        self._resource_streams: dict[str, set[ResourceStreamManager.ResourceStream]] = {}
+        self._resource_streams: dict[str | None, set[ResourceStreamManager.ResourceStream]] = {}
 
     class ResourceStream:
         def __init__(self,
@@ -84,27 +84,20 @@ class ResourceStreamManager:
         return rs
 
     async def update(self, identity):
-        # TODO: Do we really need this statement?
         # If there is no resource stream associated with `identity`, no update needed.
         if identity is not None and identity not in self._resource_streams:
             return
 
-        if identity is None:  # Notify all streams
-            for identity_key in list(self._resource_streams):  # Use a copy to avoid set size changed exception
-                if identity_key not in self._resource_streams:
-                    continue
-                for stream in list(self._resource_streams[identity_key]):
-                    if stream not in self._resource_streams[identity_key]:
-                        continue
-                    stream._update_event.set()
-                    await stream._stream_gate.wait()
-                    stream._stream_gate.clear()
-            return
+        # Set streams to a copy to avoid set size changed exception
+        if identity is None:
+            streams = {key: value.copy() for key, value in self._resource_streams.items()}
+        else:
+            streams = {identity: self._resource_streams[identity].copy()}
 
-        # Notify each stream of `identity`
-        for stream in list(self._resource_streams[identity]):  # Use a copy to avoid set size changed exception
-            if stream not in self._resource_streams[identity]:
-                continue
-            stream._update_event.set()
-            await stream._stream_gate.wait()
-            stream._stream_gate.clear()
+        for stream_identity, stream_set in streams.items():
+            for stream in stream_set:
+                if stream not in self._resource_streams[stream_identity]:  # Continue if the stream has closed
+                    continue
+                stream._update_event.set()
+                await stream._stream_gate.wait()
+                stream._stream_gate.clear()
