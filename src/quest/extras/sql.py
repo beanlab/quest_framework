@@ -1,11 +1,10 @@
-from quest import BlobStorage, Blob
+from .. import WorkflowFactory, WorkflowManager, PersistentHistory, History, BlobStorage, Blob
 
 try:
     from sqlalchemy import create_engine, Column, Integer, String, JSON, Engine
-    from sqlalchemy.ext.declarative import declarative_base
-    from sqlalchemy.orm import sessionmaker, Session
+    from sqlalchemy.orm import sessionmaker, Session, declarative_base
 except ImportError:
-    raise ImportError("The 'sql' extra is required to use this module. Run 'pip install quest[sql]'.")
+    raise ImportError("The 'sql' extra is required to use this module. Run 'pip install quest-py[sql]'.")
 
 Base = declarative_base()
 
@@ -71,3 +70,19 @@ class SqlBlobStorage(BlobStorage):
             if record.key == key:
                 self._get_session().delete(record)
                 self._get_session().commit()
+
+
+def create_sql_manager(
+        db_url: str,
+        namespace: str,
+        factory: WorkflowFactory
+) -> WorkflowManager:
+
+    database = SQLDatabase(db_url)
+
+    storage = SqlBlobStorage(namespace, database.get_session())
+
+    def create_history(wid: str) -> History:
+        return PersistentHistory(wid, SqlBlobStorage(wid, database.get_session()))
+
+    return WorkflowManager(namespace, storage, create_history, factory)

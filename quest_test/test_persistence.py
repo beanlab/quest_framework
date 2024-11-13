@@ -6,12 +6,12 @@ from dotenv import load_dotenv
 
 import pytest
 
-from quest import SqlBlobStorage
 from quest import step
 from quest.historian import Historian
-from quest.persistence import PersistentHistory, LocalFileSystemBlobStorage, DynamoDB
-from utils import timeout
-from quest.sql import SQLDatabase, SqlBlobStorage
+from quest.persistence import PersistentHistory, LocalFileSystemBlobStorage
+from .utils import timeout
+from quest.extras.sql import SQLDatabase, SqlBlobStorage
+from quest.extras.dynamodb import DynamoDB, DynamoDBBlobStorage
 
 
 def create_filesystem_storage(path: Path):
@@ -26,12 +26,6 @@ def create_dynamodb_storage(path: Path):
     load_dotenv(dotenv_path=env_path)
     dynamodb = DynamoDB()
     return DynamoDBBlobStorage(path.name, dynamodb.get_table())
-
-storage_funcs = [
-    # create_filesystem_storage,
-    create_sql_storage,
-    # create_dynamodb_storage
-]
 
 class FileSystemStorageContext:
     def __enter__(self):
@@ -53,7 +47,7 @@ class SqlStorageContext:
 
 class DynamoDBStorageContext:
     def __enter__(self):
-        env_path = Path('.env.integration')
+        env_path = Path('.integration.env')
         load_dotenv(dotenv_path=env_path)
         dynamodb = DynamoDB()
         storage = DynamoDBBlobStorage('test', dynamodb.get_table())
@@ -63,9 +57,9 @@ class DynamoDBStorageContext:
         return True
 
 storages = [
-    FileSystemStorageContext,
-    SqlStorageContext,
-    # DynamoDBStorageContext
+    pytest.param(FileSystemStorageContext(), marks=pytest.mark.unit, id="file"),
+    pytest.param(SqlStorageContext(), marks=pytest.mark.unit, id="sql"),
+    pytest.param(DynamoDBStorageContext(), marks=pytest.mark.integration, id="dynamodb"),
 ]
 
 @step
@@ -84,7 +78,7 @@ async def simple_workflow():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(storages)
+@pytest.mark.parametrize('storage_ctx', storages)
 @timeout(3)
 async def test_persistence_basic(storage_ctx):
     with storage_ctx as storage:
@@ -125,28 +119,29 @@ async def resume_this_workflow():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("storage_func", storage_funcs)
-async def test_resume_step_persistence(tmp_path: Path, storage_func: Callable):
-    storage = storage_func(tmp_path)
-    history = PersistentHistory('test', storage)
-    historian = Historian(
-        'test',
-        resume_this_workflow,
-        history
-    )
+@pytest.mark.parametrize('storage_ctx', storages)
+async def test_resume_step_persistence(storage_ctx):
+    with storage_ctx as storage:
+        history = PersistentHistory('test', storage)
+        historian = Historian(
+            'test',
+            resume_this_workflow,
+            history
+        )
 
-    workflow = historian.run()
-    await asyncio.sleep(0.01)
-    await historian.suspend()
+        workflow = historian.run()
+        await asyncio.sleep(0.01)
+        await historian.suspend()
 
     event.set()
 
-    storage = LocalFileSystemBlobStorage(tmp_path)
-    history = PersistentHistory('test', storage)
-    historian = Historian(
-        'test',
-        resume_this_workflow,
-        history
-    )
+    with storage_ctx as storage:
 
-    await historian.run()
+        history = PersistentHistory('test', storage)
+        historian = Historian(
+            'test',
+            resume_this_workflow,
+            history
+        )
+
+        await historian.run()

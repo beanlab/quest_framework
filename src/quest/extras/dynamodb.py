@@ -1,7 +1,11 @@
 import os
-import boto3
-from botocore.exceptions import ClientError
-from quest import BlobStorage, Blob
+from .. import BlobStorage, Blob, WorkflowManager, WorkflowFactory, PersistentHistory, History
+
+try:
+    import boto3
+    from botocore.exceptions import ClientError
+except ImportError:
+    raise ImportError("The 'dynamodb' extra is required to use this module. Run 'pip install quest-py[dynamodb]'")
 
 class DynamoDBTableCreationException(Exception):
     pass
@@ -100,3 +104,16 @@ class DynamoDBBlobStorage(BlobStorage):
             'key': key
         }
         self._table.delete_item(Key=primary_key)
+
+def create_dynamodb_manager(
+        namespace: str,
+        factory: WorkflowFactory,
+) -> WorkflowManager:
+    dynamodb = DynamoDB()
+
+    storage = DynamoDBBlobStorage(namespace, dynamodb.get_table())
+
+    def create_history(wid: str) -> History:
+        return PersistentHistory(wid, DynamoDBBlobStorage(wid, dynamodb.get_table()))
+
+    return WorkflowManager(namespace, storage, create_history, factory)
