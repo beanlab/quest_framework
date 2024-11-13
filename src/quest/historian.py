@@ -841,7 +841,7 @@ class Historian:
         kwargs = await self.handle_step('kwargs', lambda: kwargs)
         result = await self.handle_step(get_function_name(self.workflow), self.workflow, *args, **kwargs)
         self._workflow_completed = True
-        await self._update_resource_stream(None)
+        self._resource_stream_manager.notify_of_workflow_stop()
         return result
 
     async def _run_with_exception_handling(self, *args, **kwargs):
@@ -920,6 +920,9 @@ class Historian:
 
     async def suspend(self):
         logging.info(f'-- Suspending {self.workflow_id} --')
+
+        self._resource_stream_manager.notify_of_workflow_stop()
+
         # Cancelling these in reverse order is important
         # If a parent thread cancels, it will cancel a child.
         # We want to be the one that cancels every task,
@@ -967,7 +970,6 @@ class Historian:
         return self._resource_stream_manager.get_resource_stream(
             identity,
             lambda: self.get_resources(identity),
-            lambda: self._workflow_completed
         )
 
     async def _update_resource_stream(self, identity):

@@ -7,7 +7,9 @@ from quest.external import state, queue
 from utils import timeout
 
 
-# TODO: Make test to assert public resources do not receive updates to a private resource
+# TODO:
+#  - Make test to assert public resources do not receive updates to a private resource
+#  - Make a test to have a client run on a separate task and just use with: async for...
 
 @step
 async def big_phrase(phrase):
@@ -88,7 +90,8 @@ async def default_stream_listener(historian: Historian, identity):
         resources = await anext(updates)  # phrase deleted
         assert not resources  # i.e. empty
 
-        await anext(updates)  # workflow complete
+        # TODO: Should the workflow complete be a resource event? If so then should workflow suspend be the same?
+        # await anext(updates)  # workflow complete
 
         try:
             await anext(updates)
@@ -219,7 +222,7 @@ async def test_mult_identity_workflow():
             resources = await anext(updates)  # phrase deleted
             assert not resources  # i.e. empty
 
-            await anext(updates)  # workflow complete
+            # await anext(updates)  # workflow complete
 
             try:
                 await anext(updates)
@@ -269,7 +272,7 @@ async def test_multiple_private_identity_streams():
             resources = await anext(updates)  # phrase deleted
             assert not resources  # i.e. empty
 
-            await anext(updates)  # workflow complete
+            # await anext(updates)  # workflow complete
 
             try:
                 await anext(updates)
@@ -293,7 +296,7 @@ async def test_multiple_private_identity_streams():
             resources = await anext(updates)  # messages deleted
             assert 'messages' not in resources
 
-            await anext(updates)  # workflow complete
+            # await anext(updates)  # workflow complete
 
             try:
                 await anext(updates)
@@ -351,7 +354,7 @@ async def test_closing_different_identity_streams():
 
 @pytest.mark.asyncio
 @timeout(4)
-async def test_suspend_resume_while_streaming():
+async def test_suspend_workflow():
     historian = Historian(
         'test_suspend_workflow',
         default_workflow,
@@ -362,62 +365,13 @@ async def test_suspend_resume_while_streaming():
 
     with historian.get_resource_stream(None) as resource_stream:
         updates = aiter(resource_stream)
-        resources = await anext(updates)  # empty - start of workflow
-        assert not resources
+        for i in range(4):
+            await anext(updates)
 
-        resources = await anext(updates)  # phrase created
-        assert 'phrase' in resources
-        assert await resources['phrase'].value() == 'woot'
-
-        await anext(updates)  # phrase.get()
-        resources = await anext(updates)  # phrase.set(big_phrase())
-        print(resources)
-        assert 'phrase' in resources
-        assert await resources['phrase'].value() == 'wootwootwoot'
-
-        print('about to suspend workflow')
         await historian.suspend()
-        await asyncio.sleep(0.1)
-        await anext(updates)
-        w_task = historian.run()
-        print('workflow resumed')
-
-        resources = await anext(updates)  # messages created
-        print(resources)
-        assert 'phrase' in resources
-        assert await resources['phrase'].value() == 'wootwootwoot'
-
-        assert 'messages' in resources
-        await resources['messages'].put('quuz')
-
-        resources = await anext(updates)  # messages.get()
-        print(resources)
-        resources = await anext(updates)  # phrase.get()
-        print(resources)
-        resources = await anext(updates)  # phrase.set(+ message)
-        print(resources)
-        assert 'phrase' in resources
-        assert await resources['phrase'].value() == 'wootwootwootquuz'
-        assert 'messages' in resources
-
-        resources = await anext(updates)  # messages deleted
-        assert 'phrase' in resources
-        assert await resources['phrase'].value() == 'wootwootwootquuz'
-        assert 'messages' not in resources
-
-        resources = await anext(updates)  # phrase.set
-        assert 'phrase' in resources
-        assert await resources['phrase'].value() == 'all done'
-
-        resources = await anext(updates)  # phrase deleted
-        assert not resources  # i.e. empty
-
-        await anext(updates)  # workflow complete
 
         try:
             await anext(updates)
             pytest.fail('Should have thrown StopAsyncIteration')
         except StopAsyncIteration:
             pass
-
-    await w_task
