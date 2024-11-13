@@ -17,6 +17,7 @@ class ResourceStreamManager:
                      ):
             self._stream_gate = asyncio.Event()
             self._update_event = asyncio.Event()
+            self._update_cancelled = False
             self._is_entered = False
 
             self._get_resources = get_resources
@@ -53,6 +54,9 @@ class ResourceStreamManager:
             # Yield new resources updates as they become available
             while not self._is_workflow_complete():
                 await self._update_event.wait()
+                if self._update_cancelled:
+                    self.__exit__(asyncio.CancelledError, 'Workflow was suspended', None)
+                    break
                 self._update_event.clear()
                 yield await self._get_resources()
                 self._stream_gate.set()
@@ -84,20 +88,27 @@ class ResourceStreamManager:
         return rs
 
     async def update(self, identity):
-        # If there is no resource stream associated with `identity`, no update needed.
-        if identity is not None and identity not in self._resource_streams:
-            return
+        try:
+            # If there is no resource stream associated with `identity`, no update needed.
+            if identity is not None and identity not in self._resource_streams:
+                return
 
-        # Set streams to a copy to avoid set size changed exception
-        if identity is None:
-            streams = {key: value.copy() for key, value in self._resource_streams.items()}
-        else:
-            streams = {identity: self._resource_streams[identity].copy()}
+            # Set streams to a copy to avoid set size changed exception
+            if identity is None:
+                streams = {key: value.copy() for key, value in self._resource_streams.items()}
+            else:
+                streams = {identity: self._resource_streams[identity].copy()}
 
-        for stream_identity, stream_set in streams.items():
-            for stream in stream_set:
-                if stream not in self._resource_streams[stream_identity]:  # Continue if the stream has closed
-                    continue
-                stream._update_event.set()
-                await stream._stream_gate.wait()
-                stream._stream_gate.clear()
+            for stream_identity, stream_set in streams.items():
+                for stream in stream_set:
+                    if stream not in self._resource_streams[stream_identity]:  # Continue if the stream has closed
+                        continue
+                    stream._update_event.set()
+                    await stream._stream_gate.wait()
+                    stream._stream_gate.clear()
+
+        except asyncio.CancelledError:
+            for stream_identity, stream_set in self._resource_streams.items():
+                for stream in stream_set:
+                    stream._update_cancelled = True
+                    stream._update_event.set()
