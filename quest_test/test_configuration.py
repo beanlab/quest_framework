@@ -4,6 +4,7 @@ import functools
 import pytest
 
 from src.quest import Historian, queue, step
+from quest.serializer import NoopSerializer
 
 
 @pytest.mark.asyncio
@@ -50,7 +51,7 @@ async def test_configuration():
     }
 
     history = []
-    historian = Historian('test', application, history)
+    historian = Historian('test', application, history, serializer=NoopSerializer())
     historian.configure(configure_state, config1)
     historian.run()
     await asyncio.sleep(0.1)
@@ -69,7 +70,7 @@ async def test_configuration():
         'foos': ['a']
     }
 
-    historian = Historian('test', application, history)
+    historian = Historian('test', application, history, serializer=NoopSerializer())
     historian.configure(configure_state, config1)
     historian.configure(configure_state, config2)
     historian.run()

@@ -21,11 +21,8 @@ class Stuff:
 
 # TypeSerializer for Stuff
 class StuffSerializer:
-    async def serialize(self, obj: Stuff) -> Tuple[Callable[..., T], Tuple[Any, ...], Dict[str, Any]]:
-        factory = Stuff
-        args = (obj.name, obj.number)
-        kwargs = {}
-        return factory, args, kwargs
+    async def serialize(self, obj: Stuff) -> Tuple[Tuple[Any, ...], Dict[str, Any]]:
+        return (obj.name, obj.number), {}
 
     async def deserialize(self, *args, **kwargs) -> Stuff:
         return Stuff(*args, **kwargs)

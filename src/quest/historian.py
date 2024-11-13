@@ -193,7 +193,7 @@ def _get_exception_class(exception_type: str):
 
 
 class Historian:
-    def __init__(self, workflow_id: str, workflow: Callable, history: History, serializer: StepSerializer = None):
+    def __init__(self, workflow_id: str, workflow: Callable, history: History, serializer: StepSerializer):
         # TODO - change nomenclature (away from workflow)? Maybe just use workflow.__name__?
         self.workflow_id = workflow_id
         self.workflow = workflow

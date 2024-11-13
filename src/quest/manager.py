@@ -33,7 +33,7 @@ class WorkflowManager:
     """
 
     def __init__(self, namespace: str, storage: BlobStorage, create_history: HistoryFactory,
-                 create_workflow: WorkflowFactory, serializer: StepSerializer = None):
+                 create_workflow: WorkflowFactory, serializer: StepSerializer):
         self._namespace = namespace
         self._storage = storage
         self._create_history = create_history
@@ -51,7 +51,7 @@ class WorkflowManager:
             self._workflow_data = self._storage.read_blob(self._namespace)
 
         for wtype, wid, args, kwargs, background in self._workflow_data:
-            await self._start_workflow(wtype, wid, args, kwargs, background=background)
+            self._start_workflow(wtype, wid, args, kwargs, background=background)
 
         return self
 

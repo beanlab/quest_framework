@@ -6,6 +6,7 @@ import pytest
 from src.quest import step
 from src.quest.historian import Historian
 from src.quest.persistence import PersistentHistory, LocalFileSystemBlobStorage
+from quest.serializer import NoopSerializer
 from utils import timeout
 
 
@@ -32,7 +33,8 @@ async def test_persistence_basic(tmp_path: Path):
     historian = Historian(
         'test',
         simple_workflow,
-        history
+        history,
+        serializer=NoopSerializer()
     )
 
     workflow = historian.run()
@@ -44,7 +46,8 @@ async def test_persistence_basic(tmp_path: Path):
     historian = Historian(
         'test',
         simple_workflow,
-        history
+        history,
+        serializer=NoopSerializer()
     )
     result = await historian.run()
     assert result == 14
@@ -70,7 +73,8 @@ async def test_resume_step_persistence(tmp_path: Path):
     historian = Historian(
         'test',
         resume_this_workflow,
-        history
+        history,
+        serializer=NoopSerializer()
     )
 
     workflow = historian.run()
@@ -84,7 +88,8 @@ async def test_resume_step_persistence(tmp_path: Path):
     historian = Historian(
         'test',
         resume_this_workflow,
-        history
+        history,
+        serializer=NoopSerializer()
     )
 
     await historian.run()
