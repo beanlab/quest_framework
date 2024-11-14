@@ -5,7 +5,6 @@ from hashlib import md5
 from pathlib import Path
 from typing import Protocol, Union
 
-
 from .history import History
 from .quest_types import EventRecord
 

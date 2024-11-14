@@ -8,8 +8,6 @@ from datetime import datetime
 from functools import wraps
 from typing import Callable, TypeVar
 
-import dateutil
-
 from .history import History
 from .quest_types import ConfigurationRecord, VersionRecord, StepStartRecord, StepEndRecord, \
     ExceptionDetails, ResourceAccessEvent, ResourceEntry, ResourceLifecycleEvent, TaskEvent
