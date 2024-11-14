@@ -15,24 +15,6 @@ from quest.extras.dynamodb import DynamoDB, DynamoDBBlobStorage
 from quest.extras.s3 import S3BlobStorage, S3Bucket
 
 
-def create_filesystem_storage(path: Path):
-    return LocalFileSystemBlobStorage(path)
-
-def create_sql_storage(path: Path):
-    database = SQLDatabase('sqlite:///:memory:')
-    return SqlBlobStorage(path.name, database.get_session())
-
-def create_dynamodb_storage(path: Path):
-    env_path = Path('.env.integration')
-    load_dotenv(dotenv_path=env_path)
-    dynamodb = DynamoDB()
-    return DynamoDBBlobStorage(path.name, dynamodb.get_table())
-
-def create_s3_storage(path: Path):
-    env_path = Path('.env.integration')
-    load_dotenv(dotenv_path=env_path)
-    return S3BlobStorage(path.name)
-
 class FileSystemStorageContext:
     def __enter__(self):
         self.tmp_dir = Path(TemporaryDirectory().__enter__())
@@ -42,6 +24,7 @@ class FileSystemStorageContext:
     def __exit__(self, *args):
         return self.tmp_dir.__exit__(*args)
 
+
 class SqlStorageContext:
     def __enter__(self):
         database = SQLDatabase('sqlite:///:memory:')
@@ -50,6 +33,7 @@ class SqlStorageContext:
 
     def __exit__(self, *args):
         return True
+
 
 class DynamoDBStorageContext:
     def __enter__(self):
@@ -62,6 +46,7 @@ class DynamoDBStorageContext:
     def __exit__(self, *args):
         return True
 
+
 class S3StorageContext:
     def __enter__(self):
         env_path = Path('.integration.env')
@@ -73,12 +58,14 @@ class S3StorageContext:
     def __exit__(self, *args):
         return True
 
+
 storages = [
     pytest.param(FileSystemStorageContext(), marks=pytest.mark.unit, id="file"),
     pytest.param(SqlStorageContext(), marks=pytest.mark.unit, id="sql"),
     pytest.param(DynamoDBStorageContext(), marks=pytest.mark.integration, id="dynamodb"),
     pytest.param(S3StorageContext(), marks=pytest.mark.integration, id="s3"),
 ]
+
 
 @step
 async def simple_step():
@@ -100,7 +87,6 @@ async def simple_workflow():
 @timeout(3)
 async def test_persistence_basic(storage_ctx):
     with storage_ctx as storage:
-
         history = PersistentHistory('test', storage)
         historian = Historian(
             'test',
@@ -154,7 +140,6 @@ async def test_resume_step_persistence(storage_ctx):
     event.set()
 
     with storage_ctx as storage:
-
         history = PersistentHistory('test', storage)
         historian = Historian(
             'test',

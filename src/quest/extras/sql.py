@@ -8,6 +8,7 @@ except ImportError:
 
 Base = declarative_base()
 
+
 class RecordModel(Base):
     __tablename__ = 'records'
 
@@ -77,7 +78,6 @@ def create_sql_manager(
         namespace: str,
         factory: WorkflowFactory
 ) -> WorkflowManager:
-
     database = SQLDatabase(db_url)
 
     storage = SqlBlobStorage(namespace, database.get_session())

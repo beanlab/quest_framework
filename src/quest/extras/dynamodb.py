@@ -7,8 +7,10 @@ try:
 except ImportError:
     raise ImportError("The 'dynamodb' extra is required to use this module. Run 'pip install quest-py[dynamodb]'.")
 
+
 class DynamoDBTableCreationException(Exception):
     pass
+
 
 class DynamoDB:
     def __init__(self):
@@ -67,6 +69,7 @@ class DynamoDB:
             else:
                 raise DynamoDBTableCreationException(f'Error creating DynamoDB table: {e}')
 
+
 class DynamoDBBlobStorage(BlobStorage):
     def __init__(self, name: str, table):
         self._name = name
@@ -104,6 +107,7 @@ class DynamoDBBlobStorage(BlobStorage):
             'key': key
         }
         self._table.delete_item(Key=primary_key)
+
 
 def create_dynamodb_manager(
         namespace: str,

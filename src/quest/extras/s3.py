@@ -1,5 +1,6 @@
 import os
 import json
+
 from .. import BlobStorage, Blob, WorkflowManager, WorkflowFactory, PersistentHistory, History
 
 try:
@@ -7,6 +8,7 @@ try:
     from botocore.exceptions import ClientError
 except ImportError:
     raise ImportError("The 's3' extra is required to use this module. Run 'pip install quest-py[s3]'.")
+
 
 class S3Bucket:
     def __init__(self):
@@ -80,6 +82,7 @@ class S3BlobStorage(BlobStorage):
     def delete_blob(self, key: str):
         object_key = f"{self._name}/{key}"
         self._s3_client.delete_object(Bucket=self._bucket_name, Key=object_key)
+
 
 def create_s3_manager(
         namespace: str,
