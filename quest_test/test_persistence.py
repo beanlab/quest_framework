@@ -12,6 +12,7 @@ from quest.persistence import PersistentHistory, LocalFileSystemBlobStorage
 from .utils import timeout
 from quest.extras.sql import SQLDatabase, SqlBlobStorage
 from quest.extras.dynamodb import DynamoDB, DynamoDBBlobStorage
+from quest.extras.s3 import S3BlobStorage, S3Bucket
 
 
 def create_filesystem_storage(path: Path):
@@ -26,6 +27,11 @@ def create_dynamodb_storage(path: Path):
     load_dotenv(dotenv_path=env_path)
     dynamodb = DynamoDB()
     return DynamoDBBlobStorage(path.name, dynamodb.get_table())
+
+def create_s3_storage(path: Path):
+    env_path = Path('.env.integration')
+    load_dotenv(dotenv_path=env_path)
+    return S3BlobStorage(path.name)
 
 class FileSystemStorageContext:
     def __enter__(self):
@@ -56,10 +62,22 @@ class DynamoDBStorageContext:
     def __exit__(self, *args):
         return True
 
+class S3StorageContext:
+    def __enter__(self):
+        env_path = Path('.integration.env')
+        load_dotenv(dotenv_path=env_path)
+        s3 = S3Bucket()
+        storage = S3BlobStorage('test', s3.get_s3_client(), s3.get_bucket_name())
+        return storage
+
+    def __exit__(self, *args):
+        return True
+
 storages = [
     pytest.param(FileSystemStorageContext(), marks=pytest.mark.unit, id="file"),
     pytest.param(SqlStorageContext(), marks=pytest.mark.unit, id="sql"),
     pytest.param(DynamoDBStorageContext(), marks=pytest.mark.integration, id="dynamodb"),
+    pytest.param(S3StorageContext(), marks=pytest.mark.integration, id="s3"),
 ]
 
 @step

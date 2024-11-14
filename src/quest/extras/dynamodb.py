@@ -5,7 +5,7 @@ try:
     import boto3
     from botocore.exceptions import ClientError
 except ImportError:
-    raise ImportError("The 'dynamodb' extra is required to use this module. Run 'pip install quest-py[dynamodb]'")
+    raise ImportError("The 'dynamodb' extra is required to use this module. Run 'pip install quest-py[dynamodb]'.")
 
 class DynamoDBTableCreationException(Exception):
     pass
