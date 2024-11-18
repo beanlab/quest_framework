@@ -44,15 +44,15 @@ class ResourceStreamManager:
             """
 
             if not self._is_entered:
-                raise Exception('ResourceStream must be used in a `with` context.')
+                raise ResourceStreamNotEnteredError('ResourceStream must be used in a `with` context')
 
             if self._workflow_stopped:
-                raise Exception('ResourceStream is expired because workflow was stopped')
+                raise ResourceStreamExpiredException('ResourceStream is expired because workflow was stopped')
 
             yield await self._get_resources()  # Yield the current resources immediately
 
             # Yield new resources updates as they become available
-            while not self._workflow_stopped:
+            while True:
                 await self._update_event.wait()
                 if self._workflow_stopped:
                     return
@@ -109,3 +109,11 @@ class ResourceStreamManager:
             for stream in stream_set:
                 stream._workflow_stopped = True
                 stream._update_event.set()
+
+class ResourceStreamNotEnteredError(Exception):
+    """Exception raised when ResourceStream is not used in a `with` context."""
+    pass
+
+class ResourceStreamExpiredException(Exception):
+    """Exception raised when ResourceStream is expired because workflow was stopped."""
+    pass

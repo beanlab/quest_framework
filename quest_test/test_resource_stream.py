@@ -1,4 +1,6 @@
 import asyncio
+from ctypes.wintypes import HTASK
+
 import pytest
 
 from quest import Historian
@@ -7,42 +9,16 @@ from quest.external import state, queue
 from utils import timeout
 
 
-# TODO:
-#  - Make test to assert public resources do not receive updates to a private resource
-#  - Make a test to have a client run on a separate task and just use with: async for...
-
 @step
 async def big_phrase(phrase):
     return phrase * 3
 
 
-async def default_workflow():
-    async with state('phrase', None, 'woot') as phrase:
+async def workflow(phrase_ident, messages_ident):
+    async with state('phrase', phrase_ident, 'woot') as phrase:
         await phrase.set(await big_phrase(await phrase.get()))
 
-        async with queue('messages', None) as messages:
-            new_message = await messages.get()
-            await phrase.set((await phrase.get()) + new_message)
-
-        await phrase.set('all done')
-
-
-async def mult_identity_workflow():  # A workflow with public and private resources
-    async with state('phrase', None, 'woot') as phrase:
-        await phrase.set(await big_phrase(await phrase.get()))
-
-        async with queue('messages', 'private_identity') as messages:
-            new_message = await messages.get()
-            await phrase.set((await phrase.get()) + new_message)
-
-        await phrase.set('all done')
-
-
-async def mult_private_identity_workflow():  # A workflow with two different private resources
-    async with state('phrase', 'ident1', 'woot') as phrase:
-        await phrase.set(await big_phrase(await phrase.get()))
-
-        async with queue('messages', 'ident2') as messages:
+        async with queue('messages', messages_ident) as messages:
             new_message = await messages.get()
             await phrase.set((await phrase.get()) + new_message)
 
@@ -90,9 +66,6 @@ async def default_stream_listener(historian: Historian, identity):
         resources = await anext(updates)  # phrase deleted
         assert not resources  # i.e. empty
 
-        # TODO: Should the workflow complete be a resource event? If so then should workflow suspend be the same?
-        # await anext(updates)  # workflow complete
-
         try:
             await anext(updates)
             pytest.fail('Should have thrown StopAsyncIteration')
@@ -100,12 +73,57 @@ async def default_stream_listener(historian: Historian, identity):
             pass
 
 
+async def failing_listener(historian: Historian, identity):
+    try:
+        with historian.get_resource_stream(identity) as resource_stream:
+            i = 0
+            put_message = False
+            async for resources in resource_stream:
+                if 'messages' in resources and not put_message:
+                    await resources['messages'].put('quuz')
+                if i == 5:
+                    raise Exception("Resource Stream listener error")
+                i += 1
+    except Exception as e:
+        assert str(e) == "Resource Stream listener error"
+
+
+@pytest.mark.asyncio
+@timeout(3)
+async def test_typical():
+    historian = Historian(
+        'typical',
+        lambda: workflow(None, None),
+        []
+    )
+
+    async def run_workflow():
+        w_task = historian.run()
+        await w_task
+
+    # Demonstrates what a typical listener would look like
+    async def typical_listener():
+        have_put_message = False
+
+        with historian.get_resource_stream(None) as resource_stream:
+            async for resources in resource_stream:
+                if 'phrase' in resources:
+                    phrase = resources['phrase'].value()
+                    print(f"Here is the current phrase value: {phrase}")
+                if 'messages' in resources and not have_put_message:
+                    await resources['messages'].put('quuz')
+
+    # Asyncio.gather runs code in different tasks, demonstrating that while the workflow is executing on one task,
+    # it is reporting resource updates to the listener on a separate task
+    await asyncio.gather(run_workflow(), typical_listener())
+
+
 @pytest.mark.asyncio
 @timeout(3)
 async def test_default():
     historian = Historian(
         'default',
-        default_workflow,
+        lambda: workflow(None, None),
         []
     )
 
@@ -114,18 +132,38 @@ async def test_default():
     await wtask
 
 
-# Test streaming public resources by a private listener
+# Test a private listener streaming public resources
 @pytest.mark.asyncio
 @timeout(3)
 async def test_private_identity_streaming_public_resources():
     historian = Historian(
         'private_identity_streaming_public_resources',
-        default_workflow,
+        lambda: workflow(None, None),
         []
     )
 
     w_task = historian.run()
     await default_stream_listener(historian, 'private_identity')
+    await w_task
+
+
+# Test that a public listener does not receive updates to private resources
+@pytest.mark.asyncio
+@timeout(3)
+async def test_public_streaming_private_resources():
+    historian = Historian(
+        'public_streaming_private_resources',
+        lambda: workflow('private_identity', 'private_identity'),
+        []
+    )
+
+    async def public_listener():
+        with historian.get_resource_stream(None) as resource_stream:
+            async for resources in resource_stream:
+                assert not resources
+
+    w_task = historian.run()
+    await asyncio.gather(public_listener(), default_stream_listener(historian, 'private_identity'))
     await w_task
 
 
@@ -135,37 +173,13 @@ async def test_private_identity_streaming_public_resources():
 async def test_exception():
     historian = Historian(
         'exception',
-        default_workflow,
+        lambda: workflow(None, None),
         []
     )
 
     wtask = historian.run()
 
-    try:
-        with historian.get_resource_stream(None) as resource_stream:
-            updates = aiter(resource_stream)
-            resources = await anext(updates)  # empty - start of workflow
-            assert not resources
-
-            resources = await anext(updates)  # phrase created
-            assert 'phrase' in resources
-            assert await resources['phrase'].value() == 'woot'
-
-            await anext(updates)  # phrase.get()
-            resources = await anext(updates)  # phrase.set(big_phrase())
-            assert 'phrase' in resources
-            assert await resources['phrase'].value() == 'wootwootwoot'
-
-            resources = await anext(updates)  # messages created
-            assert 'phrase' in resources
-            assert await resources['phrase'].value() == 'wootwootwoot'
-
-            assert 'messages' in resources
-            await resources['messages'].put('quuz')
-
-            raise Exception('Resource stream listener error')
-    except Exception as e:
-        assert str(e) == 'Resource stream listener error'
+    await failing_listener(historian, None)
 
     assert historian._resource_stream_manager._resource_streams == {}
     await wtask
@@ -177,7 +191,7 @@ async def test_exception():
 async def test_concurrent_none_streams():
     historian = Historian(
         'concurrent_none_streams',
-        default_workflow,
+        lambda: workflow(None, None),
         []
     )
 
@@ -222,8 +236,6 @@ async def test_mult_identity_workflow():
             resources = await anext(updates)  # phrase deleted
             assert not resources  # i.e. empty
 
-            # await anext(updates)  # workflow complete
-
             try:
                 await anext(updates)
                 pytest.fail('Should have thrown StopAsyncIteration')
@@ -232,7 +244,7 @@ async def test_mult_identity_workflow():
 
     historian = Historian(
         'mult_identity_workflow',
-        mult_identity_workflow,
+        lambda: workflow(None, 'private_identity'),
         []
     )
 
@@ -272,8 +284,6 @@ async def test_multiple_private_identity_streams():
             resources = await anext(updates)  # phrase deleted
             assert not resources  # i.e. empty
 
-            # await anext(updates)  # workflow complete
-
             try:
                 await anext(updates)
                 pytest.fail('Should have thrown StopAsyncIteration')
@@ -296,8 +306,6 @@ async def test_multiple_private_identity_streams():
             resources = await anext(updates)  # messages deleted
             assert 'messages' not in resources
 
-            # await anext(updates)  # workflow complete
-
             try:
                 await anext(updates)
                 pytest.fail('Should have thrown StopAsyncIteration')
@@ -306,7 +314,7 @@ async def test_multiple_private_identity_streams():
 
     historian = Historian(
         'different_identity_streams',
-        mult_private_identity_workflow,
+        lambda: workflow('ident1', 'ident2'),
         []
     )
 
@@ -319,36 +327,17 @@ async def test_multiple_private_identity_streams():
 @pytest.mark.asyncio
 @timeout(3)
 async def test_closing_different_identity_streams():
-    async def public_listener():
-        try:
-            with historian.get_resource_stream(None) as resource_stream:
-                updates = aiter(resource_stream)
-                resources = await anext(updates)  # empty - start of workflow
-                assert not resources
-
-                resources = await anext(updates)  # phrase created
-                assert 'phrase' in resources
-                assert await resources['phrase'].value() == 'woot'
-
-                await anext(updates)  # phrase.get()
-                resources = await anext(updates)  # phrase.set(big_phrase())
-                assert 'phrase' in resources
-                assert await resources['phrase'].value() == 'wootwootwoot'
-
-                asyncio.create_task(anext(updates))  # Call anext but don't wait for result
-                await asyncio.sleep(1)  # Pause execution here so line above can execute
-                raise Exception('None listener errored')
-        except Exception as e:
-            assert str(e) == 'None listener errored'
-
     historian = Historian(
         'different_identity_streams',
-        mult_identity_workflow,
+        lambda: workflow(None, 'private_identity'),
         []
     )
 
     w_task = historian.run()
-    await asyncio.gather(public_listener(), default_stream_listener(historian, 'private_identity'))
+    await asyncio.gather(
+        failing_listener(historian, None),
+        default_stream_listener(historian, 'private_identity')
+    )
     await w_task
 
 
@@ -357,7 +346,7 @@ async def test_closing_different_identity_streams():
 async def test_suspend_workflow():
     historian = Historian(
         'test_suspend_workflow',
-        default_workflow,
+        lambda: workflow(None, None),
         []
     )
 
