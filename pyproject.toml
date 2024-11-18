@@ -3,7 +3,7 @@ name = "quest.py"
 version = "0.2.2"
 description = "Framework for coordinated, long-running processes"
 authors = ["Gordon Bean <gbean@cs.byu.edu>"]
-packages = [{include = "quest", from = "src"}]
+packages = [{ include = "quest", from = "src" }]
 
 [tool.poetry.dependencies]
 python = "^3.11"
@@ -15,8 +15,7 @@ dotenv = "^0.19.0"
 
 [tool.poetry.extras]
 sql = ["sqlalchemy=^2.0.36"]
-dynamodb = ["boto3=^1.35.60"]
-s3 = ["boto3=^1.35.60"]
+aws = ["boto3=^1.35.60"]
 
 [tool.pytest.ini_options]
 log_cli = true
