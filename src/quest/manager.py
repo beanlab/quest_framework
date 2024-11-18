@@ -8,7 +8,7 @@ from .external import State, IdentityQueue, Queue, Event
 from .historian import Historian, _Wrapper
 from .history import History
 from .persistence import BlobStorage
-from .serializer import StepSerializer, NoopSerializer
+from .serializer import StepSerializer
 
 
 class HistoryFactory(Protocol):

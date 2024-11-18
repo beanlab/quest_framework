@@ -2,9 +2,9 @@ import asyncio
 
 import pytest
 
-from src.quest.external import state, queue, event
-from src.quest.historian import Historian
-from src.quest.wrappers import task, step
+from quest.external import state, queue, event
+from quest.historian import Historian
+from quest.wrappers import task, step
 from quest.serializer import NoopSerializer
 from utils import timeout
 

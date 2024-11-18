@@ -3,9 +3,9 @@ import logging
 
 import pytest
 
-from src.quest import PersistentHistory, queue, state, event
-from src.quest.manager import WorkflowManager
-from src.quest.persistence import InMemoryBlobStorage
+from quest import PersistentHistory, queue, state, event
+from quest.manager import WorkflowManager
+from quest.persistence import InMemoryBlobStorage
 from quest.serializer import NoopSerializer
 
 

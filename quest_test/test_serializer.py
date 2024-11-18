@@ -1,13 +1,14 @@
 import asyncio
 from dataclasses import dataclass
 import pytest
-from typing import Tuple, Dict, Any, Callable, TypeVar
+from typing import TypeVar
 
 from quest.historian import Historian
-from quest.serializer import MasterSerializer, StepSerializer
+from quest.serializer import MasterSerializer, TypeSerializer
 from quest.wrappers import step
 
 T = TypeVar('T')
+
 
 # Define custom class
 @dataclass
@@ -20,8 +21,8 @@ class Stuff:
 
 
 # TypeSerializer for Stuff
-class StuffSerializer:
-    async def serialize(self, obj: Stuff) -> Tuple[Tuple[Any, ...], Dict[str, Any]]:
+class StuffSerializer(TypeSerializer[Stuff]):
+    async def serialize(self, obj: Stuff) -> tuple[tuple, dict]:
         return (obj.name, obj.number), {}
 
     async def deserialize(self, *args, **kwargs) -> Stuff:
@@ -43,6 +44,7 @@ pause_event = asyncio.Event()
 
 async def workflow():
     stuff = await create_stuff('hello', 2)
+    assert stuff.make_statement() == 'hello hello '
     await pause_event.wait()
     return stuff.make_statement()
 

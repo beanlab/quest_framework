@@ -1,8 +1,8 @@
 import pytest
 
-from src.quest import Historian
-from src.quest.external import event
-from src.quest.wrappers import wrap_steps
+from quest import Historian
+from quest.external import event
+from quest.wrappers import wrap_steps
 from quest.serializer import NoopSerializer
 from utils import timeout
 

@@ -3,9 +3,9 @@ from pathlib import Path
 
 import pytest
 
-from src.quest import step
-from src.quest.historian import Historian
-from src.quest.persistence import PersistentHistory, LocalFileSystemBlobStorage
+from quest import step
+from quest.historian import Historian
+from quest.persistence import PersistentHistory, LocalFileSystemBlobStorage
 from quest.serializer import NoopSerializer
 from utils import timeout
 

@@ -3,7 +3,7 @@ import functools
 
 import pytest
 
-from src.quest import Historian, queue, step
+from quest import Historian, queue, step
 from quest.serializer import NoopSerializer
 
 

@@ -3,8 +3,8 @@ import asyncio
 import pytest
 
 from utils import timeout
-from src.quest import step
-from src.quest.historian import Historian
+from quest import step
+from quest.historian import Historian
 from quest.serializer import NoopSerializer
 
 

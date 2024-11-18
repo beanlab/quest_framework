@@ -1,4 +1,4 @@
-from typing import Any, Dict, Protocol, TypeVar, Callable, Tuple, TypedDict
+from typing import Any, Dict, Protocol, TypeVar, TypedDict
 
 T = TypeVar('T')
 
@@ -18,7 +18,7 @@ class StepSerializer(Protocol):
 
 
 class TypeSerializer(Protocol[T]):
-    async def serialize(self, obj: T) -> Tuple[Tuple[Any, ...], Dict[str, Any]]:
+    async def serialize(self, obj: T) -> tuple[tuple, dict]:
         ...
 
     async def deserialize(self, *args, **kwargs) -> T:

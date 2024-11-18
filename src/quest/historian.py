@@ -11,7 +11,7 @@ from typing import Callable, TypeVar
 from .history import History
 from .quest_types import ConfigurationRecord, VersionRecord, StepStartRecord, StepEndRecord, \
     ExceptionDetails, ResourceAccessEvent, ResourceEntry, ResourceLifecycleEvent, TaskEvent
-from .serializer import StepSerializer, NoopSerializer
+from .serializer import StepSerializer
 
 QUEST_VERSIONS = "_quest_versions"
 GLOBAL_VERSION = "_global_version"

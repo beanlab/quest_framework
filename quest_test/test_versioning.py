@@ -1,7 +1,7 @@
 import asyncio
 
 import pytest
-from src.quest import queue, Historian, version, get_version, task, step, state
+from quest import queue, Historian, version, get_version, task, step, state
 from quest.serializer import NoopSerializer
 
 V2 = '2023-08-25 append "2" to words'
