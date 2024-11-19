@@ -1,7 +1,8 @@
 import asyncio
 
 import pytest
-from src.quest import queue, Historian, version, get_version, task, step, state
+from quest import queue, Historian, version, get_version, task, step, state
+from quest.serializer import NoopSerializer
 
 V2 = '2023-08-25 append "2" to words'
 
@@ -17,7 +18,7 @@ async def test_versioning():
         return phrase
 
     history = []
-    historian = Historian('test', application, history)
+    historian = Historian('test', application, history, serializer=NoopSerializer())
     historian.run()
     await asyncio.sleep(0.1)
     await historian.record_external_event('words', None, 'put', 'foo')
@@ -40,7 +41,7 @@ async def test_versioning():
                     phrase.append(word + '2')
         return phrase
 
-    historian = Historian('test', application, history)
+    historian = Historian('test', application, history, serializer=NoopSerializer())
     result = historian.run()
     await asyncio.sleep(0.1)
     await historian.record_external_event('words', None, 'put', 'baz')
@@ -62,7 +63,7 @@ async def test_multi_versioning():
         return phrase
 
     history = []
-    historian = Historian('test', application, history)
+    historian = Historian('test', application, history, serializer=NoopSerializer())
     historian.run()
     await asyncio.sleep(0.1)
     await historian.record_external_event('words', None, 'put', 'foo')
@@ -92,7 +93,7 @@ async def test_multi_versioning():
                     phrase.append(await fix_case(word) + '2')
         return phrase
 
-    historian = Historian('test', application, history)
+    historian = Historian('test', application, history, serializer=NoopSerializer())
     result = historian.run()
     await asyncio.sleep(0.1)
     await historian.record_external_event('words', None, 'put', 'bar')
@@ -124,7 +125,7 @@ async def test_multi_versioning():
                     phrase.append(await fix_case(word) + '2')
         return phrase
 
-    historian = Historian('test', application, history)
+    historian = Historian('test', application, history, serializer=NoopSerializer())
     result = historian.run()
     await asyncio.sleep(0.1)
     await historian.record_external_event('words', None, 'put', 'baz')
@@ -166,7 +167,7 @@ async def test_named_versions():
     name2 = 'bar'
     name3 = 'baz'
 
-    historian = Historian('test', application, history)
+    historian = Historian('test', application, history, serializer=NoopSerializer())
     result = historian.run(name1, name2, name3)
     await asyncio.sleep(0.1)
 

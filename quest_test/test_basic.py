@@ -3,8 +3,9 @@ import asyncio
 import pytest
 
 from utils import timeout
-from src.quest import step
-from src.quest.historian import Historian
+from quest import step
+from quest.historian import Historian
+from quest.serializer import NoopSerializer
 
 
 #
@@ -29,7 +30,8 @@ async def test_basic_workflow():
     historian = Historian(
         'test',
         workflow,
-        history
+        history,
+        serializer=NoopSerializer()
     )
 
     result = await historian.run('world')
@@ -77,7 +79,8 @@ async def test_resume():
     historian = Historian(
         'test',
         longer_workflow,
-        history
+        history,
+        serializer=NoopSerializer()
     )
 
     workflow = historian.run('abc')
@@ -135,7 +138,8 @@ async def test_nested_steps_resume():
     historian = Historian(
         'test',
         nested_workflow,
-        history
+        history,
+        serializer=NoopSerializer()
     )
 
     workflow = historian.run('abc', 'xyz')
@@ -169,7 +173,8 @@ async def test_resume_mid_step():
     historian = Historian(
         'test',
         dance,
-        []
+        [],
+        serializer=NoopSerializer()
     )
 
     wtask = historian.run(1)

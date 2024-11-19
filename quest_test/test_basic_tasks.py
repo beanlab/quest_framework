@@ -1,9 +1,10 @@
 import asyncio
 import pytest
 
-from src.quest import step
-from src.quest.historian import Historian
-from src.quest.wrappers import task
+from quest import step
+from quest.historian import Historian
+from quest.wrappers import task
+from quest.serializer import NoopSerializer
 from utils import timeout
 
 counters = {}
@@ -47,6 +48,7 @@ async def test_basic_tasks():
         'test',
         sub_task_workflow,
         history,
+        serializer=NoopSerializer()
     )
 
     # Don't pause
@@ -70,6 +72,7 @@ async def test_basic_tasks_resume():
         'test',
         sub_task_workflow,
         history,
+        serializer=NoopSerializer()
     )
 
     # Will run and block on the event
@@ -86,5 +89,3 @@ async def test_basic_tasks_resume():
 
     assert counters['tasks_resume'] == 4
     assert result == 'foofooabcbarbarfoofooxyzbarbar'
-
-

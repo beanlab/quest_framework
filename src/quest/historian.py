@@ -11,6 +11,7 @@ from typing import Callable, TypeVar
 from .history import History
 from .quest_types import ConfigurationRecord, VersionRecord, StepStartRecord, StepEndRecord, \
     ExceptionDetails, ResourceAccessEvent, ResourceEntry, ResourceLifecycleEvent, TaskEvent
+from .serializer import StepSerializer
 
 QUEST_VERSIONS = "_quest_versions"
 GLOBAL_VERSION = "_global_version"
@@ -192,7 +193,7 @@ def _get_exception_class(exception_type: str):
 
 
 class Historian:
-    def __init__(self, workflow_id: str, workflow: Callable, history: History):
+    def __init__(self, workflow_id: str, workflow: Callable, history: History, serializer: StepSerializer):
         # TODO - change nomenclature (away from workflow)? Maybe just use workflow.__name__?
         self.workflow_id = workflow_id
         self.workflow = workflow
@@ -204,6 +205,8 @@ class Historian:
 
         # These things need to be serialized
         self._history: History = history
+
+        self._serializer: StepSerializer = serializer
 
         # The remaining properties defined in __init__
         # are reset every time you call start_workflow
@@ -539,7 +542,8 @@ class Historian:
                     # Rehydrate step from history
                     assert record['type'] == 'end'
                     if record['exception'] is None:
-                        return record['result']
+                        deserialized_result = await self._serializer.deserialize(record['result'])
+                        return deserialized_result
                     else:
                         exception_class = _get_exception_class(record['exception']['type'])
                         exception_args = record['exception']['args']
@@ -565,12 +569,14 @@ class Historian:
                 result = await result
             logging.debug(f'{self._get_task_name()} completing step {func_name} with {result}')
 
+            serialized_result = await self._serializer.serialize(result)
+
             self._history.append(StepEndRecord(
                 type='end',
                 timestamp=_get_current_timestamp(),
                 task_id=self._get_task_name(),
                 step_id=step_id,
-                result=result,
+                result=serialized_result,
                 exception=None
             ))
 

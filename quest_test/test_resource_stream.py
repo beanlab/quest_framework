@@ -2,6 +2,7 @@ import pytest
 
 from quest import step, Historian
 from quest.external import state, queue
+from quest.serializer import NoopSerializer
 
 
 @pytest.mark.asyncio
@@ -21,7 +22,7 @@ async def test_resource_stream():
             await phrase.set('all done')
 
     history = []
-    historian = Historian('test', workflow, history)
+    historian = Historian('test', workflow, history, serializer=NoopSerializer())
     wtask = historian.run()
 
     updates = aiter(historian.stream_resources(None))

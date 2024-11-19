@@ -5,6 +5,7 @@ from custom_errors.custom_error import MyError
 from quest_test.utils import timeout
 from quest import step
 from quest.historian import Historian
+from quest.serializer import NoopSerializer
 
 double_calls = 0
 double_calls2 = 0
@@ -49,7 +50,8 @@ async def test_custom_exception():
     historian = Historian(
         'test',
         longer_workflow,
-        history
+        history,
+        serializer=NoopSerializer()
     )
 
     workflow = historian.run('abc')
@@ -102,7 +104,8 @@ async def test_builtin():
     historian = Historian(
         'test',
         longer_workflow2,
-        history
+        history,
+        serializer=NoopSerializer()
     )
 
     workflow = historian.run('abc')
