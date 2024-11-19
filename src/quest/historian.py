@@ -952,11 +952,11 @@ class Historian:
             await self._fatal_exception
 
         # Return a dictionary of resources wrapped in register_external_event wrappers
-        resources = {}
+        resources: dict[(str, str), object] = {}
         for entry in self._resources.values():
-            # Always return public resources and any private resources that match the identity
+            # Always return public resources and private resources for the specified identity
             if entry['identity'] is None or entry['identity'] == identity:
-                resources[entry['name']] = wrap_methods_as_historian_events(
+                resources[(entry['name'], entry['identity'])] = wrap_methods_as_historian_events(
                     entry['resource'],
                     entry['name'],
                     entry['identity'],
