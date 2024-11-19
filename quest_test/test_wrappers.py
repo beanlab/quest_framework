@@ -43,6 +43,7 @@ async def test_wrap_steps():
 
     wtask = historian.run()
 
+    resource_stream = historian.get_resource_stream(None)
     with resource_stream:
         updates = aiter(resource_stream)
         resources = await anext(updates)  # should include 'gate' already because that is where the first run left off
