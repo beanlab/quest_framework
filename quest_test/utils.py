@@ -4,6 +4,7 @@ from functools import wraps
 
 from quest import WorkflowManager
 from quest.persistence import InMemoryBlobStorage, PersistentHistory
+from quest.serializer import NoopSerializer
 
 
 def timeout(delay):
@@ -22,7 +23,7 @@ def timeout(delay):
     return decorator
 
 
-def create_in_memory_workflow_manager(workflows: dict):
+def create_in_memory_workflow_manager(workflows: dict, serializer=None):
     storage = InMemoryBlobStorage()
     histories = {}
 
@@ -34,4 +35,7 @@ def create_in_memory_workflow_manager(workflows: dict):
     def create_workflow(wtype: str):
         return workflows[wtype]
 
-    return WorkflowManager('test', storage, create_history, create_workflow)
+    if serializer is None:
+        serializer = NoopSerializer()
+
+    return WorkflowManager('test', storage, create_history, create_workflow, serializer=serializer)
