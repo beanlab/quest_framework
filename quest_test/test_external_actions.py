@@ -2,9 +2,10 @@ import asyncio
 
 import pytest
 
-from src.quest.external import state, queue, event
-from src.quest.historian import Historian
-from src.quest.wrappers import task, step
+from quest.external import state, queue, event
+from quest.historian import Historian
+from quest.wrappers import task, step
+from quest.serializer import NoopSerializer
 from utils import timeout
 
 
@@ -48,7 +49,7 @@ async def test_external_state():
             assert await name.get() == 'Barbaz'
 
     identity = 'foo_ident'
-    historian = Historian('test', state_workflow, [])
+    historian = Historian('test', state_workflow, [], serializer=NoopSerializer())
     workflow = historian.run(identity)
     await wait_for(historian)
 
@@ -90,6 +91,7 @@ async def test_external_queue():
         'test',
         workflow_with_queue,
         [],
+        serializer=NoopSerializer()
     )
     workflow = historian.run(identity)
     await wait_for(historian)
@@ -139,6 +141,7 @@ async def test_queue_tasks():
         'test',
         queue_task_workflow,
         [],
+        serializer=NoopSerializer()
     )
 
     workflow = historian.run(id_foo, id_bar)
@@ -189,6 +192,7 @@ async def test_nested_tasks():
         'test',
         workflow_nested_tasks,
         [],
+        serializer=NoopSerializer()
     )
 
     workflow = historian.run()
@@ -217,7 +221,8 @@ async def test_queue_tasks_resume():
     historian = Historian(
         'test',
         queue_task_workflow,
-        history
+        history,
+        serializer=NoopSerializer()
     )
 
     workflow = historian.run(id_foo, id_bar)
@@ -280,7 +285,7 @@ async def test_step_specific_external():
     then the external event on the now-obsolete resource must also be pruned.
     """
     history = []
-    historian = Historian('test', interactive_process_with_steps, history)
+    historian = Historian('test', interactive_process_with_steps, history, serializer=NoopSerializer())
     historian.run()
     await asyncio.sleep(0.1)
     resources = await historian.get_resources(None)

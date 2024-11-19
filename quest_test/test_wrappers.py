@@ -1,8 +1,9 @@
 import pytest
 
-from src.quest import Historian
-from src.quest.external import event
-from src.quest.wrappers import wrap_steps
+from quest import Historian
+from quest.external import event
+from quest.wrappers import wrap_steps
+from quest.serializer import NoopSerializer
 from utils import timeout
 
 
@@ -29,7 +30,7 @@ async def test_wrap_steps():
         await useful.foo()
         await useful.bar()
 
-    historian = Historian('test', workflow, [])
+    historian = Historian('test', workflow, [], serializer=NoopSerializer())
     historian.run()
 
     updates = aiter(historian.stream_resources(None))

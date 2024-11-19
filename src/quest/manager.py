@@ -8,6 +8,7 @@ from .external import State, IdentityQueue, Queue, Event
 from .historian import Historian, _Wrapper
 from .history import History
 from .persistence import BlobStorage
+from .serializer import StepSerializer
 
 
 class HistoryFactory(Protocol):
@@ -32,7 +33,7 @@ class WorkflowManager:
     """
 
     def __init__(self, namespace: str, storage: BlobStorage, create_history: HistoryFactory,
-                 create_workflow: WorkflowFactory):
+                 create_workflow: WorkflowFactory, serializer: StepSerializer):
         self._namespace = namespace
         self._storage = storage
         self._create_history = create_history
@@ -42,6 +43,7 @@ class WorkflowManager:
         self._workflow_tasks: dict[str, asyncio.Task] = {}
         self._alias_dictionary = {}
 
+        self._serializer: StepSerializer = serializer
 
     async def __aenter__(self) -> 'WorkflowManager':
         """Load the workflows and get them running again"""
@@ -77,7 +79,7 @@ class WorkflowManager:
         workflow_manager.set(self)
 
         history = self._create_history(workflow_id)
-        historian: Historian = Historian(workflow_id, workflow_function, history)
+        historian: Historian = Historian(workflow_id, workflow_function, history, serializer=self._serializer)
         self._workflows[workflow_id] = historian
 
         self._workflow_tasks[workflow_id] = (task := historian.run(*workflow_args, **workflow_kwargs))

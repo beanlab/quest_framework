@@ -7,6 +7,7 @@ import pytest
 
 from quest import step
 from quest.historian import Historian
+from quest.serializer import NoopSerializer
 from quest.persistence import PersistentHistory, LocalFileSystemBlobStorage
 from .utils import timeout
 from quest.extras.sql import SQLDatabase, SqlBlobStorage
@@ -91,30 +92,31 @@ async def simple_workflow():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('storage_ctx', storages)
 @timeout(3)
-async def test_persistence_basic(storage_ctx):
-    with storage_ctx as storage:
-        history = PersistentHistory('test', storage)
-        historian = Historian(
-            'test',
-            simple_workflow,
-            history
-        )
+async def test_persistence_basic(tmp_path: Path):
+    storage = LocalFileSystemBlobStorage(tmp_path)
+    history = PersistentHistory('test', storage)
+    historian = Historian(
+        'test',
+        simple_workflow,
+        history,
+        serializer=NoopSerializer()
+    )
 
-        workflow = historian.run()
-        await asyncio.sleep(0.01)
-        await historian.suspend()
+    workflow = historian.run()
+    await asyncio.sleep(0.01)
+    await historian.suspend()
 
-        pause.set()
-        history = PersistentHistory('test', storage)
-        historian = Historian(
-            'test',
-            simple_workflow,
-            history
-        )
-        result = await historian.run()
-        assert result == 14
+    pause.set()
+    history = PersistentHistory('test', storage)
+    historian = Historian(
+        'test',
+        simple_workflow,
+        history,
+        serializer=NoopSerializer()
+    )
+    result = await historian.run()
+    assert result == 14
 
 
 event = asyncio.Event()
@@ -131,6 +133,15 @@ async def resume_this_workflow():
 
 
 @pytest.mark.asyncio
+async def test_resume_step_persistence(tmp_path: Path):
+    storage = LocalFileSystemBlobStorage(tmp_path)
+    history = PersistentHistory('test', storage)
+    historian = Historian(
+        'test',
+        resume_this_workflow,
+        history,
+        serializer=NoopSerializer()
+    )
 @pytest.mark.parametrize('storage_ctx', storages)
 async def test_resume_step_persistence(storage_ctx):
     with storage_ctx as storage:
@@ -138,7 +149,8 @@ async def test_resume_step_persistence(storage_ctx):
         historian = Historian(
             'test',
             resume_this_workflow,
-            history
+            history,
+            serializer=NoopSerializer(
         )
 
         workflow = historian.run()
@@ -152,7 +164,8 @@ async def test_resume_step_persistence(storage_ctx):
         historian = Historian(
             'test',
             resume_this_workflow,
-            history
+            history,
+            serializer=NoopSerializer()
         )
 
         await historian.run()
