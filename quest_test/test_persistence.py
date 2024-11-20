@@ -104,7 +104,41 @@ def check_directory_empty(root_directory):
 
 
 @pytest.mark.asyncio
-async def test_workflow_cleanup():
+async def test_workflow_cleanup_suspend():
+    path = Path('test')
+    storage = LocalFileSystemBlobStorage(path)
+    history = PersistentHistory('test', storage)
+    historian = Historian(
+        'test',
+        resume_this_workflow,
+        history,
+        serializer=NoopSerializer()
+    )
+
+    workflow = historian.run()
+    await asyncio.sleep(0.01)
+    await historian.suspend()
+
+    assert not check_directory_empty(path)
+
+    event.set()
+
+    storage = LocalFileSystemBlobStorage(path)
+    history = PersistentHistory('test', storage)
+    historian = Historian(
+        'test',
+        resume_this_workflow,
+        history,
+        serializer=NoopSerializer()
+    )
+
+    await historian.run()
+
+    assert check_directory_empty(path)
+
+
+@pytest.mark.asyncio
+async def test_workflow_cleanup_basic():
     path = Path('test')
     storage = LocalFileSystemBlobStorage(path)
     history = PersistentHistory('test', storage)
