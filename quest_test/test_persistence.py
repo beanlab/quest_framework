@@ -1,4 +1,5 @@
 import asyncio
+import os
 from pathlib import Path
 
 import pytest
@@ -93,3 +94,28 @@ async def test_resume_step_persistence(tmp_path: Path):
     )
 
     await historian.run()
+
+
+def check_directory_empty(root_directory):
+    for dirpath, dirnames, filenames in os.walk(root_directory):
+        if filenames:
+            return False
+    return True
+
+
+@pytest.mark.asyncio
+async def test_workflow_cleanup():
+    path = Path('test')
+    storage = LocalFileSystemBlobStorage(path)
+    history = PersistentHistory('test', storage)
+    historian = Historian(
+        'test',
+        simple_workflow,
+        history,
+        serializer=NoopSerializer()
+    )
+
+    pause.set()
+    await historian.run()
+
+    assert check_directory_empty(path)

@@ -832,6 +832,7 @@ class Historian:
                     assert record['task_id'] == task_id
 
             logging.debug(f'Completing task {task_id}')
+            self._history.clear()
             return result
 
         task = task_factory(

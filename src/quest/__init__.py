@@ -31,7 +31,7 @@ def create_filesystem_manager(
         save_folder: Path,
         namespace: str,
         factory: WorkflowFactory,
-        serializer: StepSerializer = None
+        serializer: StepSerializer = NoopSerializer()
 ) -> WorkflowManager:
     storage = LocalFileSystemBlobStorage(save_folder / namespace)
 
