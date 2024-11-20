@@ -68,7 +68,6 @@ class WorkflowManager:
         return self._workflows[workflow_id]
 
     def _remove_workflow(self, workflow_id: str):
-        self._workflows.get(workflow_id)._history.clear()
         self._workflows.pop(workflow_id)
         self._workflow_tasks.pop(workflow_id)
         data = next(d for d in self._workflow_data if d[1] == workflow_id)
