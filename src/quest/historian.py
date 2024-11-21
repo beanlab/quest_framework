@@ -832,7 +832,6 @@ class Historian:
                     assert record['task_id'] == task_id
 
             logging.debug(f'Completing task {task_id}')
-            self._history.clear()
             return result
 
         task = task_factory(
@@ -878,16 +877,19 @@ class Historian:
             self._open_tasks.append(external_task)
             external_task.add_done_callback(lambda t: self._open_tasks.remove(t) if t in self._open_tasks else None)
 
-            return await self.start_task(
+            task = await self.start_task(
                 self._run_with_exception_handling,
                 *args, **kwargs,
                 name=f'{self.workflow_id}.main',
                 task_factory=_task_factory.create_task
             )
+            self._history.clear()
+            return task
 
     def run(self, *args, **kwargs):
         self._replay_started.clear()
-        return asyncio.create_task(self._run(*args, **kwargs), name=self.workflow_id)
+        task = asyncio.create_task(self._run(*args, **kwargs), name=self.workflow_id)
+        return task
 
     def configure(self, config_function, *args, **kwargs):
         """

@@ -96,13 +96,6 @@ async def test_resume_step_persistence(tmp_path: Path):
     await historian.run()
 
 
-@pytest.fixture
-def test_directory_cleanup():
-    path = Path('test')
-    yield
-    os.rmdir(path)
-
-
 def check_directory_empty(root_directory):
     for dirpath, dirnames, filenames in os.walk(root_directory):
         if filenames:
@@ -111,9 +104,8 @@ def check_directory_empty(root_directory):
 
 
 @pytest.mark.asyncio
-async def test_workflow_cleanup_suspend(test_directory_cleanup):
-    path = Path('test')
-    storage = LocalFileSystemBlobStorage(path)
+async def test_workflow_cleanup_suspend(tmp_path):
+    storage = LocalFileSystemBlobStorage(tmp_path)
     history = PersistentHistory('test', storage)
     historian = Historian(
         'test',
@@ -128,7 +120,7 @@ async def test_workflow_cleanup_suspend(test_directory_cleanup):
 
     event.set()
 
-    storage = LocalFileSystemBlobStorage(path)
+    storage = LocalFileSystemBlobStorage(tmp_path)
     history = PersistentHistory('test', storage)
     historian = Historian(
         'test',
@@ -139,13 +131,12 @@ async def test_workflow_cleanup_suspend(test_directory_cleanup):
 
     await historian.run()
 
-    assert check_directory_empty(path)
+    assert check_directory_empty(tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_workflow_cleanup_basic(test_directory_cleanup):
-    path = Path('test')
-    storage = LocalFileSystemBlobStorage(path)
+async def test_workflow_cleanup_basic(tmp_path):
+    storage = LocalFileSystemBlobStorage(tmp_path)
     history = PersistentHistory('test', storage)
     historian = Historian(
         'test',
@@ -157,4 +148,4 @@ async def test_workflow_cleanup_basic(test_directory_cleanup):
     pause.set()
     await historian.run()
 
-    assert check_directory_empty(path)
+    assert check_directory_empty(tmp_path)
