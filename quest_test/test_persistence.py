@@ -69,10 +69,10 @@ class S3StorageContext:
 
 
 storages = [
-    pytest.param(FileSystemStorageContext(), marks=pytest.mark.unit, id="file"),
-    # pytest.param(SqlStorageContext(), marks=pytest.mark.unit, id="sql"),
-    # pytest.param(DynamoDBStorageContext(), marks=pytest.mark.integration, id="dynamodb"),
-    # pytest.param(S3StorageContext(), marks=pytest.mark.integration, id="s3"),
+    pytest.param(FileSystemStorageContext(), id="file"),
+    pytest.param(SqlStorageContext(), id="sql"),
+    pytest.param(DynamoDBStorageContext(), marks=pytest.mark.integration, id="dynamodb"),
+    pytest.param(S3StorageContext(), marks=pytest.mark.integration, id="s3"),
 ]
 
 
@@ -92,31 +92,34 @@ async def simple_workflow():
 
 
 @pytest.mark.asyncio
-@timeout(3)
-async def test_persistence_basic(tmp_path: Path):
-    storage = LocalFileSystemBlobStorage(tmp_path)
-    history = PersistentHistory('test', storage)
-    historian = Historian(
-        'test',
-        simple_workflow,
-        history,
-        serializer=NoopSerializer()
-    )
+@timeout(6)
+@pytest.mark.parametrize('storage_ctx', storages)
+async def test_persistence_basic(storage_ctx):
+    with storage_ctx as storage:
+        history = PersistentHistory('test', storage)
+        historian = Historian(
+            'test',
+            simple_workflow,
+            history,
+            serializer=NoopSerializer()
+        )
 
-    workflow = historian.run()
-    await asyncio.sleep(0.01)
-    await historian.suspend()
+        workflow = historian.run()
+        await asyncio.sleep(0.01)
+        await historian.suspend()
 
-    pause.set()
-    history = PersistentHistory('test', storage)
-    historian = Historian(
-        'test',
-        simple_workflow,
-        history,
-        serializer=NoopSerializer()
-    )
-    result = await historian.run()
-    assert result == 14
+        pause.set()
+
+    with storage_ctx as storage:
+        history = PersistentHistory('test', storage)
+        historian = Historian(
+            'test',
+            simple_workflow,
+            history,
+            serializer=NoopSerializer()
+        )
+        result = await historian.run()
+        assert result == 14
 
 
 event = asyncio.Event()
@@ -133,18 +136,8 @@ async def resume_this_workflow():
 
 
 @pytest.mark.asyncio
-async def test_resume_step_persistence(tmp_path: Path):
-    storage = LocalFileSystemBlobStorage(tmp_path)
-    history = PersistentHistory('test', storage)
-    historian = Historian(
-        'test',
-        resume_this_workflow,
-        history,
-        serializer=NoopSerializer()
-    )
-
-
 @pytest.mark.parametrize('storage_ctx', storages)
+@timeout(6)
 async def test_resume_step_persistence(storage_ctx):
     with storage_ctx as storage:
         history = PersistentHistory('test', storage)
