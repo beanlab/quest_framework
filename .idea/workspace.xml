@@ -1,0 +1,247 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="5aefe15c-8a73-48a0-847b-e0a1ffa976c3" name="Changes" comment="Fix alias check" />
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Python Script" />
+      </list>
+    </option>
+  </component>
+  <component name="FormatOnSaveOptions">
+    <option name="myRunOnSave" value="true" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="HighlightingSettingsPerFile">
+    <setting file="file://$PROJECT_DIR$/src/quest/historian.py" root0="FORCE_HIGHLIGHTING" />
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 1
+}</component>
+  <component name="ProjectId" id="2n2EUYGUBIqjHPo3zvblBIgtajy" />
+  <component name="ProjectLevelVcsManager" settingsEditedManually="true" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "Python tests.Run Integration Tests.executor": "Run",
+    "Python tests.Run Unit Tests.executor": "Run",
+    "Python tests.pytest for test_alias.test_alias.executor": "Debug",
+    "Python tests.pytest for test_alias.test_alias_exception.executor": "Run",
+    "Python tests.pytest for test_alias.test_alias_trade.executor": "Debug",
+    "Python tests.pytest for test_manager.test_manager.executor": "Debug",
+    "Python tests.pytest for test_persistence.test_persistence_basic.executor": "Run",
+    "Python tests.pytest for test_persistence.test_resume_step_persistence.executor": "Run",
+    "Python tests.pytest for test_persistence.test_workflow_cleanup.executor": "Debug",
+    "Python tests.pytest for test_persistence.test_workflow_cleanup_basic.executor": "Run",
+    "Python tests.pytest for test_persistence.test_workflow_cleanup_suspend.executor": "Run",
+    "Python tests.pytest in quest_test.executor": "Run",
+    "Python.guessing_game.executor": "Run",
+    "Python.sql.executor": "Run",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "git-widget-placeholder": "collin/extras",
+    "last_opened_file_path": "/Users/collinwebb/Desktop/repos/byu/quest_framework",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "settings.editor.selected.configurable": "preferences.pluginManager",
+    "vue.rearranger.settings.migration": "true"
+  }
+}]]></component>
+  <component name="RecentsManager">
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/src/quest/extras" />
+      <recent name="$PROJECT_DIR$/quest_test" />
+    </key>
+  </component>
+  <component name="RunManager" selected="Python tests.Run Unit Tests">
+    <configuration name="Run Integration Tests" type="tests" factoryName="py.test">
+      <module name="quest_framework" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <option name="SDK_HOME" value="" />
+      <option name="SDK_NAME" value="Poetry (quest_framework)" />
+      <option name="WORKING_DIRECTORY" value="" />
+      <option name="IS_MODULE_SDK" value="false" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="_new_keywords" value="&quot;&quot;" />
+      <option name="_new_parameters" value="&quot;&quot;" />
+      <option name="_new_additionalArguments" value="&quot;-m \&quot;integration\&quot;&quot;" />
+      <option name="_new_target" value="&quot;$PROJECT_DIR$/quest_test&quot;" />
+      <option name="_new_targetType" value="&quot;PATH&quot;" />
+      <method v="2" />
+    </configuration>
+    <configuration name="Run Unit Tests" type="tests" factoryName="py.test">
+      <module name="quest_framework" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <option name="SDK_HOME" value="" />
+      <option name="SDK_NAME" value="Poetry (quest_framework)" />
+      <option name="WORKING_DIRECTORY" value="" />
+      <option name="IS_MODULE_SDK" value="false" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="_new_keywords" value="&quot;&quot;" />
+      <option name="_new_parameters" value="&quot;&quot;" />
+      <option name="_new_additionalArguments" value="&quot;-m \&quot;not integration\&quot;&quot;" />
+      <option name="_new_target" value="&quot;$PROJECT_DIR$/quest_test&quot;" />
+      <option name="_new_targetType" value="&quot;PATH&quot;" />
+      <method v="2" />
+    </configuration>
+    <list>
+      <item itemvalue="Python tests.Run Integration Tests" />
+      <item itemvalue="Python tests.Run Unit Tests" />
+    </list>
+  </component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-js-predefined-d6986cc7102b-5c90d61e3bab-JavaScript-PY-242.23339.19" />
+        <option value="bundled-python-sdk-0029f7779945-399fe30bd8c1-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-242.23339.19" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="5aefe15c-8a73-48a0-847b-e0a1ffa976c3" name="Changes" comment="" />
+      <created>1728162787526</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1728162787526</updated>
+      <workItem from="1728162789598" duration="3226000" />
+      <workItem from="1728242230330" duration="1684000" />
+      <workItem from="1728281714129" duration="8150000" />
+      <workItem from="1728448887398" duration="9729000" />
+      <workItem from="1728772748650" duration="2591000" />
+      <workItem from="1728793153440" duration="829000" />
+      <workItem from="1728921443191" duration="4157000" />
+      <workItem from="1729054354040" duration="1471000" />
+      <workItem from="1729094511659" duration="3667000" />
+      <workItem from="1729108621574" duration="6150000" />
+      <workItem from="1729398678509" duration="8690000" />
+      <workItem from="1729744747412" duration="1770000" />
+      <workItem from="1729831533499" duration="2328000" />
+      <workItem from="1730132349302" duration="7875000" />
+      <workItem from="1730737884022" duration="86000" />
+      <workItem from="1730739530598" duration="19126000" />
+      <workItem from="1731649728047" duration="15783000" />
+      <workItem from="1732481753484" duration="10000" />
+      <workItem from="1732555790098" duration="1372000" />
+    </task>
+    <task id="LOCAL-00001" summary="Fix alias check">
+      <option name="closed" value="true" />
+      <created>1729188011883</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1729188011884</updated>
+    </task>
+    <option name="localTasksCounter" value="2" />
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="Fix alias check" />
+    <option name="LAST_COMMIT_MESSAGE" value="Fix alias check" />
+  </component>
+  <component name="XDebuggerManager">
+    <breakpoint-manager>
+      <breakpoints>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/quest_test/test_manager.py</url>
+          <line>39</line>
+          <option name="timeStamp" value="13" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/quest_test/test_manager.py</url>
+          <line>50</line>
+          <option name="timeStamp" value="14" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/quest_test/test_manager.py</url>
+          <line>26</line>
+          <option name="timeStamp" value="16" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/src/quest/historian.py</url>
+          <line>1020</line>
+          <option name="timeStamp" value="66" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/quest_test/test_persistence.py</url>
+          <line>76</line>
+          <option name="timeStamp" value="71" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/demos/guessing_game.py</url>
+          <line>47</line>
+          <option name="timeStamp" value="76" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/src/quest/persistence.py</url>
+          <line>60</line>
+          <option name="timeStamp" value="77" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/src/quest/manager.py</url>
+          <line>70</line>
+          <option name="timeStamp" value="78" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/src/quest/historian.py</url>
+          <line>865</line>
+          <option name="timeStamp" value="80" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/src/quest/historian.py</url>
+          <line>798</line>
+          <option name="timeStamp" value="81" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/quest_test/test_persistence.py</url>
+          <line>84</line>
+          <option name="timeStamp" value="85" />
+        </line-breakpoint>
+      </breakpoints>
+    </breakpoint-manager>
+  </component>
+  <component name="com.intellij.coverage.CoverageDataManagerImpl">
+    <SUITE FILE_PATH="coverage/quest_framework$Run_Unit_Tests.coverage" NAME="Run Unit Tests Coverage Results" MODIFIED="1732569444415" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="" />
+    <SUITE FILE_PATH="coverage/quest_framework$pytest_for_test_manager_test_manager.coverage" NAME="pytest for test_manager.test_manager Coverage Results" MODIFIED="1728447634471" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/quest_test" />
+    <SUITE FILE_PATH="coverage/quest_framework$pytest_for_test_alias_test_alias_exception.coverage" NAME="pytest for test_alias.test_alias_exception Coverage Results" MODIFIED="1729097283313" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/quest_test" />
+    <SUITE FILE_PATH="coverage/quest_framework$pytest_for_test_alias_test_alias_trade.coverage" NAME="pytest for test_alias.test_alias_trade Coverage Results" MODIFIED="1729103512616" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/quest_test" />
+    <SUITE FILE_PATH="coverage/quest_framework$pytest_in_quest_test.coverage" NAME="pytest in quest_test Coverage Results" MODIFIED="1732568547900" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/quest_test" />
+    <SUITE FILE_PATH="coverage/quest_framework$pytest_for_test_persistence_test_resume_step_persistence.coverage" NAME="pytest for test_persistence.test_resume_step_persistence Coverage Results" MODIFIED="1732114712814" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/quest_test" />
+    <SUITE FILE_PATH="coverage/quest_framework$pytest_for_test_persistence_test_persistence_basic.coverage" NAME="pytest for test_persistence.test_persistence_basic Coverage Results" MODIFIED="1731563024534" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/quest_test" />
+    <SUITE FILE_PATH="coverage/quest_framework$sql.coverage" NAME="sql Coverage Results" MODIFIED="1729745553962" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/quest_framework$pytest_for_test_persistence_test_workflow_cleanup.coverage" NAME="pytest for test_persistence.test_workflow_cleanup Coverage Results" MODIFIED="1732073089740" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/quest_test" />
+    <SUITE FILE_PATH="coverage/quest_framework$pytest_for_test_alias_test_alias.coverage" NAME="pytest for test_alias.test_alias Coverage Results" MODIFIED="1729048079452" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/quest_test" />
+    <SUITE FILE_PATH="coverage/quest_framework$guessing_game.coverage" NAME="guessing_game Coverage Results" MODIFIED="1732072485093" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/demos" />
+    <SUITE FILE_PATH="coverage/quest_framework$pytest_for_test_persistence_test_workflow_cleanup_suspend.coverage" NAME="pytest for test_persistence.test_workflow_cleanup_suspend Coverage Results" MODIFIED="1732115063210" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/quest_test" />
+    <SUITE FILE_PATH="coverage/quest_framework$Run_Integration_Tests.coverage" NAME="Run Integration Tests Coverage Results" MODIFIED="1732569390790" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="" />
+    <SUITE FILE_PATH="coverage/quest_framework$pytest_for_test_persistence_test_workflow_cleanup_basic.coverage" NAME="pytest for test_persistence.test_workflow_cleanup_basic Coverage Results" MODIFIED="1732115067827" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/quest_test" />
+  </component>
+</project>
