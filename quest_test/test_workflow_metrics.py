@@ -16,16 +16,25 @@ async def test_workflow_metrics_simple():
             histories[wid] = []
         return histories[wid]
 
+    # Event to control the execution flow
+    pause_event = asyncio.Event()
+
     async def sample_workflow():
-        await asyncio.sleep(0.1)
+        await pause_event.wait()
         return "Workflow Completed"
+
+    # Events to track workflow completion - used due to callback
+    done_event1 = asyncio.Event()
+    done_event2 = asyncio.Event()
 
     async with WorkflowManager('test-manager', storage, create_history, lambda w_type: sample_workflow,
                                serializer=NoopSerializer()) as manager:
-        # Start two workflows
         manager.start_workflow_background('sample_workflow_type', 'wid1')
         manager.start_workflow_background('sample_workflow_type', 'wid2')
-        await asyncio.sleep(0.05)
+
+        # Callbacks when workflows are done
+        manager.get_workflow('wid1').add_done_callback(lambda _: done_event1.set())
+        manager.get_workflow('wid2').add_done_callback(lambda _: done_event2.set())
 
         metrics = manager.get_workflow_metrics()
         assert len(metrics) == 2
@@ -34,9 +43,12 @@ async def test_workflow_metrics_simple():
         assert 'wid1' in workflow_ids
         assert 'wid2' in workflow_ids
 
-        # Wait for workflows to complete
-        await asyncio.sleep(0.3)
+        # Allow workflows to proceed
+        pause_event.set()
 
-        # Metrics empty since all workflows have completed
-        metrics = manager.get_workflow_metrics()
-        assert len(metrics) == 0
+        # Wait for both workflows to be done
+        await done_event1.wait()
+        await done_event2.wait()
+
+    metrics = manager.get_workflow_metrics()
+    assert len(metrics) == 0

@@ -46,14 +46,13 @@ class WorkflowManager:
         self._workflow_tasks: dict[str, asyncio.Task] = {}
         self._alias_dictionary = {}
         self._serializer: StepSerializer = serializer
-        self._workflow_metrics: dict[str, dict] = {}
 
     async def __aenter__(self) -> 'WorkflowManager':
         """Load the workflows and get them running again"""
         if self._storage.has_blob(self._namespace):
             self._workflow_data = self._storage.read_blob(self._namespace)
 
-        for wtype, wid, args, kwargs, background in self._workflow_data:
+        for wtype, wid, args, kwargs, background, start_time in self._workflow_data:
             self._start_workflow(wtype, wid, args, kwargs, background=background)
 
         return self
@@ -73,8 +72,6 @@ class WorkflowManager:
         self._workflow_tasks.pop(workflow_id)
         data = next(d for d in self._workflow_data if d[1] == workflow_id)
         self._workflow_data.remove(data)
-        self._workflow_metrics.pop(
-            workflow_id)  # Remove workflow that is completed -> workflow_metrics only contains active workflows
 
     def _start_workflow(self,
                         workflow_type: str, workflow_id: str, workflow_args, workflow_kwargs,
@@ -91,19 +88,16 @@ class WorkflowManager:
         if background:
             task.add_done_callback(lambda t: self._remove_workflow(workflow_id))
 
-        self._workflow_metrics[workflow_id] = {
-            'workflow_type': workflow_type,
-            'start_time': datetime.utcnow().isoformat(),
-        }
-
     def start_workflow(self, workflow_type: str, workflow_id: str, *workflow_args, **workflow_kwargs):
         """Start the workflow"""
-        self._workflow_data.append((workflow_type, workflow_id, workflow_args, workflow_kwargs, False))
+        start_time = datetime.utcnow().isoformat()
+        self._workflow_data.append((workflow_type, workflow_id, workflow_args, workflow_kwargs, False, start_time))
         self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs)
 
     def start_workflow_background(self, workflow_type: str, workflow_id: str, *workflow_args, **workflow_kwargs):
         """Start the workflow"""
-        self._workflow_data.append((workflow_type, workflow_id, workflow_args, workflow_kwargs, True))
+        start_time = datetime.utcnow().isoformat()
+        self._workflow_data.append((workflow_type, workflow_id, workflow_args, workflow_kwargs, True, start_time))
         self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs, background=True)
 
     def has_workflow(self, workflow_id: str) -> bool:
@@ -189,11 +183,11 @@ class WorkflowManager:
 
     def get_workflow_metrics(self):
         metrics = []
-        for wid, data in self._workflow_metrics.items():
+        for wtype, wid, args, kwargs, background, start_time in self._workflow_data:
             metrics.append({
                 "workflow_id": wid,
-                "workflow_type": data['workflow_type'],
-                "start_time": data['start_time']
+                "workflow_type": wtype,
+                "start_time": start_time
             })
         return metrics
 
