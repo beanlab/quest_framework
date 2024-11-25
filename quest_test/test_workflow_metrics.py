@@ -46,7 +46,7 @@ async def test_workflow_metrics_simple():
         # Allow workflows to proceed
         pause_event.set()
 
-        # Wait for both workflows to be done
+        # Wait for both workflows to be done - wait for callback as well
         await done_event1.wait()
         await done_event2.wait()
 
