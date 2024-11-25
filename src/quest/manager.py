@@ -3,6 +3,7 @@ from contextvars import ContextVar, copy_context
 from decimal import Context
 from functools import wraps
 from typing import Protocol, Callable, TypeVar, Any
+from datetime import datetime
 
 from .external import State, IdentityQueue, Queue, Event
 from .historian import Historian, _Wrapper
@@ -23,8 +24,10 @@ T = TypeVar('T')
 
 workflow_manager = ContextVar('workflow_manager')
 
+
 class DuplicateAliasException(Exception):
     ...
+
 
 class WorkflowManager:
     """
@@ -42,8 +45,8 @@ class WorkflowManager:
         self._workflows: dict[str, Historian] = {}
         self._workflow_tasks: dict[str, asyncio.Task] = {}
         self._alias_dictionary = {}
-
         self._serializer: StepSerializer = serializer
+        self._workflow_metrics: dict[str, dict] = {}
 
     async def __aenter__(self) -> 'WorkflowManager':
         """Load the workflows and get them running again"""
@@ -70,6 +73,8 @@ class WorkflowManager:
         self._workflow_tasks.pop(workflow_id)
         data = next(d for d in self._workflow_data if d[1] == workflow_id)
         self._workflow_data.remove(data)
+        self._workflow_metrics.pop(
+            workflow_id)  # Remove workflow that is completed -> workflow_metrics only contains active workflows
 
     def _start_workflow(self,
                         workflow_type: str, workflow_id: str, workflow_args, workflow_kwargs,
@@ -85,6 +90,11 @@ class WorkflowManager:
         self._workflow_tasks[workflow_id] = (task := historian.run(*workflow_args, **workflow_kwargs))
         if background:
             task.add_done_callback(lambda t: self._remove_workflow(workflow_id))
+
+        self._workflow_metrics[workflow_id] = {
+            'workflow_type': workflow_type,
+            'start_time': datetime.utcnow().isoformat(),
+        }
 
     def start_workflow(self, workflow_type: str, workflow_id: str, *workflow_args, **workflow_kwargs):
         """Start the workflow"""
@@ -177,6 +187,17 @@ class WorkflowManager:
         if alias in self._alias_dictionary:
             del self._alias_dictionary[alias]
 
+    def get_workflow_metrics(self):
+        metrics = []
+        for wid, data in self._workflow_metrics.items():
+            metrics.append({
+                "workflow_id": wid,
+                "workflow_type": data['workflow_type'],
+                "start_time": data['start_time']
+            })
+        return metrics
+
+
 def find_workflow_manager() -> WorkflowManager:
     if (manager := workflow_manager.get()) is not None:
-            return manager
+        return manager
