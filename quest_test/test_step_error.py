@@ -27,7 +27,7 @@ async def add_foo(text):
     raise MyError(text + "foo")
 
 
-block_workflow = asyncio.Event()
+block_workflow_1 = asyncio.Event()
 
 
 async def longer_workflow(text):
@@ -38,7 +38,7 @@ async def longer_workflow(text):
         text = e.message
     except Exception:
         assert False
-    await block_workflow.wait()
+    await block_workflow_1.wait()
     text = await double(text)
     return text
 
@@ -61,7 +61,7 @@ async def test_custom_exception():
     assert history  # should not be empty
 
     # Allow workflow to proceed
-    block_workflow.set()
+    block_workflow_1.set()
 
     # Start the workflow again
     result = await historian.run('abc')
@@ -70,6 +70,7 @@ async def test_custom_exception():
     assert double_calls == 2
     assert foo_calls == 1
 
+block_workflow_2 = asyncio.Event()
 
 @step
 async def double2(text):
@@ -92,7 +93,7 @@ async def longer_workflow2(text):
         foo_calls2 += 1
     except Exception:
         assert False
-    await block_workflow.wait()
+    await block_workflow_2.wait()
     text = await double2(text)
     return text
 
@@ -115,7 +116,8 @@ async def test_builtin():
     assert history  # should not be empty
 
     # Allow workflow to proceed
-    block_workflow.set()
+    block_workflow_2.set()
+    await asyncio.sleep(0.01)
 
     # Start the workflow again
     result = await historian.run('abc')
