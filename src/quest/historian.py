@@ -922,8 +922,9 @@ class Historian:
                 kwargs=kwargs
             ))
 
-    async def suspend(self):
+    def signal_suspend(self):
         logging.info(f'-- Suspending {self.workflow_id} --')
+
         # Cancelling these in reverse order is important
         # If a parent thread cancels, it will cancel a child.
         # We want to be the one that cancels every task,
@@ -932,6 +933,9 @@ class Historian:
             if not task.done() or task.cancelled() or task.cancelling():
                 logging.debug(f'Suspending task {task.get_name()}')
                 task.cancel(SUSPENDED)
+
+    async def suspend(self):
+        self.signal_suspend()
 
         # Once each task has been marked for cancellation
         #  we await each task in order to allow the cancellation
