@@ -191,12 +191,14 @@ def _get_exception_class(exception_type: str):
     return exception_class
 
 
+
 class Historian:
     def __init__(self, workflow_id: str, workflow: Callable, history: History):
         # TODO - change nomenclature (away from workflow)? Maybe just use workflow.__name__?
         self.workflow_id = workflow_id
         self.workflow = workflow
         self._configurations: list[tuple[Callable, list, dict]] = []
+
 
         # This indicates whether the workflow function has completed
         # Suspending the workflow does not affect this value
@@ -922,8 +924,10 @@ class Historian:
                 kwargs=kwargs
             ))
 
-    async def suspend(self):
-        logging.info(f'-- Suspending {self.workflow_id} --')
+
+
+    def signal_suspend(self):
+        logging.debug(f'-- Suspending {self.workflow_id} --')
         # Cancelling these in reverse order is important
         # If a parent thread cancels, it will cancel a child.
         # We want to be the one that cancels every task,
@@ -933,13 +937,17 @@ class Historian:
                 logging.debug(f'Suspending task {task.get_name()}')
                 task.cancel(SUSPENDED)
 
+    async def suspend(self):
         # Once each task has been marked for cancellation
         #  we await each task in order to allow the cancellation
         #  to play out to completion.
+        self.signal_suspend()
+
         for task in list(self._open_tasks):
             try:
                 await task
             except asyncio.CancelledError:
+                logging.debug(f'Task {task.get_name()} was cancelled')
                 pass
 
     async def get_resources(self, identity):
@@ -1035,3 +1043,5 @@ def find_historian() -> Historian:
             raise HistorianNotFoundException("Historian object not found in event stack")
         is_workflow = isinstance(outer_frame.f_locals.get('self'), Historian)
     return outer_frame.f_locals.get('self')
+
+

@@ -1,4 +1,8 @@
 import asyncio
+import logging
+import os
+import signal
+import sys
 from contextvars import ContextVar, copy_context
 from decimal import Context
 from functools import wraps
@@ -41,10 +45,15 @@ class WorkflowManager:
         self._workflows: dict[str, Historian] = {}
         self._workflow_tasks: dict[str, asyncio.Task] = {}
         self._alias_dictionary = {}
+        self._tasks_suspended = False
+        self._custom_signal_handler = None
 
 
     async def __aenter__(self) -> 'WorkflowManager':
         """Load the workflows and get them running again"""
+
+        signal.signal(signal.SIGINT, self.dispatch_signal_handler)
+
         if self._storage.has_blob(self._namespace):
             self._workflow_data = self._storage.read_blob(self._namespace)
 
@@ -58,6 +67,26 @@ class WorkflowManager:
         self._storage.write_blob(self._namespace, self._workflow_data)
         for wid, historian in self._workflows.items():
             await historian.suspend()
+
+    def set_custom_signal_handler(self, handler: Callable[[int, Any], None]):
+        self._custom_signal_handler = handler
+
+    def dispatch_signal_handler(self, sig, frame):
+        if self._custom_signal_handler:
+            logging.debug("Using custom signal handler")
+            self._custom_signal_handler(sig, frame)
+        else:
+            logging.debug("Using default signal handler")
+            self.default_signal_handler(sig, frame)
+
+    def default_signal_handler(self, sig, frame):
+        logging.debug(f'Caught KeyboardInterrupt: {sig}')
+        for wid, historian in self._workflows.items():
+            historian.signal_suspend()
+        signal.signal(sig, signal.SIG_DFL)
+        logging.debug("Raising original signal for default handling")
+        os.kill(os.getpid(), sig)
+
 
     def _get_workflow(self, workflow_id: str):
         workflow_id = self._alias_dictionary.get(workflow_id, workflow_id)
@@ -174,6 +203,8 @@ class WorkflowManager:
     async def _deregister_alias(self, alias: str):
         if alias in self._alias_dictionary:
             del self._alias_dictionary[alias]
+
+
 
 def find_workflow_manager() -> WorkflowManager:
     if (manager := workflow_manager.get()) is not None:
