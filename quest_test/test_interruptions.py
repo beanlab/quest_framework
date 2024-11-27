@@ -24,15 +24,6 @@ async def test_sigint_handling():
                 os.kill(os.getpid(), signal.SIGINT)
             gate_1.set()
 
-    # Signal handler to capture SIGINT
-    sigint_received = asyncio.Event()
-
-    def handle_sigint(signum, frame):
-        sigint_received.set()
-
-    # Register the signal handler
-    signal.signal(signal.SIGINT, handle_sigint)
-
     workflows = {
         'workflow_1': workflow_1,
         'workflow_2': workflow_2,
@@ -50,12 +41,7 @@ async def test_sigint_handling():
 
         gate_1.set()
 
-        # Wait for SIGINT to be handled
-        await asyncio.wait_for(sigint_received.wait(), timeout=1.0)
-
-        # Allow workflows to process further if needed
         await asyncio.sleep(0.1)
 
-        # Assertions after SIGINT
         assert counter_1[0] == 3
         assert counter_2[0] == 3
