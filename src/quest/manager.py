@@ -47,7 +47,6 @@ class WorkflowManager:
         self._workflows: dict[str, Historian] = {}
         self._workflow_tasks: dict[str, asyncio.Task] = {}
         self._alias_dictionary = {}
-        self._tasks_suspended = False
         self._custom_signal_handler = None
 
     async def __aenter__(self) -> 'WorkflowManager':
