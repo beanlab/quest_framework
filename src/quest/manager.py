@@ -26,8 +26,10 @@ T = TypeVar('T')
 
 workflow_manager = ContextVar('workflow_manager')
 
+
 class DuplicateAliasException(Exception):
     ...
+
 
 class WorkflowManager:
     """
@@ -47,7 +49,6 @@ class WorkflowManager:
         self._alias_dictionary = {}
         self._tasks_suspended = False
         self._custom_signal_handler = None
-
 
     async def __aenter__(self) -> 'WorkflowManager':
         """Load the workflows and get them running again"""
@@ -77,16 +78,15 @@ class WorkflowManager:
             self._custom_signal_handler(sig, frame)
         else:
             logging.debug("Using default signal handler")
-            self.default_signal_handler(sig, frame)
+            self.default_signal_handler(sig)
 
-    def default_signal_handler(self, sig, frame):
+    def default_signal_handler(self, sig):
         logging.debug(f'Caught KeyboardInterrupt: {sig}')
         for wid, historian in self._workflows.items():
             historian.signal_suspend()
-        signal.signal(sig, signal.SIG_DFL)
         logging.debug("Raising original signal for default handling")
+        signal.signal(sig, signal.SIG_DFL)
         os.kill(os.getpid(), sig)
-
 
     def _get_workflow(self, workflow_id: str):
         workflow_id = self._alias_dictionary.get(workflow_id, workflow_id)
@@ -205,7 +205,6 @@ class WorkflowManager:
             del self._alias_dictionary[alias]
 
 
-
 def find_workflow_manager() -> WorkflowManager:
     if (manager := workflow_manager.get()) is not None:
-            return manager
+        return manager
