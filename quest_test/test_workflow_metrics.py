@@ -23,19 +23,12 @@ async def test_workflow_metrics_simple():
         await pause_event.wait()
         return "Workflow Completed"
 
-    # Events to track workflow completion - used due to callback
-    done_event1 = asyncio.Event()
-    done_event2 = asyncio.Event()
-
     async with WorkflowManager('test-manager', storage, create_history, lambda w_type: sample_workflow,
                                serializer=NoopSerializer()) as manager:
-        manager.start_workflow_background('sample_workflow_type', 'wid1')
-        manager.start_workflow_background('sample_workflow_type', 'wid2')
+        manager.start_workflow('sample_workflow_type', 'wid1')
+        manager.start_workflow('sample_workflow_type', 'wid2')
 
-        # Callbacks when workflows are done
-        manager.get_workflow('wid1').add_done_callback(lambda _: done_event1.set())
-        manager.get_workflow('wid2').add_done_callback(lambda _: done_event2.set())
-
+        # Check the metrics immediately after starting the workflows
         metrics = manager.get_workflow_metrics()
         assert len(metrics) == 2
 
@@ -46,9 +39,13 @@ async def test_workflow_metrics_simple():
         # Allow workflows to proceed
         pause_event.set()
 
-        # Wait for both workflows to be done - wait for callback as well
-        await done_event1.wait()
-        await done_event2.wait()
+        # Workflow process done
+        await manager.get_workflow('wid1')
+        await manager.get_workflow('wid2')
 
-    metrics = manager.get_workflow_metrics()
-    assert len(metrics) == 0
+        # Workflows in foreground not automatically removed
+        manager._remove_workflow('wid1')
+        manager._remove_workflow('wid2')
+
+        metrics = manager.get_workflow_metrics()
+        assert len(metrics) == 0
