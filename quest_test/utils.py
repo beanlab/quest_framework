@@ -2,7 +2,7 @@ import asyncio
 import sys
 from functools import wraps
 
-from quest import WorkflowManager
+from quest import WorkflowManager, Historian
 from quest.persistence import InMemoryBlobStorage, PersistentHistory
 from quest.serializer import NoopSerializer
 
@@ -39,3 +39,8 @@ def create_in_memory_workflow_manager(workflows: dict, serializer=None):
         serializer = NoopSerializer()
 
     return WorkflowManager('test', storage, create_history, create_workflow, serializer=serializer)
+
+
+def create_test_historian(workflow_name, workflow):
+    historian = Historian(workflow_name, workflow, [], NoopSerializer())
+    return historian
