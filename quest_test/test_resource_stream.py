@@ -5,7 +5,7 @@ from quest import Historian
 from quest.external import state, queue, event, identity_queue
 from utils import timeout, create_test_historian
 
-
+# A general-use workflow for these tests
 async def simple_workflow(phrase1_ident, phrase2_ident):
     async with state('phrase1', phrase1_ident, 'Hello') as phrase1:
         await phrase1.set('World!')
@@ -14,6 +14,7 @@ async def simple_workflow(phrase1_ident, phrase2_ident):
             await phrase2.set('Everyone!')
 
 
+# A general-use listener that asserts that both resources are seen while streaming
 async def simple_listener(historian, stream_ident=None, phrase1_ident=None, phrase2_ident=None):
     saw_phrase1 = False
     saw_phrase2 = False
@@ -30,19 +31,20 @@ async def simple_listener(historian, stream_ident=None, phrase1_ident=None, phra
 class StreamListenerError(Exception):
     pass
 
-
+# A listener that fails streaming before the workflow completes
 async def failing_listener(historian: Historian, identity):
     try:
         with historian.get_resource_stream(identity) as resource_stream:
             i = 0
             async for resources in resource_stream:
                 if i == 5:
-                    raise StreamListenerError
+                    raise StreamListenerError()
                 i += 1
     except StreamListenerError:
         pass
 
-
+# Test stream resources on a workflow that utilizes each type of "resource" as defined in external.py.
+# We should receive a resource update when each resource is created, has an action called on it, and deleted.
 @pytest.mark.asyncio
 @timeout(3)
 async def test_default():
@@ -125,6 +127,8 @@ async def test_default():
     await w_task
 
 
+# A demonstration and test of how a typical listener would stream resources using the "async for" syntax.
+# The listener should receive 7 total updates during the running of workflow.
 @pytest.mark.asyncio
 @timeout(3)
 async def test_typical():
@@ -145,6 +149,7 @@ async def test_typical():
             async for resources in resource_stream:
                 reported_resources.append(resources)
 
+        assert len(reported_resources) == 7
         for resources in reported_resources:
             print(resources)
 
@@ -154,6 +159,7 @@ async def test_typical():
 
 
 # Test a private listener streaming public resources
+# The private listener should receive all updates on any public resource.
 @pytest.mark.asyncio
 @timeout(3)
 async def test_private_identity_streaming_public_resources():
@@ -163,7 +169,7 @@ async def test_private_identity_streaming_public_resources():
     )
 
     w_task = historian.run()
-    await simple_listener(historian)
+    await simple_listener(historian, None, None, None)
     await w_task
 
 
@@ -183,7 +189,7 @@ async def test_public_streaming_private_resources():
     await w_task
 
 
-# Test a resource stream that then errors unexpectedly
+# Test a resource stream listener that errors unexpectedly and the resource stream cleans up.
 @pytest.mark.asyncio
 @timeout(3)
 async def test_exception():
@@ -200,7 +206,8 @@ async def test_exception():
     await wtask
 
 
-# Test multiple public listeners
+# Test that multiple public listeners can stream resources separately.
+# Each listener should receive an update and be able to process it.
 @pytest.mark.asyncio
 @timeout(3)
 async def test_concurrent_none_streams():
@@ -212,14 +219,16 @@ async def test_concurrent_none_streams():
     wtask = historian.run()
 
     # Run multiple streams concurrently
-    await asyncio.gather(simple_listener(historian),
-                         simple_listener(historian),
-                         simple_listener(historian))
+    await asyncio.gather(simple_listener(historian, None, None, None),
+                         simple_listener(historian, None, None, None),
+                         simple_listener(historian, None, None, None))
 
     await wtask
 
 
-# Test streaming public and private resources by a public and private listener respectively
+# Test streaming public and private resources by a public and private listener respectively.
+# The private listener should receive updates of its own private resources as well as the public resource.
+# The public listener should only receive updates of the public resource.
 @pytest.mark.asyncio
 @timeout(3)
 async def test_mult_identity_workflow():
@@ -249,7 +258,8 @@ async def test_mult_identity_workflow():
     await w_task
 
 
-# Test streaming multiple private resources by two different private listeners
+# Test streaming multiple private resources by two different private listeners.
+# Each private listener should only receive updates of resources it owns.
 @pytest.mark.asyncio
 @timeout(3)
 async def test_multiple_private_identity_streams():
@@ -288,6 +298,8 @@ async def test_multiple_private_identity_streams():
 
 
 # Test multiple different listeners and one unexpectedly errors
+# If one listener unexpectedly errors while the workflow is running, the resource stream should recover,
+# move on and continue reporting updates to any other open streams.
 @pytest.mark.asyncio
 @timeout(3)
 async def test_closing_different_identity_streams():
@@ -304,6 +316,8 @@ async def test_closing_different_identity_streams():
     await w_task
 
 
+# Test suspending the workflow while a listener is streaming resource updates.
+# The listener should receive a StopAsyncIteration exception after the workflow suspends.
 @pytest.mark.asyncio
 @timeout(4)
 async def test_suspend_workflow():
@@ -328,6 +342,10 @@ async def test_suspend_workflow():
             pass
 
 
+# Test streaming resource before and after a workflow suspend
+# The listener should receive updates up to the workflow suspend. Once the workflow "resumes",
+# the listener should only receive updates pertaining to the workflow after the suspension.
+# In other words, the listeners should not receive resource updates during the "replay" stage of the workflow.
 @pytest.mark.asyncio
 @timeout(4)
 async def test_suspend_resume_workflow():
