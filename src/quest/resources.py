@@ -85,11 +85,13 @@ class ResourceStreamManager:
         return rs
 
     async def update(self, identity):
+        # If the updates is public, we notify everyone.
         # If there is no resource stream associated with `identity`, no update needed.
         if identity is not None and identity not in self._resource_streams:
             return
 
-        # Set streams to a copy to avoid set size changed exception
+        # As we iterate through the streams, some of them may close and be removed.
+        # To avoid set size changed exception, we use a copy of the streams.
         if identity is None:
             streams = {key: value.copy() for key, value in self._resource_streams.items()}
         else:
