@@ -206,8 +206,11 @@ class WorkflowManager:
             })
         return metrics
 
-    def get_workflow_result(self, workflow_id: str):
-        return self._results.get(workflow_id)
+    def get_workflow_result(self, workflow_id: str, delete: bool = True):
+        result = self._results.get(workflow_id)
+        if delete and workflow_id in self._results:
+            del self._results[workflow_id]
+        return result
 
 
 def find_workflow_manager() -> WorkflowManager:
