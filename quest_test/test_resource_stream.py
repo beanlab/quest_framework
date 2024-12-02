@@ -15,16 +15,20 @@ async def simple_workflow(phrase1_ident, phrase2_ident):
 
 
 async def simple_listener(historian, stream_ident=None, phrase1_ident=None, phrase2_ident=None):
-    phrase1_fail = True
-    phrase2_fail = True
+    saw_phrase1 = False
+    saw_phrase2 = False
     with historian.get_resource_stream(stream_ident) as resource_stream:
         async for resources in resource_stream:
             if ('phrase1', phrase1_ident) in resources:
-                phrase1_fail = False
+                saw_phrase1 = True
             if ('phrase2', phrase2_ident) in resources:
-                phrase2_fail = False
-    if phrase1_fail or phrase2_fail:
+                saw_phrase2 = True
+    if not saw_phrase1 or not saw_phrase2:
         assert False
+
+
+class StreamListenerError(Exception):
+    pass
 
 
 async def failing_listener(historian: Historian, identity):
@@ -33,10 +37,10 @@ async def failing_listener(historian: Historian, identity):
             i = 0
             async for resources in resource_stream:
                 if i == 5:
-                    raise Exception("Resource Stream listener error")
+                    raise StreamListenerError
                 i += 1
-    except Exception as e:
-        assert str(e) == "Resource Stream listener error"
+    except StreamListenerError:
+        pass
 
 
 @pytest.mark.asyncio
