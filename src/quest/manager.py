@@ -147,7 +147,7 @@ class WorkflowManager:
         return dummy
 
     async def _check_resource(self, workflow_id: str, name: str, identity):
-        if name not in await self.get_resources(workflow_id, identity):
+        if (name, identity) not in await self.get_resources(workflow_id, identity):
             raise Exception(f'{name} is not a valid resource for {workflow_id}')
             # TODO - custom exception
 
