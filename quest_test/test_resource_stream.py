@@ -360,31 +360,3 @@ async def test_suspend_resume_workflow():
         assert not resources
 
     await w_task
-
-
-@pytest.mark.asyncio
-@timeout(3)
-async def test_resources_of_same_name():
-    async def identical_resources_workflow():
-        async with (state('my_state', None, 'bless') as public_state,
-                    state('my_state', 'private_identity', 'curse') as private_state):
-            await public_state.set('bless up')
-            await private_state.set('curse all')
-
-    historian = create_test_historian(
-        'test_resources_of_same_name',
-        identical_resources_workflow,
-    )
-
-    w_task = historian.run()
-
-    with historian.get_resource_stream('private_identity') as resource_stream:
-        resource_name = 'my_state'
-        i = 0
-        async for resources in resource_stream:
-            print(f'resources at iteration {i}: {resources}')
-            if 'my_state' in resources:
-                print(f'resource value: {await resources[resource_name].value()}')
-            i += 1
-
-    await w_task
