@@ -3,6 +3,7 @@ from contextvars import ContextVar, copy_context
 from decimal import Context
 from functools import wraps
 from typing import Protocol, Callable, TypeVar, Any
+from datetime import datetime
 
 from .external import State, IdentityQueue, Queue, Event
 from .historian import Historian, _Wrapper
@@ -23,8 +24,10 @@ T = TypeVar('T')
 
 workflow_manager = ContextVar('workflow_manager')
 
+
 class DuplicateAliasException(Exception):
     ...
+
 
 class WorkflowManager:
     """
@@ -38,26 +41,31 @@ class WorkflowManager:
         self._storage = storage
         self._create_history = create_history
         self._create_workflow = create_workflow
-        self._workflow_data = []
+        self._workflow_data = []  # Tracks all workflows
         self._workflows: dict[str, Historian] = {}
         self._workflow_tasks: dict[str, asyncio.Task] = {}
         self._alias_dictionary = {}
-
         self._serializer: StepSerializer = serializer
+        self._results: dict[str, Any] = {}
 
     async def __aenter__(self) -> 'WorkflowManager':
         """Load the workflows and get them running again"""
         if self._storage.has_blob(self._namespace):
             self._workflow_data = self._storage.read_blob(self._namespace)
 
-        for wtype, wid, args, kwargs, background in self._workflow_data:
-            self._start_workflow(wtype, wid, args, kwargs, background=background)
+        # Check storage to load stored workflow results from persistent storage
+        if self._storage.has_blob(f'{self._namespace}_results'):
+            self._results = self._storage.read_blob(f'{self._namespace}_results')
+
+        for wtype, wid, args, kwargs, background, start_time in self._workflow_data:
+            self._start_workflow(wtype, wid, args, kwargs)
 
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Save whatever state is necessary before exiting"""
         self._storage.write_blob(self._namespace, self._workflow_data)
+        self._storage.write_blob(f'{self._namespace}_results', self._results)
         for wid, historian in self._workflows.items():
             await historian.suspend()
 
@@ -72,8 +80,7 @@ class WorkflowManager:
         self._workflow_data.remove(data)
 
     def _start_workflow(self,
-                        workflow_type: str, workflow_id: str, workflow_args, workflow_kwargs,
-                        background=False):
+                        workflow_type: str, workflow_id: str, workflow_args, workflow_kwargs):
         workflow_function = self._create_workflow(workflow_type)
 
         workflow_manager.set(self)
@@ -83,18 +90,29 @@ class WorkflowManager:
         self._workflows[workflow_id] = historian
 
         self._workflow_tasks[workflow_id] = (task := historian.run(*workflow_args, **workflow_kwargs))
-        if background:
-            task.add_done_callback(lambda t: self._remove_workflow(workflow_id))
+
+        task.add_done_callback(lambda t: self._store_result(workflow_id, t))
+        task.add_done_callback(lambda t: self._remove_workflow(workflow_id))
+
+    def _store_result(self, workflow_id: str, task: asyncio.Task):
+        """Store the result or exception of a completed workflow"""
+        try:
+            result = task.result()
+            self._results[workflow_id] = result
+        except Exception as e:
+            self._results[workflow_id] = e
 
     def start_workflow(self, workflow_type: str, workflow_id: str, *workflow_args, **workflow_kwargs):
         """Start the workflow"""
-        self._workflow_data.append((workflow_type, workflow_id, workflow_args, workflow_kwargs, False))
+        start_time = datetime.utcnow().isoformat()
+        self._workflow_data.append((workflow_type, workflow_id, workflow_args, workflow_kwargs, False, start_time))
         self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs)
 
     def start_workflow_background(self, workflow_type: str, workflow_id: str, *workflow_args, **workflow_kwargs):
         """Start the workflow"""
-        self._workflow_data.append((workflow_type, workflow_id, workflow_args, workflow_kwargs, True))
-        self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs, background=True)
+        start_time = datetime.utcnow().isoformat()
+        self._workflow_data.append((workflow_type, workflow_id, workflow_args, workflow_kwargs, True, start_time))
+        self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs)
 
     def has_workflow(self, workflow_id: str) -> bool:
         workflow_id = self._alias_dictionary.get(workflow_id, workflow_id)
@@ -177,6 +195,24 @@ class WorkflowManager:
         if alias in self._alias_dictionary:
             del self._alias_dictionary[alias]
 
+    def get_workflow_metrics(self):
+        """Return metrics for active workflows"""
+        metrics = []
+        for wtype, wid, args, kwargs, background, start_time in self._workflow_data:
+            metrics.append({
+                "workflow_id": wid,
+                "workflow_type": wtype,
+                "start_time": start_time
+            })
+        return metrics
+
+    def get_workflow_result(self, workflow_id: str, delete: bool = True):
+        result = self._results.get(workflow_id)
+        if delete and workflow_id in self._results:
+            del self._results[workflow_id]
+        return result
+
+
 def find_workflow_manager() -> WorkflowManager:
     if (manager := workflow_manager.get()) is not None:
-            return manager
+        return manager
