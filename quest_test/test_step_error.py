@@ -117,7 +117,6 @@ async def test_builtin():
 
     # Allow workflow to proceed
     block_workflow_2.set()
-    await asyncio.sleep(0.01)
 
     # Start the workflow again
     result = await historian.run('abc')

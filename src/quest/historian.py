@@ -850,13 +850,15 @@ class Historian:
         args = await self.handle_step('args', lambda: args)
         kwargs = await self.handle_step('kwargs', lambda: kwargs)
         result = await self.handle_step(get_function_name(self.workflow), self.workflow, *args, **kwargs)
-        self._workflow_completed = True
-        await self._handle_resource_update(None)
         return result
 
     async def _run_with_exception_handling(self, *args, **kwargs):
         try:
-            return await self._run_with_args(*args, **kwargs)
+            task = await self._run_with_args(*args, **kwargs)
+            self._workflow_completed = True
+            await self._handle_resource_update(None)
+            # self._history.clear()
+            return task
         except Exception as ex:
             self._fatal_exception.set_exception(ex)
             raise
@@ -883,7 +885,7 @@ class Historian:
                 name=f'{self.workflow_id}.main',
                 task_factory=_task_factory.create_task
             )
-            self._history.clear()
+            # task.add_done_callback(self._history.clear())
             return task
 
     def run(self, *args, **kwargs):
