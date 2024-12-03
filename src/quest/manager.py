@@ -112,8 +112,8 @@ class WorkflowManager:
     async def get_resources(self, workflow_id: str, identity):
         return await self._get_workflow(workflow_id).get_resources(identity)
 
-    async def stream_resources(self, workflow_id: str, identity):
-        return self._get_workflow(workflow_id).stream_resources(identity)
+    def get_resource_stream(self, workflow_id: str, identity):
+        return self._get_workflow(workflow_id).get_resource_stream(identity)
 
     async def wait_for_completion(self, workflow_id: str, identity):
         return await self._get_workflow(workflow_id).wait_for_completion(identity)
@@ -149,7 +149,7 @@ class WorkflowManager:
         return dummy
 
     async def _check_resource(self, workflow_id: str, name: str, identity):
-        if name not in await self.get_resources(workflow_id, identity):
+        if (name, identity) not in await self.get_resources(workflow_id, identity):
             raise Exception(f'{name} is not a valid resource for {workflow_id}')
             # TODO - custom exception
 

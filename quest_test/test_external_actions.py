@@ -58,15 +58,15 @@ async def test_external_state():
     assert not resources  # should be empty
 
     resources = await historian.get_resources(identity)
-    assert 'name' in resources
-    assert await resources['name'].value() == 'Foobar'
+    assert ('name', 'foo_ident') in resources
+    assert await resources[('name', 'foo_ident')].value() == 'Foobar'
 
     # Set state
-    await resources['name'].set('Barbaz')
+    await resources[('name', 'foo_ident')].set('Barbaz')
 
     resources = await historian.get_resources(identity)
-    assert 'name' in resources
-    assert await resources['name'].value() == 'Barbaz'
+    assert ('name', 'foo_ident') in resources
+    assert await resources[('name', 'foo_ident')].value() == 'Barbaz'
 
     # Resume
     name_event.set()
@@ -100,11 +100,11 @@ async def test_external_queue():
     assert not resources
 
     resources = await historian.get_resources(identity)
-    assert 'items' in resources
+    assert ('items', 'foo_ident') in resources
 
-    await resources['items'].put(7)
-    await resources['items'].put(8)
-    await resources['items'].put(9)
+    await resources[('items', 'foo_ident')].put(7)
+    await resources[('items', 'foo_ident')].put(8)
+    await resources[('items', 'foo_ident')].put(9)
 
     assert await workflow == [7, 8, 9]
 
@@ -148,12 +148,12 @@ async def test_queue_tasks():
     await wait_for(historian)
 
     resources = await historian.get_resources(id_foo)
-    assert 'foo' in resources
-    assert 'foo_done' in resources
+    assert ('foo', 'FOO') in resources
+    assert ('foo_done', 'FOO') in resources
 
     resources = await historian.get_resources(id_bar)
-    assert 'foo' in resources
-    assert 'foo_done' in resources
+    assert ('foo', 'BAR') in resources
+    assert ('foo_done', 'BAR') in resources
 
     await historian.record_external_event('foo', id_bar, 'put', 4)
     await historian.record_external_event('foo', id_foo, 'put', 1)
@@ -229,12 +229,12 @@ async def test_queue_tasks_resume():
     await wait_for(historian)
 
     resources = await historian.get_resources(id_foo)
-    assert 'foo' in resources
-    assert 'foo_done' in resources
+    assert ('foo', 'FOO') in resources
+    assert ('foo_done', 'FOO') in resources
 
     resources = await historian.get_resources(id_bar)
-    assert 'foo' in resources
-    assert 'foo_done' in resources
+    assert ('foo', 'BAR') in resources
+    assert ('foo_done', 'BAR') in resources
 
     await historian.record_external_event('foo', id_bar, 'put', 4)
     await historian.record_external_event('foo', id_foo, 'put', 1)
@@ -248,12 +248,12 @@ async def test_queue_tasks_resume():
     await asyncio.sleep(1)
 
     resources = await historian.get_resources(id_foo)
-    assert 'foo' in resources
-    assert 'foo_done' in resources
+    assert ('foo', 'FOO') in resources
+    assert ('foo_done', 'FOO') in resources
 
     resources = await historian.get_resources(id_bar)
-    assert 'foo' in resources
-    assert 'foo_done' in resources
+    assert ('foo', 'BAR') in resources
+    assert ('foo_done', 'BAR') in resources
 
     await historian.record_external_event('foo', id_bar, 'put', 5)
     await historian.record_external_event('foo_done', id_bar, 'set')
@@ -289,7 +289,7 @@ async def test_step_specific_external():
     historian.run()
     await asyncio.sleep(0.1)
     resources = await historian.get_resources(None)
-    assert 'the-queue' in resources
+    assert ('the-queue', None) in resources
     await historian.record_external_event('the-queue', None, 'put', 1)
     await asyncio.sleep(0.1)
     await historian.suspend()
@@ -297,7 +297,7 @@ async def test_step_specific_external():
     workflow = historian.run()
     await asyncio.sleep(0.1)
     resources = await historian.get_resources(None)
-    assert 'the-queue' in resources
+    assert ('the-queue', None) in resources
     await historian.record_external_event('the-queue', None, 'put', 2)
 
     assert (await workflow) == 3
