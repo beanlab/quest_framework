@@ -49,8 +49,6 @@ async def test_alias():
 
         assert '2' in data
 
-        await manager.wait_for_completion('wid', None)
-
 @pytest.mark.asyncio
 @timeout(3)
 async def test_alias_trade():

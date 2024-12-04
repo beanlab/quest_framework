@@ -828,6 +828,9 @@ class Historian:
                     assert record['task_id'] == task_id
 
             logging.debug(f'Completing task {task_id}')
+
+            # self._history.clear()
+
             return result
 
         task = task_factory(
@@ -853,9 +856,6 @@ class Historian:
     async def _run_with_exception_handling(self, *args, **kwargs):
         try:
             task = await self._run_with_args(*args, **kwargs)
-            self._workflow_completed = True
-            await self._handle_resource_update(None)
-            # self._history.clear()
             return task
         except Exception as ex:
             self._fatal_exception.set_exception(ex)
@@ -877,14 +877,15 @@ class Historian:
             self._open_tasks.append(external_task)
             external_task.add_done_callback(lambda t: self._open_tasks.remove(t) if t in self._open_tasks else None)
 
-            task = await self.start_task(
+            await self.start_task(
                 self._run_with_exception_handling,
                 *args, **kwargs,
                 name=f'{self.workflow_id}.main',
                 task_factory=_task_factory.create_task
             )
-            # task.add_done_callback(self._history.clear())
-            return task
+
+        # Workflow logic completed
+
 
     def run(self, *args, **kwargs):
         self._replay_started.clear()
