@@ -1,12 +1,9 @@
 import asyncio
 import logging
-import os
 import signal
-import sys
-from contextvars import ContextVar, copy_context
-from decimal import Context
+from contextvars import ContextVar
 from functools import wraps
-from typing import Protocol, Callable, TypeVar, Any
+from typing import Protocol, Callable, TypeVar
 
 from .external import State, IdentityQueue, Queue, Event
 from .historian import Historian, _Wrapper
@@ -52,7 +49,16 @@ class WorkflowManager:
     async def __aenter__(self) -> 'WorkflowManager':
         """Load the workflows and get them running again"""
 
-        signal.signal(signal.SIGINT, self.dispatch_signal_handler)
+        self._prior_handler = signal.getsignal(signal.SIGINT)
+
+        def our_handler(sig, frame):
+            self._quest_signal_handler(sig, frame)
+            if self._prior_handler:  # TODO - will this ever be None?
+                self._prior_handler(sig, frame)
+            else:
+                raise KeyboardInterrupt()
+
+        signal.signal(signal.SIGINT, our_handler)
 
         if self._storage.has_blob(self._namespace):
             self._workflow_data = self._storage.read_blob(self._namespace)
@@ -68,24 +74,13 @@ class WorkflowManager:
         for wid, historian in self._workflows.items():
             await historian.suspend()
 
-    def set_custom_signal_handler(self, handler: Callable[[int, Any], None]):
-        self._custom_signal_handler = handler
+        # Set interrupt handler back to what it was before
+        signal.signal(signal.SIGINT, self._prior_handler)
 
-    def dispatch_signal_handler(self, sig, frame):
-        if self._custom_signal_handler:
-            logging.debug("Using custom signal handler")
-            self._custom_signal_handler(sig, frame)
-        else:
-            logging.debug("Using default signal handler")
-            self.default_signal_handler(sig)
-
-    def default_signal_handler(self, sig):
+    def _quest_signal_handler(self, sig, frame):
         logging.debug(f'Caught KeyboardInterrupt: {sig}')
         for wid, historian in self._workflows.items():
             historian.signal_suspend()
-        logging.debug("Raising original signal for default handling")
-        signal.signal(sig, signal.SIG_DFL)
-        os.kill(os.getpid(), sig)
 
     def _get_workflow(self, workflow_id: str):
         workflow_id = self._alias_dictionary.get(workflow_id, workflow_id)
