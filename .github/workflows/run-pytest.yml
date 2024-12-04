@@ -26,5 +26,7 @@ jobs:
         pip install -r quest_test/requirements.txt # Include this if you have a requirements file
 
     - name: Run tests
+      env:
+        PYTHONPATH: ${{ github.workspace.src }} # Add repo base to PYTHONPATH
       run: |
         pytest quest_test
