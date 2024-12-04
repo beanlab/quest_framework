@@ -23,7 +23,7 @@ jobs:
         pip install pytest
         pip install pipreqs
         pipreqs quest_test
-        pip install -r requirements.txt # Include this if you have a requirements file
+        pip install -r quest_test/requirements.txt # Include this if you have a requirements file
 
     - name: Run tests
       run: |
