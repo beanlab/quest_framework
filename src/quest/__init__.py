@@ -6,7 +6,7 @@ from .wrappers import step, task
 from .external import state, queue, identity_queue, event
 from .historian import Historian
 from .history import History
-from .persistence import LocalFileSystemBlobStorage, PersistentHistory
+from .persistence import LocalFileSystemBlobStorage, PersistentHistory, BlobStorage, Blob
 from .versioning import version, get_version
 from .manager import WorkflowManager, WorkflowFactory
 from .utils import ainput
@@ -25,7 +25,6 @@ def create_filesystem_historian(save_folder: Path, historian_id: str, function: 
         history,
         serializer=serializer
     )
-
 
 def create_filesystem_manager(
         save_folder: Path,
