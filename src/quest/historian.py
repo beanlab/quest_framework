@@ -7,6 +7,7 @@ from contextvars import ContextVar
 from datetime import datetime
 from functools import wraps
 from typing import Callable, TypeVar
+from .utils import quest_logger
 
 from .history import History
 from .quest_types import ConfigurationRecord, VersionRecord, StepStartRecord, StepEndRecord, \
@@ -798,7 +799,7 @@ class Historian:
 
         @wraps(func)
         async def _func(*a, **kw):
-            logging.debug(f'Starting task {task_id}')
+            quest_logger.debug(f'Starting task {task_id}')
 
             if (next_record := await self._next_record()) is None:
                 self._history.append(TaskEvent(

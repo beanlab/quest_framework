@@ -44,7 +44,7 @@ async def main():
             '',
             'demo'
         )
-        await manager.wait_for_completion('demo', None)
+        await manager.get_workflow('demo')
 
 
 if __name__ == '__main__':

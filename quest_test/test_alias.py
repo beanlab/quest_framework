@@ -1,10 +1,10 @@
 import asyncio
 import pytest
-import logging
 
 from quest.manager import DuplicateAliasException
 from quest import queue, alias
 from utils import timeout, create_in_memory_workflow_manager
+from quest.utils import quest_logger
 
 
 @pytest.mark.asyncio
@@ -90,7 +90,7 @@ async def test_alias_trade():
         manager.start_workflow('workflow_b', 'wid_b')
         await asyncio.sleep(0.1)
 
-        logging.info('Workflows started')
+        quest_logger.info('Workflows started')
 
         first_pause.set()
         await manager.send_event('wid_a', 'data', None, 'put', 'data a 1')
