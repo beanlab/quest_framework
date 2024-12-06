@@ -4,7 +4,7 @@ import logging
 
 from quest.manager import DuplicateAliasException
 from quest import queue, alias
-from utils import timeout, create_in_memory_workflow_manager
+from .utils import timeout, create_in_memory_workflow_manager
 
 
 @pytest.mark.asyncio

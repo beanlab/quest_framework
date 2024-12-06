@@ -1,7 +1,7 @@
 import asyncio
 import pytest
 
-from custom_errors.custom_error import MyError
+from .custom_errors.custom_error import MyError
 from quest_test.utils import timeout
 from quest import step
 from quest.historian import Historian
