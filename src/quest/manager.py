@@ -5,6 +5,7 @@ from contextvars import ContextVar
 from functools import wraps
 from typing import Protocol, Callable, TypeVar
 
+from .custom_exceptions import CustomSigintException
 from .external import State, IdentityQueue, Queue, Event
 from .historian import Historian, _Wrapper
 from .history import History

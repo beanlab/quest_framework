@@ -2,7 +2,6 @@ import asyncio
 import os
 import signal
 import pytest
-from quest import WorkflowManager
 from quest_test.utils import create_in_memory_workflow_manager
 
 
@@ -41,7 +40,12 @@ async def test_sigint_handling():
 
         gate_1.set()
 
-        await asyncio.sleep(0.1)
+        try:
+            await asyncio.sleep(0.1)
+        except KeyboardInterrupt:
+            pass
+        await manager.get_workflow('w1')
+        await manager.get_workflow('w2')
 
-        assert counter_1[0] == 3
-        assert counter_2[0] == 3
+    assert counter_1[0] == 3
+    assert counter_2[0] == 3
