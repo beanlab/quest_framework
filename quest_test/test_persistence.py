@@ -1,4 +1,5 @@
 import asyncio
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from dotenv import load_dotenv
@@ -164,3 +165,52 @@ async def test_resume_step_persistence(storage_ctx):
         )
 
         await historian.run()
+
+
+@pytest.mark.asyncio
+async def test_workflow_cleanup_suspend(tmp_path):
+    storage = LocalFileSystemBlobStorage(tmp_path)
+    history = PersistentHistory('test', storage)
+    historian = Historian(
+        'test',
+        resume_this_workflow,
+        history,
+        serializer=NoopSerializer()
+    )
+
+    workflow = historian.run()
+    await asyncio.sleep(0.01)
+    await historian.suspend()
+
+    event.set()
+
+    storage = LocalFileSystemBlobStorage(tmp_path)
+    history = PersistentHistory('test', storage)
+    historian = Historian(
+        'test',
+        resume_this_workflow,
+        history,
+        serializer=NoopSerializer()
+    )
+
+    await historian.run()
+
+    assert not any (tmp_path.iterdir())
+
+
+@pytest.mark.asyncio
+async def test_workflow_cleanup_basic(tmp_path):
+    storage = LocalFileSystemBlobStorage(tmp_path)
+    history = PersistentHistory('test', storage)
+    historian = Historian(
+        'test',
+        simple_workflow,
+        history,
+        serializer=NoopSerializer()
+    )
+
+    pause.set()
+    await historian.run()
+
+    assert not os.listdir(tmp_path)
+

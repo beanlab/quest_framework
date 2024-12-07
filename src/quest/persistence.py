@@ -53,6 +53,13 @@ class PersistentHistory(History):
         self._storage.delete_blob(key)
         self._storage.write_blob(self._namespace, self._keys)
 
+    def clear(self):
+        for key in self._keys:
+            self._storage.delete_blob(key)
+        self._items.clear()
+        self._keys.clear()
+        self._storage.delete_blob(self._namespace)
+
     def __iter__(self):
         return iter(self._items)
 
