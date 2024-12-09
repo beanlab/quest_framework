@@ -67,6 +67,7 @@ async def test_custom_exception():
     assert double_calls == 2
     assert foo_calls == 1
 
+
 double_calls2 = 0
 foo_calls2 = 0
 
@@ -84,7 +85,9 @@ async def add_foo2(text):
     foo_calls2 += 1
     return 1 / 0
 
+
 block_workflow2 = asyncio.Event()
+
 
 async def longer_workflow2(text):
     text = await double2(text)
