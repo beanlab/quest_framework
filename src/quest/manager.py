@@ -1,13 +1,16 @@
 import asyncio
 import logging
 import signal
+from asyncio import CancelledError
 from contextvars import ContextVar
 from functools import wraps
 from typing import Protocol, Callable, TypeVar
 
+from trio import Cancelled
+
 from .custom_exceptions import CustomSigintException
 from .external import State, IdentityQueue, Queue, Event
-from .historian import Historian, _Wrapper
+from .historian import Historian, _Wrapper, SUSPENDED
 from .history import History
 from .persistence import BlobStorage
 
@@ -45,19 +48,14 @@ class WorkflowManager:
         self._workflows: dict[str, Historian] = {}
         self._workflow_tasks: dict[str, asyncio.Task] = {}
         self._alias_dictionary = {}
-        self._custom_signal_handler = None
 
     async def __aenter__(self) -> 'WorkflowManager':
         """Load the workflows and get them running again"""
 
-        self._prior_handler = signal.getsignal(signal.SIGINT)
-
         def our_handler(sig, frame):
             self._quest_signal_handler(sig, frame)
-            if self._prior_handler:  # TODO - will this ever be None?
-                self._prior_handler(sig, frame)
-            else:
-                raise KeyboardInterrupt()
+            raise asyncio.CancelledError(SUSPENDED)
+
 
         signal.signal(signal.SIGINT, our_handler)
 
@@ -74,9 +72,6 @@ class WorkflowManager:
         self._storage.write_blob(self._namespace, self._workflow_data)
         for wid, historian in self._workflows.items():
             await historian.suspend()
-
-        # Set interrupt handler back to what it was before
-        signal.signal(signal.SIGINT, self._prior_handler)
 
     def _quest_signal_handler(self, sig, frame):
         logging.debug(f'Caught KeyboardInterrupt: {sig}')
