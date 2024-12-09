@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import signal
-from asyncio import CancelledError
 from contextvars import ContextVar
 from functools import wraps
 from typing import Protocol, Callable, TypeVar, Any
@@ -44,7 +43,6 @@ class WorkflowManager:
         self._workflows: dict[str, Historian] = {}
         self._workflow_tasks: dict[str, asyncio.Task] = {}
         self._alias_dictionary = {}
-
         self._serializer: StepSerializer = serializer
 
     async def __aenter__(self) -> 'WorkflowManager':
@@ -53,7 +51,6 @@ class WorkflowManager:
         def our_handler(sig, frame):
             self._quest_signal_handler(sig, frame)
             raise asyncio.CancelledError(SUSPENDED)
-
 
         signal.signal(signal.SIGINT, our_handler)
 

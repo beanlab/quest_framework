@@ -42,11 +42,11 @@ async def test_sigint_handling():
 
         gate_1.set()
 
-
         await asyncio.sleep(0.1)
-        await manager.get_workflow('w1')
-        await manager.get_workflow('w2')
-
+        with pytest.raises(CancelledError):
+            await manager.get_workflow('w1')
+        with pytest.raises(CancelledError):
+            await manager.get_workflow('w2')
 
     assert counter_1[0] == 3
     assert counter_2[0] == 3
