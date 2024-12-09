@@ -54,7 +54,7 @@ async def test_workflow_metrics_simple():
         metrics = manager.get_workflow_metrics()
         assert len(metrics) == 0, "Expected no active workflows after completion."
 
-        # Optionally, test that results for the foreground workflow can be deleted
+        # Foreground workflow deleted
         manager.get_workflow_result('wid1', delete=True)
         assert manager.get_workflow_result('wid1',
                                            delete=False) is None, "Expected 'wid1' result to be removed after deletion."
