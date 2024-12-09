@@ -1,6 +1,5 @@
 import asyncio
 from contextvars import ContextVar, copy_context
-from decimal import Context
 from functools import wraps
 from typing import Protocol, Callable, TypeVar, Any
 from datetime import datetime
@@ -80,7 +79,7 @@ class WorkflowManager:
         self._workflow_data.remove(data)
 
     def _start_workflow(self,
-                        workflow_type: str, workflow_id: str, workflow_args, workflow_kwargs):
+                        workflow_type: str, workflow_id: str, workflow_args, workflow_kwargs, background=False):
         workflow_function = self._create_workflow(workflow_type)
 
         workflow_manager.set(self)
@@ -91,7 +90,9 @@ class WorkflowManager:
 
         self._workflow_tasks[workflow_id] = (task := historian.run(*workflow_args, **workflow_kwargs))
 
-        task.add_done_callback(lambda t: self._store_result(workflow_id, t))
+        if not background:
+            task.add_done_callback(lambda t: self._store_result(workflow_id, t))
+
         task.add_done_callback(lambda t: self._remove_workflow(workflow_id))
 
     def _store_result(self, workflow_id: str, task: asyncio.Task):
@@ -112,7 +113,7 @@ class WorkflowManager:
         """Start the workflow"""
         start_time = datetime.utcnow().isoformat()
         self._workflow_data.append((workflow_type, workflow_id, workflow_args, workflow_kwargs, True, start_time))
-        self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs)
+        self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs, background=True)
 
     def has_workflow(self, workflow_id: str) -> bool:
         workflow_id = self._alias_dictionary.get(workflow_id, workflow_id)
