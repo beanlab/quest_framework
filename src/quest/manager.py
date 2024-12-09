@@ -24,8 +24,10 @@ T = TypeVar('T')
 
 workflow_manager = ContextVar('workflow_manager')
 
+
 class DuplicateAliasException(Exception):
     ...
+
 
 class WorkflowManager:
     """
@@ -188,6 +190,7 @@ class WorkflowManager:
     async def _deregister_alias(self, alias: str):
         if alias in self._alias_dictionary:
             del self._alias_dictionary[alias]
+
 
 def find_workflow_manager() -> WorkflowManager:
     if (manager := workflow_manager.get()) is not None:

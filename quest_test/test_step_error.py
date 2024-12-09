@@ -3,9 +3,8 @@ import pytest
 
 from custom_errors.custom_error import MyError
 from quest_test.utils import timeout
-from quest import step
+from quest import step, NoopSerializer
 from quest.historian import Historian
-from quest.serializer import NoopSerializer
 
 double_calls = 0
 foo_calls = 0
@@ -49,7 +48,7 @@ async def test_custom_exception():
         'test',
         longer_workflow,
         history,
-        serializer=NoopSerializer()
+        NoopSerializer()
     )
 
     workflow = historian.run('abc')
@@ -86,7 +85,9 @@ async def add_foo2(text):
     foo_calls2 += 1
     return 1 / 0
 
+
 block_workflow2 = asyncio.Event()
+
 
 async def longer_workflow2(text):
     text = await double2(text)
@@ -109,7 +110,7 @@ async def test_builtin():
         'test2',
         longer_workflow2,
         history,
-        serializer=NoopSerializer()
+        NoopSerializer()
     )
 
     workflow2 = historian.run('abc')
@@ -127,5 +128,3 @@ async def test_builtin():
     assert result2 == 'abcabcabcabc'
     assert double_calls2 == 2
     assert foo_calls2 == 1
-
-
