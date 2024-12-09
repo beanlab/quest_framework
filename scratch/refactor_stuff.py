@@ -45,7 +45,7 @@ async def main():
         await asyncio.sleep(1)
 
     # Async stream
-    async for resources in workflow.stream_resources(identity):
+    async for resources in workflow.get_resource_stream(identity):
         # respond to the latest resources
         pass
 

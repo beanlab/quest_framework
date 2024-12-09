@@ -1,9 +1,9 @@
 [tool.poetry]
 name = "quest.py"
-version = "0.2.2"
+version = "0.2.3"
 description = "Framework for coordinated, long-running processes"
 authors = ["Gordon Bean <gbean@cs.byu.edu>"]
-packages = [{include = "quest", from = "src"}]
+packages = [{ include = "quest", from = "src" }]
 
 [tool.poetry.dependencies]
 python = "^3.11"
@@ -11,6 +11,11 @@ python = "^3.11"
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.0"
 pytest-asyncio = "^0.21.0"
+dotenv = "^0.19.0"
+
+[tool.poetry.extras]
+sql = ["sqlalchemy=^2.0.36"]
+aws = ["boto3=^1.35.60"]
 
 [tool.pytest.ini_options]
 log_cli = true

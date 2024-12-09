@@ -51,23 +51,16 @@ async def main():
         # We need a way for the user to listen to a stream
         # until they are no longer interested.
 
-        # What I want:
         async with client.get_resource_stream('demo', None) as resource_stream:
             async for resources in resource_stream:
-                pass
-
-        # What we have (that won't quite work):
-        # Start listening for public events
-        async for resources in client.stream_resources('demo', None):
-
-            # We're expecting an identity queue named "registration"
-            if 'registration' in resources:
-                ident = await register(resources['registration'])
-                break  # See TODO above about leaving resource streams
+                # We're expecting an identity queue named "registration"
+                if 'registration' in resources:
+                    ident = await register(resources['registration'])
+                    break  # See TODO above about leaving resource streams
 
         # Now that we have an established identity
         # we will listen for those resources events
-        async for resources in client.stream_resources(ident):
+        async for resources in client.get_resource_stream(ident):
             await respond(resources)
 
 

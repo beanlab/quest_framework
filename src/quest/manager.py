@@ -4,15 +4,13 @@ import signal
 from asyncio import CancelledError
 from contextvars import ContextVar
 from functools import wraps
-from typing import Protocol, Callable, TypeVar
+from typing import Protocol, Callable, TypeVar, Any
 
-from trio import Cancelled
-
-from .custom_exceptions import CustomSigintException
 from .external import State, IdentityQueue, Queue, Event
 from .historian import Historian, _Wrapper, SUSPENDED
 from .history import History
 from .persistence import BlobStorage
+from .serializer import StepSerializer
 
 
 class HistoryFactory(Protocol):
@@ -27,10 +25,8 @@ T = TypeVar('T')
 
 workflow_manager = ContextVar('workflow_manager')
 
-
 class DuplicateAliasException(Exception):
     ...
-
 
 class WorkflowManager:
     """
@@ -39,7 +35,7 @@ class WorkflowManager:
     """
 
     def __init__(self, namespace: str, storage: BlobStorage, create_history: HistoryFactory,
-                 create_workflow: WorkflowFactory):
+                 create_workflow: WorkflowFactory, serializer: StepSerializer):
         self._namespace = namespace
         self._storage = storage
         self._create_history = create_history
@@ -48,6 +44,8 @@ class WorkflowManager:
         self._workflows: dict[str, Historian] = {}
         self._workflow_tasks: dict[str, asyncio.Task] = {}
         self._alias_dictionary = {}
+
+        self._serializer: StepSerializer = serializer
 
     async def __aenter__(self) -> 'WorkflowManager':
         """Load the workflows and get them running again"""
@@ -96,7 +94,7 @@ class WorkflowManager:
         workflow_manager.set(self)
 
         history = self._create_history(workflow_id)
-        historian: Historian = Historian(workflow_id, workflow_function, history)
+        historian: Historian = Historian(workflow_id, workflow_function, history, serializer=self._serializer)
         self._workflows[workflow_id] = historian
 
         self._workflow_tasks[workflow_id] = (task := historian.run(*workflow_args, **workflow_kwargs))
@@ -127,8 +125,8 @@ class WorkflowManager:
     async def get_resources(self, workflow_id: str, identity):
         return await self._get_workflow(workflow_id).get_resources(identity)
 
-    async def stream_resources(self, workflow_id: str, identity):
-        return self._get_workflow(workflow_id).stream_resources(identity)
+    def get_resource_stream(self, workflow_id: str, identity):
+        return self._get_workflow(workflow_id).get_resource_stream(identity)
 
     async def wait_for_completion(self, workflow_id: str, identity):
         return await self._get_workflow(workflow_id).wait_for_completion(identity)
@@ -164,7 +162,7 @@ class WorkflowManager:
         return dummy
 
     async def _check_resource(self, workflow_id: str, name: str, identity):
-        if name not in await self.get_resources(workflow_id, identity):
+        if (name, identity) not in await self.get_resources(workflow_id, identity):
             raise Exception(f'{name} is not a valid resource for {workflow_id}')
             # TODO - custom exception
 
@@ -193,7 +191,6 @@ class WorkflowManager:
     async def _deregister_alias(self, alias: str):
         if alias in self._alias_dictionary:
             del self._alias_dictionary[alias]
-
 
 def find_workflow_manager() -> WorkflowManager:
     if (manager := workflow_manager.get()) is not None:
