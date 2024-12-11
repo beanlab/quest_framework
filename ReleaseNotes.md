@@ -4,6 +4,7 @@
 
 - *resource stream* feature
 - `aws`, `sql` blob storage options; `quest-py` extras
+- fixed historian storage memory leak, storages clearing properly
 
 ## 0.2.2
 
