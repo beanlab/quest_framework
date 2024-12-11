@@ -934,8 +934,10 @@ class Historian:
                 kwargs=kwargs
             ))
 
-    async def suspend(self):
-        logging.info(f'-- Suspending {self.workflow_id} --')
+
+
+    def signal_suspend(self):
+        logging.debug(f'-- Suspending {self.workflow_id} --')
 
         self._resource_stream_manager.notify_of_workflow_stop()
 
@@ -948,13 +950,17 @@ class Historian:
                 logging.debug(f'Suspending task {task.get_name()}')
                 task.cancel(SUSPENDED)
 
+    async def suspend(self):
         # Once each task has been marked for cancellation
         #  we await each task in order to allow the cancellation
         #  to play out to completion.
+        self.signal_suspend()
+
         for task in list(self._open_tasks):
             try:
                 await task
             except asyncio.CancelledError:
+                logging.debug(f'Task {task.get_name()} was cancelled')
                 pass
 
     async def get_resources(self, identity):

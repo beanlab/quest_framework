@@ -1,11 +1,12 @@
 import asyncio
-from contextvars import ContextVar, copy_context
-from decimal import Context
+import logging
+import signal
+from contextvars import ContextVar
 from functools import wraps
 from typing import Protocol, Callable, TypeVar, Any
 
 from .external import State, IdentityQueue, Queue, Event
-from .historian import Historian, _Wrapper
+from .historian import Historian, _Wrapper, SUSPENDED
 from .history import History
 from .persistence import BlobStorage
 from .serializer import StepSerializer
@@ -44,11 +45,17 @@ class WorkflowManager:
         self._workflows: dict[str, Historian] = {}
         self._workflow_tasks: dict[str, asyncio.Task] = {}
         self._alias_dictionary = {}
-
         self._serializer: StepSerializer = serializer
 
     async def __aenter__(self) -> 'WorkflowManager':
         """Load the workflows and get them running again"""
+
+        def our_handler(sig, frame):
+            self._quest_signal_handler(sig, frame)
+            raise asyncio.CancelledError(SUSPENDED)
+
+        signal.signal(signal.SIGINT, our_handler)
+
         if self._storage.has_blob(self._namespace):
             self._workflow_data = self._storage.read_blob(self._namespace)
 
@@ -62,6 +69,11 @@ class WorkflowManager:
         self._storage.write_blob(self._namespace, self._workflow_data)
         for wid, historian in self._workflows.items():
             await historian.suspend()
+
+    def _quest_signal_handler(self, sig, frame):
+        logging.debug(f'Caught KeyboardInterrupt: {sig}')
+        for wid, historian in self._workflows.items():
+            historian.signal_suspend()
 
     def _get_workflow(self, workflow_id: str):
         workflow_id = self._alias_dictionary.get(workflow_id, workflow_id)
