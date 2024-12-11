@@ -26,12 +26,13 @@ jobs:
 
     - name: Generate Requirements
       run: |
-        pipreqs quest_test --ignore quest --savepath test-requirements.txt
-        pipreqs src --ignore quest --savepath src-requirements.txt
+        pipreqs quest_test --savepath test-requirements.txt
+        pipreqs src --savepath src-requirements.txt
         cat test-requirements.txt src-requirements.txt | sort | uniq > requirements.txt
 
     - name: Install Requirements
       run: |
+        echo quest > requirements.ignore
         pip install -r requirements.txt
 
     - name: Run tests
