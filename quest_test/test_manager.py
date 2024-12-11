@@ -50,7 +50,7 @@ async def test_manager():
         # At this point, all workflows should be resumed
         pause.set()
         await asyncio.sleep(0.1)
-        result = await manager.get_workflow('wid1')
+        result = manager.get_workflow_result('wid1', delete=False)
         assert result == 11
 
     assert counter_a == 2

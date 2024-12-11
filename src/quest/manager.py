@@ -57,7 +57,7 @@ class WorkflowManager:
             self._results = self._storage.read_blob(f'{self._namespace}_results')
 
         for wtype, wid, args, kwargs, background, start_time in self._workflow_data:
-            self._start_workflow(wtype, wid, args, kwargs)
+            self._start_workflow(wtype, wid, args, kwargs, background=background)
 
         return self
 
