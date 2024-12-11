@@ -2,7 +2,7 @@ name: Test
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, edited]
+    types: [opened, synchronize, reopened]
 
 jobs:
   quest_test:
