@@ -1,5 +1,6 @@
 # Enable event histories to be persistent
 import json
+
 from hashlib import md5
 from pathlib import Path
 from typing import Protocol, Union
@@ -52,6 +53,13 @@ class PersistentHistory(History):
         self._storage.delete_blob(key)
         self._storage.write_blob(self._namespace, self._keys)
 
+    def clear(self):
+        for key in self._keys:
+            self._storage.delete_blob(key)
+        self._items.clear()
+        self._keys.clear()
+        self._storage.delete_blob(self._namespace)
+
     def __iter__(self):
         return iter(self._items)
 
@@ -78,7 +86,6 @@ class LocalFileSystemBlobStorage(BlobStorage):
 
     def delete_blob(self, key: str):
         self._get_file(key).unlink()
-
 
 class InMemoryBlobStorage(BlobStorage):
     def __init__(self):

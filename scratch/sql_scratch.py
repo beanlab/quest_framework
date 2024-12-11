@@ -2,7 +2,7 @@ import asyncio
 import random
 from pathlib import Path
 
-from quest import step, create_filesystem_manager, ainput
+from quest import step, create_filesystem_manager, create_sql_manager, ainput
 
 
 @step
@@ -35,8 +35,8 @@ async def guessing_game():
 
 
 async def main():
-    async with create_filesystem_manager(
-            Path('state'),
+    async with create_sql_manager(
+            'sqlite:///scratch/demo.db',
             'guess_game_demo',
             lambda wid: guessing_game
     ) as manager:

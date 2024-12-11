@@ -1,11 +1,13 @@
 import asyncio
-from contextvars import ContextVar, copy_context
+import logging
+import signal
+from contextvars import ContextVar
 from functools import wraps
 from typing import Protocol, Callable, TypeVar, Any
 from datetime import datetime
 
 from .external import State, IdentityQueue, Queue, Event
-from .historian import Historian, _Wrapper
+from .historian import Historian, _Wrapper, SUSPENDED
 from .history import History
 from .persistence import BlobStorage
 from .serializer import StepSerializer
@@ -49,6 +51,13 @@ class WorkflowManager:
 
     async def __aenter__(self) -> 'WorkflowManager':
         """Load the workflows and get them running again"""
+
+        def our_handler(sig, frame):
+            self._quest_signal_handler(sig, frame)
+            raise asyncio.CancelledError(SUSPENDED)
+
+        signal.signal(signal.SIGINT, our_handler)
+
         if self._storage.has_blob(self._namespace):
             self._workflow_data = self._storage.read_blob(self._namespace)
 
@@ -67,6 +76,11 @@ class WorkflowManager:
         self._storage.write_blob(f'{self._namespace}_results', self._results)
         for wid, historian in self._workflows.items():
             await historian.suspend()
+
+    def _quest_signal_handler(self, sig, frame):
+        logging.debug(f'Caught KeyboardInterrupt: {sig}')
+        for wid, historian in self._workflows.items():
+            historian.signal_suspend()
 
     def _get_workflow(self, workflow_id: str):
         workflow_id = self._alias_dictionary.get(workflow_id, workflow_id)
@@ -129,8 +143,8 @@ class WorkflowManager:
     async def get_resources(self, workflow_id: str, identity):
         return await self._get_workflow(workflow_id).get_resources(identity)
 
-    async def stream_resources(self, workflow_id: str, identity):
-        return self._get_workflow(workflow_id).stream_resources(identity)
+    def get_resource_stream(self, workflow_id: str, identity):
+        return self._get_workflow(workflow_id).get_resource_stream(identity)
 
     async def wait_for_completion(self, workflow_id: str, identity):
         return await self._get_workflow(workflow_id).wait_for_completion(identity)
@@ -166,7 +180,7 @@ class WorkflowManager:
         return dummy
 
     async def _check_resource(self, workflow_id: str, name: str, identity):
-        if name not in await self.get_resources(workflow_id, identity):
+        if (name, identity) not in await self.get_resources(workflow_id, identity):
             raise Exception(f'{name} is not a valid resource for {workflow_id}')
             # TODO - custom exception
 

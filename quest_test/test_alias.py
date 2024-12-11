@@ -53,6 +53,7 @@ async def test_alias():
         assert 'wid' in manager._results
         assert result is None
 
+
 @pytest.mark.asyncio
 @timeout(3)
 async def test_alias_trade():
@@ -122,10 +123,12 @@ async def test_alias_trade():
         assert data_a == ['data a 1', 'data foo 1', 'data a 2']
         assert data_b == ['data b 1', 'data b 2', 'data foo 2']
 
+
 @pytest.mark.asyncio
 @timeout(3)
 async def test_alias_exception():
     pause = asyncio.Event()
+
     async def workflow_a():
         async with alias('the_foo'):
             await pause.wait()
@@ -148,7 +151,7 @@ async def test_alias_exception():
 
         await asyncio.sleep(0.1)
         pause.set()
-        await asyncio.sleep(0.1) # Allow workflows to finish
+        await asyncio.sleep(0.1)  # Allow workflows to finish
 
         result_wid1 = manager.get_workflow_result('wid1', delete=False)
         result_wid2 = manager.get_workflow_result('wid2', delete=False)
@@ -158,9 +161,3 @@ async def test_alias_exception():
 
         assert result_wid1 is None
         assert result_wid2 is None
-
-
-
-
-
-
