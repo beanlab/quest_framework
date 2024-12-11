@@ -40,4 +40,4 @@ jobs:
       env:
         PYTHONPATH: ${{ github.workspace }}/src
       run: |
-        pytest quest_test
+        pytest quest_test -o log_cli=true
