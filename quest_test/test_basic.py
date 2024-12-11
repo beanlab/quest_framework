@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from utils import timeout
+from .utils import timeout
 from quest import step
 from quest.historian import Historian
 from quest.serializer import NoopSerializer

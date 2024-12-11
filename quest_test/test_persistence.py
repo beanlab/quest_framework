@@ -59,7 +59,7 @@ async def test_persistence_sql():
 
     await resume_step_persistence(SqlStorageContext())
 
-@pytest.mark.ayncio
+@pytest.mark.asyncio
 @timeout(6)
 @pytest.mark.integration
 async def test_persistence_aws():
