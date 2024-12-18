@@ -48,6 +48,7 @@ class WorkflowManager:
         self._alias_dictionary = {}
         self._serializer: StepSerializer = serializer
         self._results: dict[str, Any] = {}
+        self._futures: dict[str, asyncio.Future] = {}  # Track futures for workflow results
 
     async def __aenter__(self) -> 'WorkflowManager':
         """Load the workflows and get them running again"""
@@ -96,6 +97,9 @@ class WorkflowManager:
                         workflow_type: str, workflow_id: str, workflow_args, workflow_kwargs, background=False):
         workflow_function = self._create_workflow(workflow_type)
 
+        future = asyncio.Future()
+        self._futures[workflow_id] = future
+
         workflow_manager.set(self)
 
         history = self._create_history(workflow_id)
@@ -111,11 +115,15 @@ class WorkflowManager:
 
     def _store_result(self, workflow_id: str, task: asyncio.Task):
         """Store the result or exception of a completed workflow"""
+        future = self._futures[workflow_id]
+
         try:
             result = task.result()
             self._results[workflow_id] = result
+            future.set_result(result)
         except Exception as e:
             self._results[workflow_id] = e
+            future.set_exception(e)
 
     def start_workflow(self, workflow_type: str, workflow_id: str, *workflow_args, **workflow_kwargs):
         """Start the workflow"""
@@ -221,10 +229,17 @@ class WorkflowManager:
             })
         return metrics
 
-    def get_workflow_result(self, workflow_id: str, delete: bool = True):
-        result = self._results.get(workflow_id)
+    # Should not be used for background tasks
+    async def get_workflow_result(self, workflow_id: str, delete: bool = True):
+        if workflow_id not in self._futures:
+            return None
+
+        # Wait for the future to complete and return result
+        future = self._futures[workflow_id]
+        result = await future
         if delete and workflow_id in self._results:
             del self._results[workflow_id]
+            self._futures.pop(workflow_id)
         return result
 
 

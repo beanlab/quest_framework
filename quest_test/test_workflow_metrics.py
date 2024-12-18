@@ -41,20 +41,18 @@ async def test_workflow_metrics_simple():
         await asyncio.sleep(0)
 
         # Results for foreground workflow
-        result_wid1 = manager.get_workflow_result('wid1', delete=False)
+        result_wid1 = await manager.get_workflow_result('wid1', delete=False)
         assert result_wid1 == "Workflow Completed"
 
-        # Background workflow - no result should be stored, return None
-        result_wid2 = manager.get_workflow_result('wid2', delete=False)
-        assert result_wid2 is None
-
         assert not manager.has_workflow('wid1')
+
+        # Background workflow - no result should be stored, not be awaited
         assert not manager.has_workflow('wid2')
 
         metrics = manager.get_workflow_metrics()
         assert len(metrics) == 0
 
         # Foreground workflow deleted
-        manager.get_workflow_result('wid1', delete=True)
-        assert manager.get_workflow_result('wid1',
-                                           delete=False) is None
+        await manager.get_workflow_result('wid1', delete=True)
+        assert await manager.get_workflow_result('wid1',
+                                                 delete=False) is None
