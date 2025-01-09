@@ -4,7 +4,7 @@ from quest import Historian
 from quest.external import event
 from quest.wrappers import wrap_steps
 from quest.serializer import NoopSerializer
-from utils import timeout
+from .utils import timeout
 
 
 @pytest.mark.asyncio

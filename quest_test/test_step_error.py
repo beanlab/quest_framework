@@ -1,16 +1,13 @@
 import asyncio
 import pytest
 
-from custom_errors.custom_error import MyError
+from .custom_errors.custom_error import MyError
 from quest_test.utils import timeout
-from quest import step
+from quest import step, NoopSerializer
 from quest.historian import Historian
-from quest.serializer import NoopSerializer
 
 double_calls = 0
-double_calls2 = 0
 foo_calls = 0
-foo_calls2 = 0
 
 
 @step
@@ -51,7 +48,7 @@ async def test_custom_exception():
         'test',
         longer_workflow,
         history,
-        serializer=NoopSerializer()
+        NoopSerializer()
     )
 
     workflow = historian.run('abc')
@@ -71,6 +68,10 @@ async def test_custom_exception():
     assert foo_calls == 1
 
 
+double_calls2 = 0
+foo_calls2 = 0
+
+
 @step
 async def double2(text):
     global double_calls2
@@ -80,7 +81,12 @@ async def double2(text):
 
 @step
 async def add_foo2(text):
+    global foo_calls2
+    foo_calls2 += 1
     return 1 / 0
+
+
+block_workflow2 = asyncio.Event()
 
 
 async def longer_workflow2(text):
@@ -88,11 +94,10 @@ async def longer_workflow2(text):
     try:
         await add_foo2(text)
     except ZeroDivisionError as e:
-        global foo_calls2
-        foo_calls2 += 1
+        pass
     except Exception:
         assert False
-    await block_workflow.wait()
+    await block_workflow2.wait()
     text = await double2(text)
     return text
 
@@ -102,24 +107,24 @@ async def longer_workflow2(text):
 async def test_builtin():
     history = []
     historian = Historian(
-        'test',
+        'test2',
         longer_workflow2,
         history,
-        serializer=NoopSerializer()
+        NoopSerializer()
     )
 
-    workflow = historian.run('abc')
+    workflow2 = historian.run('abc')
     await asyncio.sleep(0.01)
     await historian.suspend()
 
     assert history  # should not be empty
 
     # Allow workflow to proceed
-    block_workflow.set()
+    block_workflow2.set()
 
     # Start the workflow again
-    result = await historian.run('abc')
+    result2 = await historian.run('abc')
 
-    assert result == 'abcabcabcabc'
+    assert result2 == 'abcabcabcabc'
     assert double_calls2 == 2
     assert foo_calls2 == 1

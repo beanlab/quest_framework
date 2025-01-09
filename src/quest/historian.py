@@ -829,6 +829,7 @@ class Historian:
                     assert record['task_id'] == task_id
 
             logging.debug(f'Completing task {task_id}')
+
             return result
 
         task = task_factory(
@@ -853,7 +854,8 @@ class Historian:
 
     async def _run_with_exception_handling(self, *args, **kwargs):
         try:
-            return await self._run_with_args(*args, **kwargs)
+            task = await self._run_with_args(*args, **kwargs)
+            return task
         except Exception as ex:
             self._fatal_exception.set_exception(ex)
             raise
@@ -881,9 +883,17 @@ class Historian:
                 task_factory=_task_factory.create_task
             )
 
+        # Workflow logic completed
+
+    def _clear_history(self, task):
+        if self._workflow_completed:
+            self._history.clear()
+
     def run(self, *args, **kwargs):
         self._replay_started.clear()
-        return asyncio.create_task(self._run(*args, **kwargs), name=self.workflow_id)
+        task = asyncio.create_task(self._run(*args, **kwargs), name=self.workflow_id)
+        task.add_done_callback(self._clear_history)
+        return task
 
     def configure(self, config_function, *args, **kwargs):
         """
@@ -925,8 +935,10 @@ class Historian:
                 kwargs=kwargs
             ))
 
-    async def suspend(self):
-        logging.info(f'-- Suspending {self.workflow_id} --')
+
+
+    def signal_suspend(self):
+        logging.debug(f'-- Suspending {self.workflow_id} --')
 
         self._resource_stream_manager.notify_of_workflow_stop()
 
@@ -939,13 +951,17 @@ class Historian:
                 logging.debug(f'Suspending task {task.get_name()}')
                 task.cancel(SUSPENDED)
 
+    async def suspend(self):
         # Once each task has been marked for cancellation
         #  we await each task in order to allow the cancellation
         #  to play out to completion.
+        self.signal_suspend()
+
         for task in list(self._open_tasks):
             try:
                 await task
             except asyncio.CancelledError:
+                logging.debug(f'Task {task.get_name()} was cancelled')
                 pass
 
     async def get_resources(self, identity):
