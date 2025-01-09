@@ -1,6 +1,5 @@
 import asyncio
 import inspect
-import logging
 import traceback
 from asyncio import Task
 from contextvars import ContextVar
@@ -284,7 +283,7 @@ class Historian:
         self._last_record_gate: asyncio.Future = None
 
     def _reset_replay(self):
-        logging.debug('Resetting replay')
+        quest_logger.debug('Resetting replay', extra={'Task': self._get_task_name()})
 
         self._configuration_pos = 0
 
@@ -328,7 +327,7 @@ class Historian:
         if self._last_record_gate is not None:
             await self._last_record_gate
 
-        logging.debug(f'{self.workflow_id} -- Replay Complete --')
+        quest_logger.debug(f'{self.workflow_id} -- Replay Complete --', extra={'Task': self._get_task_name()})
         # TODO - log this only once?
 
         self._process_discovered_versions()
@@ -383,11 +382,11 @@ class Historian:
             if record['task_id'] != task_id:
                 if (gate := self._record_gates[_get_id(record)]).done():
                     if gate.exception() is not None:
-                        logging.debug(f'{task_id} found {record} errored: {gate.exception()}')
+                        quest_logger.debug(f'{task_id} found {record} errored: {gate.exception()}', extra={'Task': self._get_task_name()})
                     else:
-                        logging.debug(f'{task_id} found {record} completed')
+                        quest_logger.debug(f'{task_id} found {record} completed', extra={'Task': self._get_task_name()})
                 else:
-                    logging.debug(f'{task_id} waiting on {record}')
+                    quest_logger.debug(f'{task_id} waiting on {record}', extra={'Task': self._get_task_name()})
                 # We await either way so if the gate has an error we see it
                 await gate
 
@@ -395,27 +394,27 @@ class Historian:
                 def complete(r, exc_type, exc_val, exc_tb):
                     if exc_type is not None:
                         exc_info = "".join(traceback.format_exception(exc_type, exc_val, exc_tb))
-                        logging.debug(f'Noting that record {r} raised: \n{exc_info}')
+                        quest_logger.debug(f'Noting that record {r} raised: \n{exc_info}', extra={'Task': self._get_task_name()})
                     # Note:
                     # While Futures, the record gates are only used as gates
                     # The return values are never used
                     # Thus, even if there was an error when the task completed
                     # we simply want to indicate the gate is finished
                     # The relevant error will be raised in handle_step
-                    logging.debug(f'{task_id} completing {r}')
+                    quest_logger.debug(f'{task_id} completing {r}', extra={'Task': self._get_task_name()})
                     self._record_gates[_get_id(r)].set_result(None)
 
                 # noinspection PyUnboundLocalVariable
-                logging.debug(f'{self._get_task_name()} replaying {record}')
+                quest_logger.debug(f'{self._get_task_name()} replaying {record}', extra={'Task': self._get_task_name()})
                 yield self._NextRecord(record, complete)
 
-        logging.debug(f'Replay for {self._get_task_name()} complete')
+        quest_logger.debug(f'Replay for {self._get_task_name()} complete', extra={'Task': self._get_task_name()})
         task_replay.set()
         await self._replay_complete()
 
     async def _external_handler(self):
         try:
-            logging.debug(f'External event handler {self._get_task_name()} starting')
+            quest_logger.debug(f'External event handler {self._get_task_name()} starting', extra={'Task': self._get_task_name()})
             async for next_record in self._task_replay_records(self._get_external_task_name()):
                 with next_record as record:
                     if record['type'] == 'external':
@@ -427,9 +426,9 @@ class Historian:
                     elif record['type'] == 'configuration':
                         await self._run_configuration(record)
 
-            logging.debug(f'External event handler {self._get_task_name()} completed')
+            quest_logger.debug(f'External event handler {self._get_task_name()} completed', extra={'Task': self._get_task_name()})
         except Exception:
-            logging.exception('Error in _external_handler')
+            quest_logger.exception('Error in _external_handler', extra={'Task': self._get_task_name()})
             raise
 
     async def _next_record(self):
@@ -445,7 +444,7 @@ class Historian:
 
     async def _run_configuration(self, config_record: ConfigurationRecord):
         config_function, args, kwargs = self._configurations[self._configuration_pos]
-        logging.debug(f'Running configuration: {get_function_name(config_function)}(*{args}, **{kwargs})')
+        quest_logger.debug(f'Running configuration: {get_function_name(config_function)}(*{args}, **{kwargs})', extra={'Task': self._get_task_name()})
 
         assert config_record['function_name'] == get_function_name(config_function), str(config_record)
         assert config_record['args'] == args, str(config_record)
@@ -456,8 +455,8 @@ class Historian:
 
     def get_version(self, module_name, function_name, version_name=GLOBAL_VERSION):
         version = self._versions.get(_get_qualified_version(module_name, function_name, version_name), None)
-        logging.debug(
-            f'{self._get_task_name()} get_version({module_name}, {function_name}, {version_name} returned "{version}"')
+        quest_logger.debug(
+            f'{self._get_task_name()} get_version({module_name}, {function_name}, {version_name} returned "{version}"', extra={'Task': self._get_task_name()})
         return version
 
     def _discover_versions(self, function, versions: dict[str, str]):
@@ -480,7 +479,7 @@ class Historian:
         if self._versions.get(version_name, None) == version:
             return  # Version not changed
 
-        logging.debug(f'Version record: {version_name} = {version}')
+        quest_logger.debug(f'Version record: {version_name} = {version}', extra={'Task': self._get_task_name()})
         self._versions[version_name] = version
 
         self._history.append(VersionRecord(
@@ -492,13 +491,13 @@ class Historian:
         ))
 
     def _replay_version(self, record: VersionRecord):
-        logging.debug(f'{self._get_task_name()} setting version {record["step_id"]} = "{record["version"]}"')
+        quest_logger.debug(f'{self._get_task_name()} setting version {record["step_id"]} = "{record["version"]}"', extra={'Task': self._get_task_name()})
         self._versions[record['step_id']] = record['version']
 
     # TODO - keep or discard?
     async def _after_version(self, module_name, func_name, version_name, version):
         version_name = _get_qualified_version(module_name, func_name, version_name)
-        logging.debug(f'{self._get_task_name()} is waiting for version {version_name}=={version}')
+        quest_logger.debug(f'{self._get_task_name()} is waiting for version {version_name}=={version}', extra={'Task': self._get_task_name()})
 
         found = False
         for record in self._existing_history:
@@ -509,7 +508,7 @@ class Historian:
                 await self._record_gates[_get_id(record)]
 
         if not found:
-            logging.error(f'{self._get_task_name()} did not find version {version_name}=={version}')
+            quest_logger.error(f'{self._get_task_name()} did not find version {version_name}=={version}', extra={'Task': self._get_task_name()})
             raise Exception(f'{self._get_task_name()} did not find version {version_name}=={version}')
 
         if (next_record := await self._next_record()) is not None:
@@ -548,7 +547,7 @@ class Historian:
                     assert record['type'] == 'start'
 
         if next_record is None:
-            logging.debug(f'{self._get_task_name()} starting step {func_name} with {args} and {kwargs}')
+            quest_logger.debug(f'{self._get_task_name()} starting step {func_name} with {args} and {kwargs}', extra={'Task': self._get_task_name()})
             self._history.append(StepStartRecord(
                 type='start',
                 timestamp=_get_current_timestamp(),
@@ -563,7 +562,7 @@ class Historian:
             result = func(*args, **kwargs)
             if hasattr(result, '__await__'):
                 result = await result
-            logging.debug(f'{self._get_task_name()} completing step {func_name} with {result}')
+            quest_logger.debug(f'{self._get_task_name()} completing step {func_name} with {result}', extra={'Task': self._get_task_name()})
 
             serialized_result = await self._serializer.serialize(result)
 
@@ -583,7 +582,7 @@ class Historian:
                 prune_on_exit = False
                 raise asyncio.CancelledError(SUSPENDED)
             else:
-                logging.exception(f'{step_id} canceled')
+                quest_logger.exception(f'{step_id} canceled', extra={'Task': self._get_task_name()})
                 self._history.append(StepEndRecord(
                     type='end',
                     timestamp=_get_current_timestamp(),
@@ -599,7 +598,7 @@ class Historian:
                 raise
 
         except Exception as ex:
-            logging.exception(f'Error in {step_id}')
+            quest_logger.exception(f'Error in {step_id}', extra={'Task': self._get_task_name()})
             self._history.append(StepEndRecord(
                 type='end',
                 timestamp=_get_current_timestamp(),
@@ -626,7 +625,7 @@ class Historian:
         resource_id = _create_resource_id(name, identity)
         step_id = self._get_unique_id(resource_id + '.' + action)
 
-        logging.debug(f'External event {step_id} with {args} and {kwargs}')
+        quest_logger.debug(f'External event {step_id} with {args} and {kwargs}', extra={'Task': self._get_task_name()})
 
         resource = self._resources[resource_id]['resource']
 
@@ -698,7 +697,7 @@ class Historian:
                 assert list(args) == list(record['args']), str(record)
                 assert kwargs == record['kwargs'], str(record)
 
-        logging.debug(f'{self._get_task_name()} calling {step_id} with {args} and {kwargs}')
+        quest_logger.debug(f'Calling {step_id} with {args} and {kwargs}', extra={'Task': self._get_task_name()})
         if inspect.iscoroutinefunction(function):
             result = await function(*args, **kwargs)
         else:
@@ -738,7 +737,7 @@ class Historian:
             # TODO - custom exception
 
         step_id = self._get_unique_id(resource_id + '.' + '__init__')
-        logging.debug(f'Creating {resource_id}')
+        quest_logger.debug(f'Creating {resource_id}', extra={'Task': self._get_task_name()})
 
         self._resources[resource_id] = ResourceEntry(
             name=name,
@@ -772,7 +771,7 @@ class Historian:
             # TODO - custom exception
 
         step_id = self._get_unique_id(resource_id + '.' + '__del__')
-        logging.debug(f'{self._get_task_name()} Removing {resource_id}')
+        quest_logger.debug(f'Removing {resource_id}', extra={'Task': self._get_task_name()})
         resource_entry = self._resources.pop(resource_id)
 
         if not suspending:
@@ -795,11 +794,11 @@ class Historian:
     def start_task(self, func, *args, name=None, task_factory=asyncio.create_task, **kwargs):
         historian_context.set(self)
         task_id = name or self._get_unique_id(get_function_name(func))
-        logging.debug(f'{self._get_task_name()} has requested {task_id} start')
+        quest_logger.debug(f'Requested {task_id} start', extra={'Task': self._get_task_name()})
 
         @wraps(func)
         async def _func(*a, **kw):
-            quest_logger.debug(f'Starting task {task_id}')
+            quest_logger.debug(f'Starting task {task_id}', extra={'Task': self._get_task_name()})
 
             if (next_record := await self._next_record()) is None:
                 self._history.append(TaskEvent(
@@ -828,7 +827,7 @@ class Historian:
                     assert record['type'] == 'complete_task'
                     assert record['task_id'] == task_id
 
-            logging.debug(f'Completing task {task_id}')
+            quest_logger.debug(f'Completing task {task_id}', extra={'Task': self._get_task_name()})
 
             return result
 
@@ -862,7 +861,7 @@ class Historian:
 
     async def _run(self, *args, **kwargs):
         historian_context.set(self)
-        logging.debug(f'Running workflow {self.workflow_id}')
+        quest_logger.debug(f'Running workflow {self.workflow_id}', extra={'Task': self._get_task_name()})
         self._add_new_configurations()
         self._reset_replay()
 
@@ -923,7 +922,7 @@ class Historian:
 
         # Add new configuration records
         for config_function, args, kwargs in self._configurations[len(config_records):]:
-            logging.debug(f'Adding new configuration: {get_function_name(config_function)}(*{args}, **{kwargs}')
+            quest_logger.debug(f'Adding new configuration: {get_function_name(config_function)}(*{args}, **{kwargs}', extra={'Task': self._get_task_name()})
 
             self._history.append(ConfigurationRecord(
                 type='configuration',
@@ -938,7 +937,7 @@ class Historian:
 
 
     def signal_suspend(self):
-        logging.debug(f'-- Suspending {self.workflow_id} --')
+        quest_logger.debug(f'-- Suspending {self.workflow_id} --', extra={'Task': self._get_task_name()})
 
         self._resource_stream_manager.notify_of_workflow_stop()
 
@@ -948,7 +947,7 @@ class Historian:
         #  so we cancel the children before the parents.
         for task in list(reversed(self._open_tasks)):
             if not task.done() or task.cancelled() or task.cancelling():
-                logging.debug(f'Suspending task {task.get_name()}')
+                quest_logger.debug(f'Suspending task {task.get_name()}', extra={'Task': self._get_task_name()})
                 task.cancel(SUSPENDED)
 
     async def suspend(self):
@@ -961,7 +960,7 @@ class Historian:
             try:
                 await task
             except asyncio.CancelledError:
-                logging.debug(f'Task {task.get_name()} was cancelled')
+                quest_logger.debug(f'Task {task.get_name()} was cancelled', extra={'Task': self._get_task_name()})
                 pass
 
     async def get_resources(self, identity):
