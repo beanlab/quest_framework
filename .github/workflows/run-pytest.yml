@@ -3,10 +3,16 @@ name: Test
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+    branches:
+      - main
 
 jobs:
   quest_test:
     runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
 
     steps:
     - name: Checkout code
@@ -36,8 +42,23 @@ jobs:
         echo quest==0.1.1 > requirements.ignore
         pip install -r requirements.txt
 
-    - name: Run tests
+    - name: Run unit tests
       env:
         PYTHONPATH: ${{ github.workspace }}/src
       run: |
         pytest quest_test -o log_cli=true
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v3
+      with:
+        role-to-assume: arn:aws:iam::844825014198:role/quest_framework_integration_tests
+        aws-region: us-west-2
+
+    - name: Verify AWS Credentials
+      run: aws sts get-caller-identity
+
+    - name: Run integration tests
+      env:
+        PYTHONPATH: ${{ github.workspace }}/src
+      run: |
+        pytest quest_test -m "integration" -o log_cli=true
