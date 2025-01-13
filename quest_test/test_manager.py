@@ -1,6 +1,5 @@
 import asyncio
-import logging
-
+from quest.utils import quest_logger
 import pytest
 
 from quest import PersistentHistory, queue, state, event
@@ -26,11 +25,11 @@ async def test_manager():
     async def workflow(arg):
         nonlocal counter_a, counter_b
 
-        logging.info('workflow started')
+        quest_logger.info('workflow started')
         counter_a += 1
 
         await pause.wait()
-        logging.info('workflow passed pause')
+        quest_logger.info('workflow passed pause')
         counter_b += 1
 
         return 7 + arg
@@ -74,13 +73,13 @@ async def test_manager_events():
         nonlocal counter_a, counter_b
         total = arg
 
-        logging.info('workflow started')
+        quest_logger.info('workflow started')
         counter_a += 1
 
         async with queue('messages', None) as Q:
             while True:
                 message = await Q.get()
-                logging.info(f'message received: {message}')
+                quest_logger.info(f'message received: {message}')
                 counter_b += 1
 
                 if message == 0:
@@ -131,13 +130,13 @@ async def test_manager_background():
         nonlocal counter_a, counter_b, total
         total = arg
 
-        logging.info('workflow started')
+        quest_logger.info('workflow started')
         counter_a += 1
 
         async with queue('messages', None) as Q:
             while True:
                 message = await Q.get()
-                logging.info(f'message received: {message}')
+                quest_logger.info(f'message received: {message}')
                 counter_b += 1
 
                 if message == 0:
