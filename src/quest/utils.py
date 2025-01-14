@@ -8,14 +8,6 @@ task_name_getter = ContextVar("task_name_getter", default=lambda : "-")
 async def ainput(*args):
     return await asyncio.to_thread(input, *args)
 
-# class QuestLogger(logging.Logger):
-#     def makeRecord(self, *args, **kwargs):
-#         rv = super(QuestLogger, self).makeRecord(*args, **kwargs)
-#         task_name = task_name_getter.get()()
-#         rv.__dict__["task"] = rv.__dict__.get("task", task_name)
-#         return rv
-#
-# quest_logger = QuestLogger('quest')
 
 class TaskFieldFilter(logging.Filter):
     def filter(self, record):
