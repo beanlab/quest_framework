@@ -83,8 +83,11 @@ class WorkflowManager:
         self._workflows[workflow_id] = historian
 
         self._workflow_tasks[workflow_id] = (task := historian.run(*workflow_args, **workflow_kwargs))
-        if background:
-            task.add_done_callback(lambda t: self._remove_workflow(workflow_id))
+
+        if not background:
+            task.add_done_callback(lambda t: self._remember_result(t.result))
+
+        task.add_done_callback(lambda t: self._remove_workflow(workflow_id))
 
     def start_workflow(self, workflow_type: str, workflow_id: str, *workflow_args, **workflow_kwargs):
         """Start the workflow"""

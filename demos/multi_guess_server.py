@@ -50,6 +50,19 @@ async def get_guesses(players: dict[str, str], message) -> dict[str, int]:
     # This pattern should be common enough we should make
     # it easy and clear
 
+    async with multiqueue('guess', players.keys()) as guesses:
+        while guesses:
+            ident, guess = await guesses.get()
+            guesses.remove(ident)
+
+        async for ident, guess in guesses:
+            pass
+
+    async with singlequeue('guess', players.keys()) as guess_qs:
+        async for ident, guess in guess_qs:
+            guesses[ident] = guess
+
+
     async with (
         # Create a guess queue for each player
         these({
@@ -62,7 +75,7 @@ async def get_guesses(players: dict[str, str], message) -> dict[str, int]:
         guess_gets = {q.get(): ident for ident, q in guess_queues.items()}
         for guess_get in asyncio.as_completed(guess_gets):
             guess = await guess_get
-            ident = guess_gets[guess]
+            ident = guess_gets[guess_get]
             guesses[ident] = guess
 
             # Update the status

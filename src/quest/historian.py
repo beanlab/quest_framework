@@ -882,7 +882,9 @@ class Historian:
 
     def run(self, *args, **kwargs):
         self._replay_started.clear()
-        return asyncio.create_task(self._run(*args, **kwargs), name=self.workflow_id)
+        task = asyncio.create_task(self._run(*args, **kwargs), name=self.workflow_id)
+        task.add_done_callback(self._clear_history())
+        return task
 
     def configure(self, config_function, *args, **kwargs):
         """
