@@ -1,9 +1,9 @@
 import asyncio
-import logging
 import signal
 from contextvars import ContextVar
 from functools import wraps
 from typing import Protocol, Callable, TypeVar, Any
+from .utils import quest_logger
 
 from .external import State, IdentityQueue, Queue, Event
 from .historian import Historian, _Wrapper, SUSPENDED
@@ -71,7 +71,7 @@ class WorkflowManager:
             await historian.suspend()
 
     def _quest_signal_handler(self, sig, frame):
-        logging.debug(f'Caught KeyboardInterrupt: {sig}')
+        quest_logger.debug(f'Caught KeyboardInterrupt: {sig}')
         for wid, historian in self._workflows.items():
             historian.signal_suspend()
 

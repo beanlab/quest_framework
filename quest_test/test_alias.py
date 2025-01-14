@@ -1,6 +1,5 @@
 import asyncio
 import pytest
-import logging
 
 from quest.manager import DuplicateAliasException
 from quest import queue, alias
@@ -89,8 +88,6 @@ async def test_alias_trade():
         await asyncio.sleep(0.1)
         manager.start_workflow('workflow_b', 'wid_b')
         await asyncio.sleep(0.1)
-
-        logging.info('Workflows started')
 
         first_pause.set()
         await manager.send_event('wid_a', 'data', None, 'put', 'data a 1')
