@@ -51,7 +51,7 @@ jobs:
     - name: Configure AWS Credentials
       uses: aws-actions/configure-aws-credentials@v3
       with:
-        role-to-assume: arn:aws:iam::844825014198:role/quest_framework_integration_tests
+        role-to-assume: arn:aws:iam::844825014198:role/QuestFramework-IntegrationTests
         aws-region: us-west-2
 
     - name: Verify AWS Credentials
