@@ -14,6 +14,11 @@ from .quest_types import ConfigurationRecord, VersionRecord, StepStartRecord, St
 from .resources import ResourceStreamManager
 from .serializer import StepSerializer
 
+from .utils import (
+    serialize_exception,
+    deserialize_exception
+)
+
 QUEST_VERSIONS = "_quest_versions"
 GLOBAL_VERSION = "_global_version"
 
@@ -184,13 +189,6 @@ def get_function_name(func):
         return func.__name__
     else:  # Callable classes
         return func.__class__.__name__
-
-
-def _get_exception_class(exception_type: str):
-    module_name, class_name = exception_type.rsplit('.', 1)
-    module = __import__(module_name, fromlist=[class_name])
-    exception_class = getattr(module, class_name)
-    return exception_class
 
 
 class Historian:
@@ -540,9 +538,13 @@ class Historian:
                         deserialized_result = await self._serializer.deserialize(record['result'])
                         return deserialized_result
                     else:
-                        exception_class = _get_exception_class(record['exception']['type'])
-                        exception_args = record['exception']['args']
-                        raise exception_class(*exception_args)
+                        exception_data = record['exception']
+                        ex = deserialize_exception({
+                            "type": exception_data["type"],
+                            "args": exception_data["args"],
+                            "details": exception_data["details"]
+                        })
+                        raise ex
                 else:
                     assert record['type'] == 'start'
 
@@ -583,6 +585,7 @@ class Historian:
                 raise asyncio.CancelledError(SUSPENDED)
             else:
                 logging.exception(f'{step_id} canceled')
+                serialized_exception = serialize_exception(cancel)
                 self._history.append(StepEndRecord(
                     type='end',
                     timestamp=_get_current_timestamp(),
@@ -590,15 +593,16 @@ class Historian:
                     step_id=step_id,
                     result=None,
                     exception=ExceptionDetails(
-                        type=_get_type_name(cancel),
-                        args=cancel.args,
-                        details=traceback.format_exc()
+                        type=serialized_exception["type"],
+                        args=serialized_exception["args"],
+                        details=serialized_exception["details"]
                     )
                 ))
                 raise
 
         except Exception as ex:
             logging.exception(f'Error in {step_id}')
+            serialized_exception = serialize_exception(ex)
             self._history.append(StepEndRecord(
                 type='end',
                 timestamp=_get_current_timestamp(),
@@ -606,9 +610,9 @@ class Historian:
                 task_id=self._get_task_name(),
                 result=None,
                 exception=ExceptionDetails(
-                    type=_get_type_name(ex),
-                    args=ex.args,
-                    details=traceback.format_exc()
+                    type=serialized_exception["type"],
+                    args=serialized_exception["args"],
+                    details=serialized_exception["details"]
                 )
             ))
             raise
@@ -933,8 +937,6 @@ class Historian:
                 args=args,
                 kwargs=kwargs
             ))
-
-
 
     def signal_suspend(self):
         logging.debug(f'-- Suspending {self.workflow_id} --')

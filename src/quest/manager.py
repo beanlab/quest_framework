@@ -12,6 +12,11 @@ from .history import History
 from .persistence import BlobStorage
 from .serializer import StepSerializer
 
+from .utils import (
+    serialize_exception,
+    deserialize_exception,
+)
+
 
 class HistoryFactory(Protocol):
     def __call__(self, workflow_id: str) -> History: ...
@@ -97,8 +102,7 @@ class WorkflowManager:
                         workflow_type: str, workflow_id: str, workflow_args, workflow_kwargs, background=False):
         workflow_function = self._create_workflow(workflow_type)
 
-        future = asyncio.Future()
-        self._futures[workflow_id] = future
+        self._futures[workflow_id] = asyncio.Future()
 
         workflow_manager.set(self)
 
@@ -119,11 +123,18 @@ class WorkflowManager:
 
         try:
             result = task.result()
-            self._results[workflow_id] = result
-            future.set_result(result)
+            # custom exception object
+            if isinstance(result, Exception):
+                self._results[workflow_id] = serialize_exception(result)
+                future.set_result(self._results[workflow_id])
+            else:
+                self._results[workflow_id] = result
+                future.set_result(result)
+
         except Exception as e:
-            self._results[workflow_id] = e
-            future.set_exception(e)
+            # real exception
+            self._results[workflow_id] = serialize_exception(e)
+            future.set_result(self._results[workflow_id])
 
     def start_workflow(self, workflow_type: str, workflow_id: str, *workflow_args, **workflow_kwargs):
         """Start the workflow"""
@@ -236,11 +247,18 @@ class WorkflowManager:
 
         # Wait for the future to complete and return result
         future = self._futures[workflow_id]
-        result = await future
-        if delete and workflow_id in self._results:
-            del self._results[workflow_id]
-            self._futures.pop(workflow_id)
-        return result
+        try:
+            result = await future
+            if isinstance(result, dict) and "type" in result:  # Check if it is exception
+                exception = deserialize_exception(result)
+                raise exception
+            return result
+
+        finally:
+            if delete:
+                del self._futures[workflow_id]
+                if workflow_id in self._results:
+                    del self._results[workflow_id]
 
 
 def find_workflow_manager() -> WorkflowManager:

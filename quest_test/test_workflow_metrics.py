@@ -29,7 +29,7 @@ async def test_workflow_metrics_simple():
         manager.start_workflow('sample_workflow_type', 'wid1')
         manager.start_workflow_background('sample_workflow_type', 'wid2')
 
-        # 2 active workflows in metrics
+        # two active workflows in metrics
         metrics = manager.get_workflow_metrics()
         assert len(metrics) == 2, "Expected two active workflows"
 
