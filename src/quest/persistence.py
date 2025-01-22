@@ -1,6 +1,5 @@
 # Enable event histories to be persistent
 import json
-
 from hashlib import md5
 from pathlib import Path
 from typing import Protocol, Union
@@ -86,6 +85,7 @@ class LocalFileSystemBlobStorage(BlobStorage):
 
     def delete_blob(self, key: str):
         self._get_file(key).unlink()
+
 
 class InMemoryBlobStorage(BlobStorage):
     def __init__(self):
