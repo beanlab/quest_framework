@@ -1,58 +1,94 @@
 #!/usr/bin/env python
 
-import asyncio
+import json
+from typing import TypedDict
 import websockets
-import jwt
+from websockets import WebSocketServerProtocol
 
-from jwt.exceptions import InvalidTokenError
-from src.quest import WorkflowManager
 
-SECRET_KEY = "C@n'tT0uchThis!"
+class RemoteTargetCallMessage(TypedDict):
+    method: str
+    args: list
+    kwargs: dict
 
-async def receive_messages(manager: WorkflowManager, ident, websocket, path):
-    async for message in websocket:
-        print("Received message: ", message)
-        # await manager.send_event(ident, message)
 
-async def send_messages(manager, ident, websocket, path):
-    # How exactly are we calling stream_resources on the manager?
-    async for status in manager.stream_resources(ident):
-        websocket.send(status)
+class Server:
+    def __init__(self, target, host: str, port: int):
+        """
+        Initialize the server.
 
-async def authorize(websocket):
-    try:
-        token = websocket.request_headers['Authorization']
-        if token.startswith("Bearer "):
-            token = token.split(" ")[1]
-        else:
-            return False
+        :param target: Object whose methods will be called remotely.
+        :param host: Host address for the server.
+        :param port: Port for the server.
+        """
+        self.target = target
+        self.host = host
+        self.port = port
+        self.server = None
 
-        decoded_token = jwt.decode(token, SECRET_KEY, algorithms="HS256")
-        return decoded_token
-    except (KeyError, InvalidTokenError):
-        return False
+    @classmethod
+    def serve(cls, target, host: str, port: int):
+        """
+        Create and return a server instance for use in an async context.
+        """
+        instance = cls(target, host, port)
+        return instance
 
-async def default_handler(manager, websocket, path):
-    authorized = await authorize(websocket)
-    if not authorized:
-        await websocket.close(code=websocket.CLOSE_STATUS_POLICY_VIOLATION, reason="Unauthorized")
-        return
+    async def __aenter__(self):
+        """
+        Start the server in an async with context.
+        """
+        self.server = await websockets.serve(self.handler, self.host, self.port)
+        print(f"Server started at ws://{self.host}:{self.port}")
+        return self
 
-    ident = authorized['ident']
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """
+        Stop the server when exiting the context.
+        """
+        self.server.close()
+        await self.server.wait_closed()
+        print("Server stopped")
 
-    await asyncio.gather(
-        receive_messages(manager, ident, websocket, path),
-        send_messages(manager, ident, websocket, path)
-    )
+    async def handler(self, websocket: WebSocketServerProtocol, path: str):
+        """
+        Handle incoming WebSocket connections and messages.
 
-async def serve(manager, host, port):
-    # Start the WebSocket server
-    async with websockets.serve(lambda ws, p: default_handler(manager, ws, p), host, port):
-        await asyncio.Future()
+        :param websocket: The WebSocket connection.
+        :param path: The requested path.
+        """
+        print(f"New connection: {path}")
+        async for message in websocket:
+            try:
+                print(f"Received message: {message}")
+                data = json.loads(message)
 
-async def initialize(namespace, storage, create_history, workflow):
-    async with WorkflowManager(namespace, storage, create_history, lambda w_type: workflow) as manager:
-        await serve(manager, "localhost", 8765)
+                # Do we really need this typing? It feels like extra work
+                parsed_data: RemoteTargetCallMessage = RemoteTargetCallMessage(
+                    method=data.get("method"),
+                    args=data.get("args", []),
+                    kwargs=data.get("kwargs", {})
+                )
 
-if __name__ == "__main__":
-    asyncio.run(initialize())
+                method_name = parsed_data["method"]
+                args = parsed_data["args"]
+                kwargs = parsed_data["kwargs"]
+
+                if not hasattr(self.target, method_name):
+                    response = {"error": f"Method '{method_name}' not found"}
+                else:
+                    method = getattr(self.target, method_name)
+                    if callable(method):
+                        result = method(*args, **kwargs)
+                        response = {"result": result}
+                    else:
+                        response = {"error": f"'{method_name}' is not callable"}
+
+            except (TypeError, ValueError) as e:
+                # Handle JSON parsing errors or incorrect data types
+                response = {"error": "Invalid message format", "details": str(e)}
+            except Exception as e:
+                # Catch any other unexpected exceptions
+                response = {"error": str(e)}
+
+            await websocket.send(json.dumps(response))
