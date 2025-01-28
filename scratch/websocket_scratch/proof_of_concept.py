@@ -3,7 +3,7 @@ import json
 
 import websockets
 
-from scratch.websocket_scratch.server import Server, RemoteTargetCallMessage
+from scratch.websocket_scratch.server import Server
 
 class Target:
     def hello(self):
@@ -16,7 +16,7 @@ async def serve():
 async def connect():
     print("Connecting...")
     async with websockets.connect('ws://localhost:8000') as ws:
-        call: RemoteTargetCallMessage = {
+        call = {
             'method': 'hello',
             'args': [],
             'kwargs': {},

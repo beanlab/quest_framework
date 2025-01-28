@@ -1,15 +1,10 @@
 #!/usr/bin/env python
-
+import asyncio
 import json
-from typing import TypedDict
+import traceback
 import websockets
 from websockets import WebSocketServerProtocol
-
-
-class RemoteTargetCallMessage(TypedDict):
-    method: str
-    args: list
-    kwargs: dict
+# from quest.utils import quest_logger
 
 
 class Server:
@@ -63,16 +58,9 @@ class Server:
                 print(f"Received message: {message}")
                 data = json.loads(message)
 
-                # Do we really need this typing? It feels like extra work
-                parsed_data: RemoteTargetCallMessage = RemoteTargetCallMessage(
-                    method=data.get("method"),
-                    args=data.get("args", []),
-                    kwargs=data.get("kwargs", {})
-                )
-
-                method_name = parsed_data["method"]
-                args = parsed_data["args"]
-                kwargs = parsed_data["kwargs"]
+                method_name = data["method"]
+                args = data.get("args", [])
+                kwargs = data.get("kwargs", {})
 
                 if not hasattr(self.target, method_name):
                     response = {"error": f"Method '{method_name}' not found"}
@@ -80,15 +68,25 @@ class Server:
                     method = getattr(self.target, method_name)
                     if callable(method):
                         result = method(*args, **kwargs)
+                        if asyncio.iscoroutine(result):
+                            result = await result
                         response = {"result": result}
                     else:
                         response = {"error": f"'{method_name}' is not callable"}
 
             except (TypeError, ValueError) as e:
                 # Handle JSON parsing errors or incorrect data types
-                response = {"error": "Invalid message format", "details": str(e)}
+                response = {
+                    "error": "Invalid message format",
+                    "details": str(e),
+                    "traceback": traceback.format_exc()
+                }
             except Exception as e:
                 # Catch any other unexpected exceptions
-                response = {"error": str(e)}
+                response = {
+                    "error": "Error occurred during execution",
+                    "details": str(e),
+                    "traceback": traceback.format_exc()
+                }
 
             await websocket.send(json.dumps(response))
