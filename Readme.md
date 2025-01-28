@@ -28,6 +28,13 @@ Eventually, the old code paths will no longer replay and the supporting code can
   - TODO - handle cancellations from other tasks as outside events
     so a canceled task finishes after the cancellation is sent
 - `step` and `task` functions can only be called within the `historian.run()` call tree
+- 
+
+## Notes
+
+- Quest uses a logging filter to print the current task name in log statements. the `task_name_getter` context variable
+  is used to return the current task name. (see utils.py) The filter is applied to all logger instances to avoid errors
+  when the `task_name_getter` context variable isn't set.
 
 ## TODO
 - How can we enable forgetting in long-running event loops?

@@ -1,11 +1,11 @@
 import asyncio
-import logging
-
+from quest.utils import quest_logger
 import pytest
 
-from src.quest import PersistentHistory, queue, state, event
-from src.quest.manager import WorkflowManager
-from src.quest.persistence import InMemoryBlobStorage
+from quest import PersistentHistory, queue, state, event
+from quest.manager import WorkflowManager
+from quest.persistence import InMemoryBlobStorage
+from quest.serializer import NoopSerializer
 
 
 @pytest.mark.asyncio
@@ -25,16 +25,17 @@ async def test_manager():
     async def workflow(arg):
         nonlocal counter_a, counter_b
 
-        logging.info('workflow started')
+        quest_logger.info('workflow started')
         counter_a += 1
 
         await pause.wait()
-        logging.info('workflow passed pause')
+        quest_logger.info('workflow passed pause')
         counter_b += 1
 
         return 7 + arg
 
-    async with WorkflowManager('test-manager', storage, create_history, lambda w_type: workflow) as manager:
+    async with WorkflowManager('test-manager', storage, create_history, lambda w_type: workflow,
+                               serializer=NoopSerializer()) as manager:
         manager.start_workflow('workflow', 'wid1', 4)
         await asyncio.sleep(0.1)
         # Now pause the manager and all workflows
@@ -43,7 +44,8 @@ async def test_manager():
     assert counter_a == 1
     assert counter_b == 0
 
-    async with WorkflowManager('test-manager', storage, create_history, lambda w_type: workflow) as manager:
+    async with WorkflowManager('test-manager', storage, create_history, lambda w_type: workflow,
+                               serializer=NoopSerializer()) as manager:
         # At this point, all workflows should be resumed
         pause.set()
         await asyncio.sleep(0.1)
@@ -71,13 +73,13 @@ async def test_manager_events():
         nonlocal counter_a, counter_b
         total = arg
 
-        logging.info('workflow started')
+        quest_logger.info('workflow started')
         counter_a += 1
 
         async with queue('messages', None) as Q:
             while True:
                 message = await Q.get()
-                logging.info(f'message received: {message}')
+                quest_logger.info(f'message received: {message}')
                 counter_b += 1
 
                 if message == 0:
@@ -85,7 +87,8 @@ async def test_manager_events():
 
                 total += message
 
-    async with WorkflowManager('test-manager', storage, create_history, lambda w_type: workflow) as manager:
+    async with WorkflowManager('test-manager', storage, create_history, lambda w_type: workflow,
+                               serializer=NoopSerializer()) as manager:
         manager.start_workflow('workflow', 'wid1', 1)
         await asyncio.sleep(0.1)
         await manager.send_event('wid1', 'messages', None, 'put', 2)
@@ -96,7 +99,8 @@ async def test_manager_events():
     assert counter_a == 1
     assert counter_b == 1
 
-    async with WorkflowManager('test-manager', storage, create_history, lambda w_type: workflow) as manager:
+    async with WorkflowManager('test-manager', storage, create_history, lambda w_type: workflow,
+                               serializer=NoopSerializer()) as manager:
         # At this point, all workflows should be resumed
         await asyncio.sleep(0.1)
         await manager.send_event('wid1', 'messages', None, 'put', 3)
@@ -126,13 +130,13 @@ async def test_manager_background():
         nonlocal counter_a, counter_b, total
         total = arg
 
-        logging.info('workflow started')
+        quest_logger.info('workflow started')
         counter_a += 1
 
         async with queue('messages', None) as Q:
             while True:
                 message = await Q.get()
-                logging.info(f'message received: {message}')
+                quest_logger.info(f'message received: {message}')
                 counter_b += 1
 
                 if message == 0:
@@ -140,7 +144,8 @@ async def test_manager_background():
 
                 total += message
 
-    async with WorkflowManager('test-manager', storage, create_history, lambda w_type: workflow) as manager:
+    async with WorkflowManager('test-manager', storage, create_history, lambda w_type: workflow,
+                               serializer=NoopSerializer()) as manager:
         manager.start_workflow_background('workflow', 'wid1', 1)
         await asyncio.sleep(0.1)
         await manager.send_event('wid1', 'messages', None, 'put', 2)
@@ -151,7 +156,8 @@ async def test_manager_background():
     assert counter_a == 1
     assert counter_b == 1
 
-    async with WorkflowManager('test-manager', storage, create_history, lambda w_type: workflow) as manager:
+    async with WorkflowManager('test-manager', storage, create_history, lambda w_type: workflow,
+                               serializer=NoopSerializer()) as manager:
         # At this point, all workflows should be resumed
         await asyncio.sleep(0.1)
         await manager.send_event('wid1', 'messages', None, 'put', 3)
@@ -180,7 +186,8 @@ async def test_get_queue():
     def create_history(wid: str):
         return PersistentHistory(wid, InMemoryBlobStorage())
 
-    async with WorkflowManager('test', storage, create_history, lambda wid: workflow) as wm:
+    async with WorkflowManager('test', storage, create_history, lambda wid: workflow,
+                               serializer=NoopSerializer()) as wm:
         wm.start_workflow('workflow', 'wid')
         await asyncio.sleep(0.1)
         q = await wm.get_queue('wid', 'messages', None)
@@ -193,5 +200,3 @@ async def test_get_queue():
         await asyncio.sleep(0.1)
         assert await result.get() == 7
         await finish.set()
-
-

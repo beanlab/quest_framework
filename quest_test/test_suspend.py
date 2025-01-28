@@ -2,9 +2,10 @@ import asyncio
 
 import pytest
 
-from src.quest.historian import Historian
-from src.quest.wrappers import task
-from utils import timeout
+from quest.historian import Historian
+from quest.wrappers import task
+from quest.serializer import NoopSerializer
+from .utils import timeout
 
 stop = asyncio.Event()
 steps = []
@@ -23,6 +24,7 @@ async def test_cancel():
         'test',
         workflow_will_stop,
         [],
+        serializer=NoopSerializer()
     )
 
     workflow = historian.run()
@@ -64,6 +66,7 @@ async def test_task_cancel():
         'test',
         workflow_with_tasks,
         [],
+        serializer=NoopSerializer()
     )
 
     workflow = historian.run()

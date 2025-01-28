@@ -2,10 +2,11 @@ import asyncio
 
 import pytest
 
-from src.quest import step
-from src.quest.historian import Historian
-from src.quest.wrappers import task
-from utils import timeout
+from quest import step
+from quest.historian import Historian
+from quest.wrappers import task
+from quest.serializer import NoopSerializer
+from .utils import timeout
 
 
 @step
@@ -33,6 +34,7 @@ async def test_step_concurrency():
         'test',
         fooflow,
         [],
+        serializer=NoopSerializer()
     )
 
     assert await historian.run('abc', 'xyz') == ('abcfoofoofoo', 'xyzfoofoofoo')
@@ -57,6 +59,7 @@ async def test_step_tasks():
         'test',
         doubleflow,
         [],
+        serializer=NoopSerializer()
     )
 
     assert await historian.run('abcxyz') == 'abcxyzabcxyzabcabc'
@@ -121,7 +124,7 @@ async def long_fast_race():
 @timeout(3)
 async def test_long_fast_race():
     records = []
-    history = Historian('test', long_fast_race, records)
+    history = Historian('test', long_fast_race, records, serializer=NoopSerializer())
     workflow = history.run()
     await asyncio.sleep(1)
     await history.suspend()

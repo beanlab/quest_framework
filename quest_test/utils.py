@@ -2,6 +2,10 @@ import asyncio
 import sys
 from functools import wraps
 
+from quest import WorkflowManager, Historian
+from quest.persistence import InMemoryBlobStorage, PersistentHistory
+from quest.serializer import NoopSerializer
+
 
 def timeout(delay):
     if 'pydevd' in sys.modules:  # i.e. debug mode
@@ -18,3 +22,25 @@ def timeout(delay):
 
     return decorator
 
+
+def create_in_memory_workflow_manager(workflows: dict, serializer=None):
+    storage = InMemoryBlobStorage()
+    histories = {}
+
+    def create_history(wid: str):
+        if wid not in histories:
+            histories[wid] = PersistentHistory(wid, InMemoryBlobStorage())
+        return histories[wid]
+
+    def create_workflow(wtype: str):
+        return workflows[wtype]
+
+    if serializer is None:
+        serializer = NoopSerializer()
+
+    return WorkflowManager('test', storage, create_history, create_workflow, serializer=serializer)
+
+
+def create_test_historian(workflow_name, workflow):
+    historian = Historian(workflow_name, workflow, [], NoopSerializer())
+    return historian

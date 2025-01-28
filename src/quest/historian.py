@@ -1,16 +1,18 @@
 import asyncio
 import inspect
-import logging
 import traceback
 from asyncio import Task
 from contextvars import ContextVar
 from datetime import datetime
 from functools import wraps
 from typing import Callable, TypeVar
+from .utils import quest_logger, task_name_getter
 
 from .history import History
 from .quest_types import ConfigurationRecord, VersionRecord, StepStartRecord, StepEndRecord, \
     ExceptionDetails, ResourceAccessEvent, ResourceEntry, ResourceLifecycleEvent, TaskEvent
+from .resources import ResourceStreamManager
+from .serializer import StepSerializer
 
 QUEST_VERSIONS = "_quest_versions"
 GLOBAL_VERSION = "_global_version"
@@ -170,7 +172,7 @@ def _get_qualified_version(module_name, function_name, version_name: str) -> str
 
 
 # Resource names should be unique to the workflow and identity
-def _create_resource_id(name: str, identity: str) -> str:
+def _create_resource_id(name: str, identity: str | None) -> str:
     return f'{name}|{identity}' if identity is not None else name
 
 
@@ -184,8 +186,15 @@ def get_function_name(func):
         return func.__class__.__name__
 
 
+def _get_exception_class(exception_type: str):
+    module_name, class_name = exception_type.rsplit('.', 1)
+    module = __import__(module_name, fromlist=[class_name])
+    exception_class = getattr(module, class_name)
+    return exception_class
+
+
 class Historian:
-    def __init__(self, workflow_id: str, workflow: Callable, history: History):
+    def __init__(self, workflow_id: str, workflow: Callable, history: History, serializer: StepSerializer):
         # TODO - change nomenclature (away from workflow)? Maybe just use workflow.__name__?
         self.workflow_id = workflow_id
         self.workflow = workflow
@@ -197,6 +206,8 @@ class Historian:
 
         # These things need to be serialized
         self._history: History = history
+
+        self._serializer: StepSerializer = serializer
 
         # The remaining properties defined in __init__
         # are reset every time you call start_workflow
@@ -226,14 +237,8 @@ class Historian:
         # See also external.py
         self._resources: dict[str, ResourceEntry] = {}
 
-        # These are asyncio.queues that are used to signal resource updates across
-        # the workflow. Instantiated by stream_resources()
-        self._resource_queues: dict[str, asyncio.Queue] = {}
-
-        # An asyncio.event by identity that is used to handle resource stream updates
-        # and force the application to yield and update to a user before moving on.
-        # Instantiated by stream_resources()
-        self._resource_events: dict[str, asyncio.Event] = {}
+        # This is the resource stream manager that handles calls to stream the historian's resources
+        self._resource_stream_manager = ResourceStreamManager()
 
         # We keep track of all open tasks so we can properly suspend them
         self._open_tasks: list[Task] = []
@@ -278,7 +283,7 @@ class Historian:
         self._last_record_gate: asyncio.Future = None
 
     def _reset_replay(self):
-        logging.debug('Resetting replay')
+        quest_logger.debug('Resetting replay')
 
         self._configuration_pos = 0
 
@@ -322,7 +327,7 @@ class Historian:
         if self._last_record_gate is not None:
             await self._last_record_gate
 
-        logging.debug(f'{self.workflow_id} -- Replay Complete --')
+        quest_logger.debug(f'{self.workflow_id} -- Replay Complete --')
         # TODO - log this only once?
 
         self._process_discovered_versions()
@@ -377,11 +382,11 @@ class Historian:
             if record['task_id'] != task_id:
                 if (gate := self._record_gates[_get_id(record)]).done():
                     if gate.exception() is not None:
-                        logging.debug(f'{task_id} found {record} errored: {gate.exception()}')
+                        quest_logger.debug(f'{task_id} found {record} errored: {gate.exception()}')
                     else:
-                        logging.debug(f'{task_id} found {record} completed')
+                        quest_logger.debug(f'{task_id} found {record} completed')
                 else:
-                    logging.debug(f'{task_id} waiting on {record}')
+                    quest_logger.debug(f'{task_id} waiting on {record}')
                 # We await either way so if the gate has an error we see it
                 await gate
 
@@ -389,23 +394,27 @@ class Historian:
                 def complete(r, exc_type, exc_val, exc_tb):
                     if exc_type is not None:
                         exc_info = "".join(traceback.format_exception(exc_type, exc_val, exc_tb))
-                        logging.error(f'Error while handling {r}: \n{exc_info}')
-                        self._record_gates[_get_id(r)].set_exception(exc_val)
-                    else:
-                        logging.debug(f'{task_id} completing {r}')
-                        self._record_gates[_get_id(r)].set_result(None)
+                        quest_logger.debug(f'Noting that record {r} raised: \n{exc_info}')
+                    # Note:
+                    # While Futures, the record gates are only used as gates
+                    # The return values are never used
+                    # Thus, even if there was an error when the task completed
+                    # we simply want to indicate the gate is finished
+                    # The relevant error will be raised in handle_step
+                    quest_logger.debug(f'{task_id} completing {r}')
+                    self._record_gates[_get_id(r)].set_result(None)
 
                 # noinspection PyUnboundLocalVariable
-                logging.debug(f'{self._get_task_name()} replaying {record}')
+                quest_logger.debug(f'{self._get_task_name()} replaying {record}')
                 yield self._NextRecord(record, complete)
 
-        logging.debug(f'Replay for {self._get_task_name()} complete')
+        quest_logger.debug(f'Replay for {self._get_task_name()} complete')
         task_replay.set()
         await self._replay_complete()
 
     async def _external_handler(self):
         try:
-            logging.debug(f'External event handler {self._get_task_name()} starting')
+            quest_logger.debug(f'External event handler {self._get_task_name()} starting')
             async for next_record in self._task_replay_records(self._get_external_task_name()):
                 with next_record as record:
                     if record['type'] == 'external':
@@ -417,9 +426,9 @@ class Historian:
                     elif record['type'] == 'configuration':
                         await self._run_configuration(record)
 
-            logging.debug(f'External event handler {self._get_task_name()} completed')
+            quest_logger.debug(f'External event handler {self._get_task_name()} completed')
         except Exception:
-            logging.exception('Error in _external_handler')
+            quest_logger.exception('Error in _external_handler')
             raise
 
     async def _next_record(self):
@@ -435,7 +444,7 @@ class Historian:
 
     async def _run_configuration(self, config_record: ConfigurationRecord):
         config_function, args, kwargs = self._configurations[self._configuration_pos]
-        logging.debug(f'Running configuration: {get_function_name(config_function)}(*{args}, **{kwargs})')
+        quest_logger.debug(f'Running configuration: {get_function_name(config_function)}(*{args}, **{kwargs})')
 
         assert config_record['function_name'] == get_function_name(config_function), str(config_record)
         assert config_record['args'] == args, str(config_record)
@@ -446,7 +455,7 @@ class Historian:
 
     def get_version(self, module_name, function_name, version_name=GLOBAL_VERSION):
         version = self._versions.get(_get_qualified_version(module_name, function_name, version_name), None)
-        logging.debug(
+        quest_logger.debug(
             f'{self._get_task_name()} get_version({module_name}, {function_name}, {version_name} returned "{version}"')
         return version
 
@@ -470,7 +479,7 @@ class Historian:
         if self._versions.get(version_name, None) == version:
             return  # Version not changed
 
-        logging.debug(f'Version record: {version_name} = {version}')
+        quest_logger.debug(f'Version record: {version_name} = {version}')
         self._versions[version_name] = version
 
         self._history.append(VersionRecord(
@@ -482,13 +491,13 @@ class Historian:
         ))
 
     def _replay_version(self, record: VersionRecord):
-        logging.debug(f'{self._get_task_name()} setting version {record["step_id"]} = "{record["version"]}"')
+        quest_logger.debug(f'{self._get_task_name()} setting version {record["step_id"]} = "{record["version"]}"')
         self._versions[record['step_id']] = record['version']
 
     # TODO - keep or discard?
     async def _after_version(self, module_name, func_name, version_name, version):
         version_name = _get_qualified_version(module_name, func_name, version_name)
-        logging.debug(f'{self._get_task_name()} is waiting for version {version_name}=={version}')
+        quest_logger.debug(f'{self._get_task_name()} is waiting for version {version_name}=={version}')
 
         found = False
         for record in self._existing_history:
@@ -499,7 +508,7 @@ class Historian:
                 await self._record_gates[_get_id(record)]
 
         if not found:
-            logging.error(f'{self._get_task_name()} did not find version {version_name}=={version}')
+            quest_logger.error(f'{self._get_task_name()} did not find version {version_name}=={version}')
             raise Exception(f'{self._get_task_name()} did not find version {version_name}=={version}')
 
         if (next_record := await self._next_record()) is not None:
@@ -528,14 +537,17 @@ class Historian:
                     # Rehydrate step from history
                     assert record['type'] == 'end'
                     if record['exception'] is None:
-                        return record['result']
+                        deserialized_result = await self._serializer.deserialize(record['result'])
+                        return deserialized_result
                     else:
-                        raise globals()[record['exception']['type']](*record['exception']['args'])
+                        exception_class = _get_exception_class(record['exception']['type'])
+                        exception_args = record['exception']['args']
+                        raise exception_class(*exception_args)
                 else:
                     assert record['type'] == 'start'
 
         if next_record is None:
-            logging.debug(f'{self._get_task_name()} starting step {func_name} with {args} and {kwargs}')
+            quest_logger.debug(f'{self._get_task_name()} starting step {func_name} with {args} and {kwargs}')
             self._history.append(StepStartRecord(
                 type='start',
                 timestamp=_get_current_timestamp(),
@@ -550,14 +562,16 @@ class Historian:
             result = func(*args, **kwargs)
             if hasattr(result, '__await__'):
                 result = await result
-            logging.debug(f'{self._get_task_name()} completing step {func_name} with {result}')
+            quest_logger.debug(f'{self._get_task_name()} completing step {func_name} with {result}')
+
+            serialized_result = await self._serializer.serialize(result)
 
             self._history.append(StepEndRecord(
                 type='end',
                 timestamp=_get_current_timestamp(),
                 task_id=self._get_task_name(),
                 step_id=step_id,
-                result=result,
+                result=serialized_result,
                 exception=None
             ))
 
@@ -568,7 +582,7 @@ class Historian:
                 prune_on_exit = False
                 raise asyncio.CancelledError(SUSPENDED)
             else:
-                logging.exception(f'{step_id} canceled')
+                quest_logger.exception(f'{step_id} canceled')
                 self._history.append(StepEndRecord(
                     type='end',
                     timestamp=_get_current_timestamp(),
@@ -584,7 +598,7 @@ class Historian:
                 raise
 
         except Exception as ex:
-            logging.exception(f'Error in {step_id}')
+            quest_logger.exception(f'Error in {step_id}')
             self._history.append(StepEndRecord(
                 type='end',
                 timestamp=_get_current_timestamp(),
@@ -611,9 +625,10 @@ class Historian:
         resource_id = _create_resource_id(name, identity)
         step_id = self._get_unique_id(resource_id + '.' + action)
 
-        logging.debug(f'External event {step_id} with {args} and {kwargs}')
+        quest_logger.debug(f'External event {step_id} with {args} and {kwargs}')
 
         resource = self._resources[resource_id]['resource']
+
         function = getattr(resource, action)
         if inspect.iscoroutinefunction(function):
             result = await function(*args, **kwargs)
@@ -682,7 +697,7 @@ class Historian:
                 assert list(args) == list(record['args']), str(record)
                 assert kwargs == record['kwargs'], str(record)
 
-        logging.debug(f'{self._get_task_name()} calling {step_id} with {args} and {kwargs}')
+        quest_logger.debug(f'Calling {step_id} with {args} and {kwargs}')
         if inspect.iscoroutinefunction(function):
             result = await function(*args, **kwargs)
         else:
@@ -700,7 +715,7 @@ class Historian:
                 kwargs=kwargs,
                 result=result
             ))
-            await self._handle_resource_update(identity)
+            await self._update_resource_stream(identity)
 
         else:
             with next_record as record:
@@ -722,7 +737,7 @@ class Historian:
             # TODO - custom exception
 
         step_id = self._get_unique_id(resource_id + '.' + '__init__')
-        logging.debug(f'Creating {resource_id}')
+        quest_logger.debug(f'Creating {resource_id}')
 
         self._resources[resource_id] = ResourceEntry(
             name=name,
@@ -740,7 +755,7 @@ class Historian:
                 resource_id=resource_id,
                 resource_type=_get_type_name(resource)
             ))
-            await self._handle_resource_update(identity)
+            await self._update_resource_stream(identity)
 
         else:
             with next_record as record:
@@ -756,7 +771,7 @@ class Historian:
             # TODO - custom exception
 
         step_id = self._get_unique_id(resource_id + '.' + '__del__')
-        logging.debug(f'{self._get_task_name()} Removing {resource_id}')
+        quest_logger.debug(f'Removing {resource_id}')
         resource_entry = self._resources.pop(resource_id)
 
         if not suspending:
@@ -769,7 +784,7 @@ class Historian:
                     resource_id=resource_id,
                     resource_type=resource_entry['type']
                 ))
-                await self._handle_resource_update(identity)
+                await self._update_resource_stream(identity)
 
             else:
                 with next_record as record:
@@ -779,11 +794,11 @@ class Historian:
     def start_task(self, func, *args, name=None, task_factory=asyncio.create_task, **kwargs):
         historian_context.set(self)
         task_id = name or self._get_unique_id(get_function_name(func))
-        logging.debug(f'{self._get_task_name()} has requested {task_id} start')
+        quest_logger.debug(f'Requested {task_id} start')
 
         @wraps(func)
         async def _func(*a, **kw):
-            logging.debug(f'Starting task {task_id}')
+            quest_logger.debug(f'Starting task {task_id}')
 
             if (next_record := await self._next_record()) is None:
                 self._history.append(TaskEvent(
@@ -812,7 +827,8 @@ class Historian:
                     assert record['type'] == 'complete_task'
                     assert record['task_id'] == task_id
 
-            logging.debug(f'Completing task {task_id}')
+            quest_logger.debug(f'Completing task {task_id}')
+
             return result
 
         task = task_factory(
@@ -832,19 +848,21 @@ class Historian:
         kwargs = await self.handle_step('kwargs', lambda: kwargs)
         result = await self.handle_step(get_function_name(self.workflow), self.workflow, *args, **kwargs)
         self._workflow_completed = True
-        await self._handle_resource_update(None)
+        self._resource_stream_manager.notify_of_workflow_stop()
         return result
 
     async def _run_with_exception_handling(self, *args, **kwargs):
         try:
-            return await self._run_with_args(*args, **kwargs)
+            task = await self._run_with_args(*args, **kwargs)
+            return task
         except Exception as ex:
             self._fatal_exception.set_exception(ex)
             raise
 
     async def _run(self, *args, **kwargs):
         historian_context.set(self)
-        logging.debug(f'Running workflow {self.workflow_id}')
+        task_name_getter.set(self._get_task_name)
+        quest_logger.debug(f'Running workflow {self.workflow_id}')
         self._add_new_configurations()
         self._reset_replay()
 
@@ -865,9 +883,17 @@ class Historian:
                 task_factory=_task_factory.create_task
             )
 
+        # Workflow logic completed
+
+    def _clear_history(self, task):
+        if self._workflow_completed:
+            self._history.clear()
+
     def run(self, *args, **kwargs):
         self._replay_started.clear()
-        return asyncio.create_task(self._run(*args, **kwargs), name=self.workflow_id)
+        task = asyncio.create_task(self._run(*args, **kwargs), name=self.workflow_id)
+        task.add_done_callback(self._clear_history)
+        return task
 
     def configure(self, config_function, *args, **kwargs):
         """
@@ -897,7 +923,7 @@ class Historian:
 
         # Add new configuration records
         for config_function, args, kwargs in self._configurations[len(config_records):]:
-            logging.debug(f'Adding new configuration: {get_function_name(config_function)}(*{args}, **{kwargs}')
+            quest_logger.debug(f'Adding new configuration: {get_function_name(config_function)}(*{args}, **{kwargs}')
 
             self._history.append(ConfigurationRecord(
                 type='configuration',
@@ -909,24 +935,33 @@ class Historian:
                 kwargs=kwargs
             ))
 
-    async def suspend(self):
-        logging.info(f'-- Suspending {self.workflow_id} --')
+
+
+    def signal_suspend(self):
+        quest_logger.debug(f'-- Suspending {self.workflow_id} --')
+
+        self._resource_stream_manager.notify_of_workflow_stop()
+
         # Cancelling these in reverse order is important
         # If a parent thread cancels, it will cancel a child.
         # We want to be the one that cancels every task,
         #  so we cancel the children before the parents.
         for task in list(reversed(self._open_tasks)):
             if not task.done() or task.cancelled() or task.cancelling():
-                logging.debug(f'Suspending task {task.get_name()}')
+                quest_logger.debug(f'Suspending task {task.get_name()}')
                 task.cancel(SUSPENDED)
 
+    async def suspend(self):
         # Once each task has been marked for cancellation
         #  we await each task in order to allow the cancellation
         #  to play out to completion.
+        self.signal_suspend()
+
         for task in list(self._open_tasks):
             try:
                 await task
             except asyncio.CancelledError:
+                quest_logger.debug(f'Task {task.get_name()} was cancelled')
                 pass
 
     async def get_resources(self, identity):
@@ -939,71 +974,29 @@ class Historian:
         if self._fatal_exception.done():
             await self._fatal_exception
 
-        # Get public resources first
-        resources = {
-            entry['name']: entry['resource']
-            for entry in self._resources.values()
-            if entry['identity'] is None
-        }
-
-        # Now add in (and override) identity-specific resources
+        # Return a dictionary of resources wrapped in register_external_event wrappers
+        resources: dict[(str, str), object] = {}
         for entry in self._resources.values():
-            if entry['identity'] == identity:
-                resources[entry['name']] = entry['resource']
+            # Always return public resources and private resources for the specified identity
+            if entry['identity'] is None or entry['identity'] == identity:
+                resources[(entry['name'], entry['identity'])] = wrap_methods_as_historian_events(
+                    entry['resource'],
+                    entry['name'],
+                    entry['identity'],
+                    self,
+                    internal=False
+                )
 
-        # Now wrap the resources in register_external_event wrappers
-        return {k: wrap_methods_as_historian_events(res, k, identity, self, internal=False) for k, res in
-                resources.items()}
+        return resources
 
-    async def stream_resources(self, identity):
-        """
-        Provide a stream of resource snapshots for this workflow.
-        Everytime the workflow resource state changes, an update will be published.
+    def get_resource_stream(self, identity):
+        return self._resource_stream_manager.get_resource_stream(
+            identity,
+            lambda: self.get_resources(identity),
+        )
 
-        NOTE: Once you start the resource stream,
-        the workflow will not progress unless you iterate this stream.
-        Use wait_for_completion() to automatically iterate (and ignore) the remaining updates.
-        """
-
-        # The caller of this function lives outside the step management of the historian
-        #         -> don't replay, just yield event changes in realtime
-
-        logging.debug(f'Resource stream created for {identity}')
-
-        # _handle_resource_updates puts on this queue when the resources have changed
-        self._resource_queues.setdefault(identity, asyncio.Queue())
-
-        # this event ensures that the historian yields to whoever is using the
-        # resources before continuing on
-        # (otherwise the historian would move until blocked,
-        # and the observer wouldn't get a chance to respond to resource changes)
-        self._resource_events.setdefault(identity, asyncio.Event())
-
-        # Yield the current resources immediately
-        yield await self.get_resources(identity)
-
-        while not self._workflow_completed:
-            # Yield new resources updates as they become available
-            await self._resource_queues[identity].get()
-            yield await self.get_resources(identity)
-            self._resource_events[identity].set()
-
-    async def _handle_resource_update(self, identity):
-        # If the user with `identity` has not called `stream_resources`, an update is not needed
-        if (resource_queue := self._resource_queues.get(identity)) is not None:
-            # If the user has called stream_resources, there should be a resource_event for `identity`
-            assert self._resource_events.get(identity) is not None
-
-            self._resource_events[identity].clear()
-            await resource_queue.put('Resource Update')
-            await self._resource_events[identity].wait()
-
-    async def wait_for_completion(self, identity):
-        """
-        Wait for the workflow to complete after starting the resource stream
-        """
-        async for _ in self.stream_resources(identity):
-            pass
+    async def _update_resource_stream(self, identity):
+        await self._resource_stream_manager.update(identity)
 
 
 class HistorianNotFoundException(Exception):

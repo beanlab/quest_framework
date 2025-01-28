@@ -24,11 +24,6 @@ class PersistentHistory(History):
     def __init__(self, namespace: str, storage: BlobStorage):
         self._namespace = namespace
         self._storage = storage
-        # TODO - use linked list instead of array list
-        # master stores head/tail keys
-        # each blob is item, prev, next
-        # only need to modify blobs for altered nodes
-        # on add/delete, and rarely change master head/tail blob
         self._items = []
         self._keys: list[str] = []
 
@@ -51,6 +46,13 @@ class PersistentHistory(History):
         self._keys.remove(key := self._get_key(item))
         self._storage.delete_blob(key)
         self._storage.write_blob(self._namespace, self._keys)
+
+    def clear(self):
+        for key in self._keys:
+            self._storage.delete_blob(key)
+        self._items.clear()
+        self._keys.clear()
+        self._storage.delete_blob(self._namespace)
 
     def __iter__(self):
         return iter(self._items)
