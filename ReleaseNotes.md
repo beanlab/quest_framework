@@ -1,5 +1,9 @@
 # Release Notes
 
+## 0.2.4
+
+- Fixed Storage cleanup
+
 ## 0.2.3
 
 - *resource stream* feature

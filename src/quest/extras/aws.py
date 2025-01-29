@@ -90,7 +90,6 @@ class S3BlobStorage(BlobStorage):
         response = self._s3_client.list_objects_v2(Bucket=self._bucket_name, Prefix=self._wid)
         if 'Contents' not in response:
             quest_logger.info('No records under wid')
-            return
 
         objects_to_delete = [{'Key': obj['Key']} for obj in response['Contents']]
 
@@ -230,6 +229,7 @@ class DynamoDBBlobStorage(BlobStorage):
         for item in items:
             self._table.delete_item(Key=item['key'])
 
+        quest_logger.info('No records under wid')
 
 
 def create_dynamodb_manager(
