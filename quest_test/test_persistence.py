@@ -112,10 +112,12 @@ async def test_persistence_aws():
     await persistence_basic(S3StorageContext())
     await resume_step_persistence(S3StorageContext())
     await workflow_cleanup_suspend(S3StorageContext())
+    await workflow_cleanup_basic(S3StorageContext())
 
     await persistence_basic(DynamoDBStorageContext())
     await resume_step_persistence(DynamoDBStorageContext())
     await workflow_cleanup_suspend(DynamoDBStorageContext())
+    await workflow_cleanup_basic(DynamoDBStorageContext())
 
 
 
