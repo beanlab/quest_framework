@@ -38,26 +38,36 @@ async def test_persistence_local():
         def __exit__(self, *args):
             return self.tmp_dir.__exit__(*args)
 
+        def cleanup_check(self):
+            return ~self.tmp_dir.exists()
+
     await persistence_basic(FileSystemStorageContext())
     await resume_step_persistence(FileSystemStorageContext())
+    await workflow_cleanup_suspend(FileSystemStorageContext())
+    await workflow_cleanup_basic(FileSystemStorageContext())
 
 @pytest.mark.asyncio
 @timeout(3)
 async def test_persistence_sql():
-    from quest.extras.sql import SQLDatabase, SqlBlobStorage
+    from quest.extras.sql import SQLDatabase, SqlBlobStorage, RecordModel
 
     class SqlStorageContext:
+        _wid = 'test'
         def __enter__(self):
-            database = SQLDatabase('sqlite:///:memory:')
-            storage = SqlBlobStorage('test', database.get_session())
+            self._database = SQLDatabase('sqlite:///:memory:')
+            storage = SqlBlobStorage(self._wid, self._database.get_session())
             return storage
 
         def __exit__(self, *args):
             return True
 
-    await persistence_basic(SqlStorageContext())
+        def cleanup_check(self):
+            return self._database.get_session().query(RecordModel).filter(RecordModel.wid == self._wid).one_or_none() is None
 
+    await persistence_basic(SqlStorageContext())
     await resume_step_persistence(SqlStorageContext())
+    await workflow_cleanup_suspend(SqlStorageContext())
+    await workflow_cleanup_basic(SqlStorageContext())
 
 @pytest.mark.asyncio
 @timeout(6)
@@ -65,33 +75,47 @@ async def test_persistence_sql():
 async def test_persistence_aws():
     from quest.extras.aws import S3BlobStorage, S3Bucket, DynamoDB, DynamoDBBlobStorage
     class DynamoDBStorageContext:
+        _wid = 'test'
+
         def __enter__(self):
-            env_path = Path('.integration.env')
-            load_dotenv(dotenv_path=env_path)
-            dynamodb = DynamoDB()
-            storage = DynamoDBBlobStorage('test', dynamodb.get_table())
+            self._dynamodb = DynamoDB()
+            storage = DynamoDBBlobStorage(self._wid, self._dynamodb.get_table())
             return storage
 
         def __exit__(self, *args):
             return True
+
+        def cleanup_check(self):
+            response = self._dynamodb._table.query(
+                KeyConditionExpression=f"wid = :wid_value",
+                ExpressionAttributeValues={
+                    ":wid_value": self._wid
+                },
+                Limit=1  # Fetch only one item
+            )
+            return response['Count'] == 0  # Returns True if a record exists, False otherwise
+
 
     class S3StorageContext:
         def __enter__(self):
-            env_path = Path('.integration.env')
-            load_dotenv(dotenv_path=env_path)
             s3 = S3Bucket()
-            storage = S3BlobStorage('test', s3.get_s3_client(), s3.get_bucket_name())
-            return storage
+            self._storage = S3BlobStorage('test', s3.get_s3_client(), s3.get_bucket_name())
+            return self._storage
 
         def __exit__(self, *args):
             return True
 
+        def cleanup_check(self):
+            response = self._storage._s3_client.list_objects_v2(Bucket=self._storage._bucket_name, Prefix=self._storage._wid)
+            return 'Contents' not in response
 
     await persistence_basic(S3StorageContext())
     await resume_step_persistence(S3StorageContext())
+    await workflow_cleanup_suspend(S3StorageContext())
 
     await persistence_basic(DynamoDBStorageContext())
     await resume_step_persistence(DynamoDBStorageContext())
+    await workflow_cleanup_suspend(DynamoDBStorageContext())
 
 
 
@@ -163,50 +187,48 @@ async def resume_step_persistence(storage_ctx):
         await historian.run()
 
 
-@pytest.mark.asyncio
-async def test_workflow_cleanup_suspend(tmp_path):
-    storage = LocalFileSystemBlobStorage(tmp_path)
-    history = PersistentHistory('test', storage)
-    historian = Historian(
-        'test',
-        resume_this_workflow,
-        history,
-        serializer=NoopSerializer()
-    )
+async def workflow_cleanup_suspend(storage_ctx):
+    with storage_ctx as storage:
+        history = PersistentHistory('test', storage)
+        historian = Historian(
+            'test',
+            resume_this_workflow,
+            history,
+            serializer=NoopSerializer()
+        )
 
-    workflow = historian.run()
-    await asyncio.sleep(0.01)
-    await historian.suspend()
+        workflow = historian.run()
+        await asyncio.sleep(0.01)
+        await historian.suspend()
 
-    event.set()
+        event.set()
 
-    storage = LocalFileSystemBlobStorage(tmp_path)
-    history = PersistentHistory('test', storage)
-    historian = Historian(
-        'test',
-        resume_this_workflow,
-        history,
-        serializer=NoopSerializer()
-    )
+    with storage_ctx as storage:
+        history = PersistentHistory('test', storage)
+        historian = Historian(
+            'test',
+            resume_this_workflow,
+            history,
+            serializer=NoopSerializer()
+        )
 
-    await historian.run()
+        await historian.run()
 
-    assert not any (tmp_path.iterdir())
+        assert storage_ctx.cleanup_check()
 
 
-@pytest.mark.asyncio
-async def test_workflow_cleanup_basic(tmp_path):
-    storage = LocalFileSystemBlobStorage(tmp_path)
-    history = PersistentHistory('test', storage)
-    historian = Historian(
-        'test',
-        simple_workflow,
-        history,
-        serializer=NoopSerializer()
-    )
+async def workflow_cleanup_basic(storage_ctx):
+    with storage_ctx as storage:
+        history = PersistentHistory('test', storage)
+        historian = Historian(
+            'test',
+            simple_workflow,
+            history,
+            serializer=NoopSerializer()
+        )
 
-    pause.set()
-    await historian.run()
+        pause.set()
+        await historian.run()
 
-    assert not os.listdir(tmp_path)
+        assert storage_ctx.cleanup_check()
 

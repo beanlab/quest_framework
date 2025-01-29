@@ -1,5 +1,6 @@
 # Enable event histories to be persistent
 import json
+import shutil
 
 from hashlib import md5
 from pathlib import Path
@@ -7,6 +8,7 @@ from typing import Protocol, Union
 
 from .history import History
 from .quest_types import EventRecord
+from .utils import quest_logger
 
 Blob = Union[dict, list, str, int, bool, float]
 
@@ -20,6 +22,7 @@ class BlobStorage(Protocol):
 
     def delete_blob(self, key: str): ...
 
+    def delete_storage(self): ...
 
 class PersistentHistory(History):
     def __init__(self, namespace: str, storage: BlobStorage):
@@ -59,6 +62,7 @@ class PersistentHistory(History):
         self._items.clear()
         self._keys.clear()
         self._storage.delete_blob(self._namespace)
+        self._storage.delete_storage()
 
     def __iter__(self):
         return iter(self._items)
@@ -87,6 +91,10 @@ class LocalFileSystemBlobStorage(BlobStorage):
     def delete_blob(self, key: str):
         self._get_file(key).unlink()
 
+    def delete_storage(self):
+        if self._root.exists():
+            self._root.rmdir()
+
 class InMemoryBlobStorage(BlobStorage):
     def __init__(self):
         self._data = {}
@@ -102,3 +110,6 @@ class InMemoryBlobStorage(BlobStorage):
 
     def delete_blob(self, key: str):
         del self._data[key]
+
+    def delete_storage(self):
+        del self._data

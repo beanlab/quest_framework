@@ -1,7 +1,10 @@
 import os
 import json
 
+from boto3.dynamodb.conditions import Key
+
 from .. import BlobStorage, Blob, WorkflowManager, WorkflowFactory, PersistentHistory, History
+from ..utils import quest_logger
 
 try:
     import boto3
@@ -45,13 +48,13 @@ class S3Bucket:
 
 
 class S3BlobStorage(BlobStorage):
-    def __init__(self, name, s3_client, bucket_name):
+    def __init__(self, wid, s3_client, bucket_name):
         self._bucket_name = bucket_name
-        self._name = name
+        self._wid = wid
         self._s3_client = s3_client
 
     def write_blob(self, key: str, blob: Blob):
-        object_key = f"{self._name}/{key}"
+        object_key = f"{self._wid}/{key}"
 
         json_blob = json.dumps(blob)
 
@@ -63,13 +66,13 @@ class S3BlobStorage(BlobStorage):
         )
 
     def read_blob(self, key: str) -> Blob:
-        object_key = f"{self._name}/{key}"
+        object_key = f"{self._wid}/{key}"
         item = self._s3_client.get_object(Bucket=self._bucket_name, Key=object_key)
         blob = json.loads(item['Body'].read().decode('utf-8'))
         return blob
 
     def has_blob(self, key: str) -> bool:
-        object_key = f"{self._name}/{key}"
+        object_key = f"{self._wid}/{key}"
         try:
             self._s3_client.head_object(Bucket=self._bucket_name, Key=object_key)
             return True
@@ -80,9 +83,24 @@ class S3BlobStorage(BlobStorage):
                 raise e
 
     def delete_blob(self, key: str):
-        object_key = f"{self._name}/{key}"
+        object_key = f"{self._wid}/{key}"
         self._s3_client.delete_object(Bucket=self._bucket_name, Key=object_key)
 
+    def delete_storage(self):
+        response = self._s3_client.list_objects_v2(Bucket=self._bucket_name, Prefix=self._wid)
+        if 'Contents' not in response:
+            quest_logger.info('No records under wid')
+            return
+
+        objects_to_delete = [{'Key': obj['Key']} for obj in response['Contents']]
+
+        self._s3_client.delete_objects(
+            Bucket=self._bucket_name,
+            Delete={
+                'Objects': objects_to_delete,
+                'Quiet': True
+            }
+        )
 
 def create_s3_manager(
         namespace: str,
@@ -127,7 +145,7 @@ class DynamoDB:
                     TableName=self._table_name,
                     KeySchema=[
                         {
-                            'AttributeName': 'name',
+                            'AttributeName': 'wid',
                             'KeyType': 'HASH'
                         },
                         {
@@ -137,7 +155,7 @@ class DynamoDB:
                     ],
                     AttributeDefinitions=[
                         {
-                            'AttributeName': 'name',
+                            'AttributeName': 'wid',
                             'AttributeType': 'S'
                         },
                         {
@@ -161,13 +179,13 @@ class DynamoDBTableCreationException(Exception):
 
 
 class DynamoDBBlobStorage(BlobStorage):
-    def __init__(self, name: str, table):
-        self._name = name
+    def __init__(self, wid: str, table):
+        self._wid = wid
         self._table = table
 
     def write_blob(self, key: str, blob: Blob):
         record = {
-            'name': self._name,
+            'wid': self._wid,
             'key': key,
             'blob': blob
         }
@@ -175,7 +193,7 @@ class DynamoDBBlobStorage(BlobStorage):
 
     def read_blob(self, key: str) -> Blob:
         primary_key = {
-            'name': self._name,
+            'wid': self._wid,
             'key': key
         }
         item = self._table.get_item(Key=primary_key)
@@ -183,7 +201,7 @@ class DynamoDBBlobStorage(BlobStorage):
 
     def has_blob(self, key: str):
         primary_key = {
-            'name': self._name,
+            'wid': self._wid,
             'key': key
         }
         item = self._table.get_item(Key=primary_key)
@@ -193,10 +211,25 @@ class DynamoDBBlobStorage(BlobStorage):
 
     def delete_blob(self, key: str):
         primary_key = {
-            'name': self._name,
+            'wid': self._wid,
             'key': key
         }
         self._table.delete_item(Key=primary_key)
+
+    def delete_storage(self):
+        response = self._table.query(KeyConditionExpression=Key('wid').eq(self._wid))
+        items = response['Items']
+
+        while 'LastEvaluatedKey' in response:
+            response = self._table.query(
+                KeyConditionExpression=Key('wid').eq(self._wid),
+                ExclusiveStartKey=response['LastEvaluatedKey']
+            )
+            items.extend(response['Items'])
+
+        for item in items:
+            self._table.delete_item(Key=item['key'])
+
 
 
 def create_dynamodb_manager(

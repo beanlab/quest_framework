@@ -56,7 +56,7 @@ async def make_stuff(name) -> Stuff:
 @step
 async def run_with_serializing(func: Callable, *args):
     stuff = await func(*args)
-    return 'Stuff', stuff.name, stuff.number
+    return 'Stuff', stuff.wid, stuff.number
 
 
 async def make_stuff_wrapper(name) -> Stuff:
@@ -104,7 +104,7 @@ def create_historian(wid: str, func: Callable, type_serializers: dict=None):
 
 def elsewhere():
     type_sers = {
-        Stuff: lambda stuff: (Stuff, (stuff.name, stuff.number), {})
+        Stuff: lambda stuff: (Stuff, (stuff.wid, stuff.number), {})
     }
     hist = create_historian('foo', workflow, type_sers)
 
