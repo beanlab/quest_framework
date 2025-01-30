@@ -13,12 +13,12 @@ class RecordModel(Base):
     __tablename__ = 'records'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String)  # TODO good name for this?
+    wid = Column(String)  # TODO good name for this?
     key = Column(String)
     blob = Column(JSON)
 
     def __repr__(self):
-        return f'<{self.__class__.__name__}: {self.name}>'
+        return f'<{self.__class__.__name__}: {self.wid}>'
 
 
 class SQLDatabase:
@@ -34,8 +34,8 @@ class SQLDatabase:
 
 
 class SqlBlobStorage(BlobStorage):
-    def __init__(self, name, session):
-        self._name = name
+    def __init__(self, wid, session):
+        self._wid = wid
         self._session = session
 
     def _get_session(self):
@@ -43,34 +43,40 @@ class SqlBlobStorage(BlobStorage):
 
     def write_blob(self, key: str, blob: Blob):
         # Check to see if a blob exists, if so rewrite it
-        record_to_update = self._get_session().query(RecordModel).filter(RecordModel.name == self._name).one_or_none()
+        record_to_update = self._get_session().query(RecordModel).filter(RecordModel.wid == self._wid).one_or_none()
         if record_to_update:
             record_to_update.blob = blob
         else:
-            new_record = RecordModel(name=self._name, key=key, blob=blob)
+            new_record = RecordModel(wid=self._wid, key=key, blob=blob)
             self._get_session().add(new_record)
         self._get_session().commit()
 
     # noinspection PyTypeChecker
     def read_blob(self, key: str) -> Blob | None:
-        records = self._get_session().query(RecordModel).filter(RecordModel.name == self._name).all()
+        records = self._get_session().query(RecordModel).filter(RecordModel.wid == self._wid).all()
         for record in records:
             if record.key == key:
                 return record.blob
 
     def has_blob(self, key: str) -> bool:
-        records = self._get_session().query(RecordModel).filter(RecordModel.name == self._name).all()
+        records = self._get_session().query(RecordModel).filter(RecordModel.wid == self._wid).all()
         for record in records:
             if record.key == key:
                 return True
         return False
 
     def delete_blob(self, key: str):
-        records = self._get_session().query(RecordModel).filter(RecordModel.name == self._name).all()
+        records = self._get_session().query(RecordModel).filter(RecordModel.wid == self._wid).all()
         for record in records:
             if record.key == key:
                 self._get_session().delete(record)
                 self._get_session().commit()
+
+    def delete_storage(self):
+        records = self._get_session().query(RecordModel).filter(RecordModel.wid == self._wid).all()
+        for record in records:
+            self._get_session().delete(record)
+            self._get_session().commit()
 
 
 def create_sql_manager(
