@@ -1,0 +1,29 @@
+name: Poetry Workflow
+on:
+  push:
+    branches:
+      - main
+jobs:
+  poetry_publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Publish to PyPI
+        env:
+          POETRY_TOKEN_USER: ${{ secrets.POETRY_TOKEN_USER }}
+          POETRY_TOKEN: ${{ secrets.POETRY_TOKEN }}
+        run: poetry publish --build -u $POETRY_TOKEN_USER -p $POETRY_TOKEN
+
