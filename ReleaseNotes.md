@@ -2,7 +2,7 @@
 
 ## 0.2.4
 
-- Fixed Storage cleanup
+- Fixed Storage cleanup, before individual records were cleared. Now surrounding storage infrastructure is cleared as well.
 
 ## 0.2.3
 
