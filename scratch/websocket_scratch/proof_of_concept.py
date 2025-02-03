@@ -3,7 +3,7 @@ import json
 
 import websockets
 
-from scratch.websocket_scratch.server import Server
+from quest.server import Server
 
 class Target:
     def hello(self):
@@ -15,7 +15,7 @@ async def serve():
 
 async def connect():
     print("Connecting...")
-    async with websockets.connect('ws://localhost:8000') as ws:
+    async with websockets.connect('ws://localhost:8000/call') as ws:
         call = {
             'method': 'hello',
             'args': [],

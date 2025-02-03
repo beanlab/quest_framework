@@ -1,32 +1,31 @@
-import asyncio
+import json
 import websockets
-import jwt
 
-from quest import ainput
 
-SECRET_KEY = "C@n'tT0uchThis!"
-TOKEN = jwt.encode({"ident": "client123"}, SECRET_KEY, algorithm="HS256")
+# Thoughts:
+# Maybe we ought to create two different classes that can compartmentalize the different functionality of the
+# stream vs call route on the server...
+class Client:
+    def __init__(self, uri):
+        self.uri = uri
+        self.ws = None
 
-async def send_messages(websocket):
-    while True:
-        message = await ainput("Enter message to send: ")
-        await websocket.send(message)
+    @classmethod
+    async def call(cls, uri: str):
+        instance = cls(uri)
+        await instance.__aenter__()
+        return instance
 
-async def receive_messages(websocket):
-    async for message in websocket:
-        print(f"Received message: {message}")
+    @classmethod
+    async def stream(cls, uri: str):
+        instance = cls(uri)
+        await instance.__aenter__()
+        return instance
 
-async def main():
-    uri = "ws://localhost:8765"
-    headers = {
-        "Authorization": f"Bearer {TOKEN}"
-    }
+    async def __aenter__(self):
+        self.ws = await websockets.connect(self.uri)
+        return self
 
-    async with websockets.connect(uri, extra_headers=headers) as websocket:
-        await asyncio.gather(
-            send_messages(websocket),
-            receive_messages(websocket)
-        )
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self.ws:
+            await self.ws.close()
