@@ -18,6 +18,10 @@ from .utils import (
 )
 
 
+class WorkflowNotFound(Exception):
+    pass
+
+
 class HistoryFactory(Protocol):
     def __call__(self, workflow_id: str) -> History: ...
 
@@ -71,8 +75,9 @@ class WorkflowManager:
         if self._storage.has_blob(f'{self._namespace}_results'):
             self._results = self._storage.read_blob(f'{self._namespace}_results')
 
-        for wtype, wid, args, kwargs, background, start_time in self._workflow_data:
-            self._start_workflow(wtype, wid, args, kwargs, background=background)
+        for wtype, wid, args, kwargs, delete_unfinished, start_time in self._workflow_data:
+            if wid not in self._workflows:
+                self._start_workflow(wtype, wid, args, kwargs, delete_unfinished=delete_unfinished)
 
         return self
 
@@ -93,13 +98,15 @@ class WorkflowManager:
         return self._workflows[workflow_id]
 
     def _remove_workflow(self, workflow_id: str):
-        self._workflows.pop(workflow_id)
-        self._workflow_tasks.pop(workflow_id)
-        data = next(d for d in self._workflow_data if d[1] == workflow_id)
-        self._workflow_data.remove(data)
+        self._workflows.pop(workflow_id, None)
+        self._workflow_tasks.pop(workflow_id, None)
+        removable = [d for d in self._workflow_data if d[1] == workflow_id]
+        for item in removable:
+            self._workflow_data.remove(item)
 
     def _start_workflow(self,
-                        workflow_type: str, workflow_id: str, workflow_args, workflow_kwargs, background=False):
+                        workflow_type: str, workflow_id: str, workflow_args, workflow_kwargs,
+                        delete_unfinished: bool = False):
         workflow_function = self._create_workflow(workflow_type)
 
         self._futures[workflow_id] = asyncio.Future()
@@ -112,41 +119,74 @@ class WorkflowManager:
 
         self._workflow_tasks[workflow_id] = (task := historian.run(*workflow_args, **workflow_kwargs))
 
-        if not background:
-            task.add_done_callback(lambda t: self._store_result(workflow_id, t))
+        task.add_done_callback(lambda t: self._store_result(workflow_id, t, delete_unfinished))
 
-        task.add_done_callback(lambda t: self._remove_workflow(workflow_id))
+    def delete_workflow(self, workflow_id: str):
+        """Remove a workflow whether running or completed, if not found, raises WorkflowNotFound error"""
+        in_workflow_data = any(d[1] == workflow_id for d in self._workflow_data)
+        active = workflow_id in self._workflows
+        results = workflow_id in self._results or workflow_id in self._futures
 
-    def _store_result(self, workflow_id: str, task: asyncio.Task):
+        if not (in_workflow_data or active or results):
+            raise WorkflowNotFound(f"Workflow '{workflow_id}' not found.")
+
+        # Check if the task is running, if running, cancel right away
+        if workflow_id in self._workflow_tasks:
+            task = self._workflow_tasks[workflow_id]
+            if not task.done():
+                task.cancel()
+
+        self._remove_workflow(workflow_id)
+        self._futures.pop(workflow_id, None)
+        self._results.pop(workflow_id, None)
+
+    def _store_result(self, workflow_id: str, task: asyncio.Task, delete_unfinished: bool):
         """Store the result or exception of a completed workflow"""
-        future = self._futures[workflow_id]
+        future = self._futures.get(workflow_id, None)
+        if future is None:
+            return
 
         try:
             result = task.result()
             # custom exception object
             if isinstance(result, Exception):
-                self._results[workflow_id] = serialize_exception(result)
+                serialized_exception = serialize_exception(result)
+                serialized_exception["_quest_exception_type"] = serialized_exception.get("type", "CustomException")
+                self._results[workflow_id] = serialized_exception
                 future.set_result(self._results[workflow_id])
             else:
-                self._results[workflow_id] = result
-                future.set_result(result)
+                if delete_unfinished:
+                    future.set_result(None)
+                else:
+                    self._results[workflow_id] = result
+                    future.set_result(result)
 
+        # real exception
         except Exception as e:
-            # real exception
-            self._results[workflow_id] = serialize_exception(e)
-            future.set_result(self._results[workflow_id])
+            """
+            If the exception is an ExceptionGroup with only one exception inside,
+            unwrap it and use single exception instead.
+            """
+            if isinstance(e, ExceptionGroup) and len(e.exceptions) == 1:
+                e = e.exceptions[0]
+            serialized_exception = serialize_exception(e)
+            serialized_exception["_quest_exception_type"] = serialized_exception.get("type", "generalException")
+            self._results[workflow_id] = serialized_exception
+            future.set_exception(e)
 
-    def start_workflow(self, workflow_type: str, workflow_id: str, *workflow_args, **workflow_kwargs):
+        finally:
+            # Set the future's result or exception - remove workflow from the manager
+            if workflow_id in self._workflows:
+                self._remove_workflow(workflow_id)
+
+    def start_workflow(self, workflow_type: str, workflow_id: str, *workflow_args, delete_unfinished: bool = False,
+                       **workflow_kwargs):
         """Start the workflow"""
         start_time = datetime.utcnow().isoformat()
-        self._workflow_data.append((workflow_type, workflow_id, workflow_args, workflow_kwargs, False, start_time))
-        self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs)
-
-    def start_workflow_background(self, workflow_type: str, workflow_id: str, *workflow_args, **workflow_kwargs):
-        """Start the workflow"""
-        start_time = datetime.utcnow().isoformat()
-        self._workflow_data.append((workflow_type, workflow_id, workflow_args, workflow_kwargs, True, start_time))
-        self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs, background=True)
+        self._workflow_data.append(
+            (workflow_type, workflow_id, workflow_args, workflow_kwargs, delete_unfinished, start_time))
+        self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs,
+                             delete_unfinished=delete_unfinished)
 
     def has_workflow(self, workflow_id: str) -> bool:
         workflow_id = self._alias_dictionary.get(workflow_id, workflow_id)
@@ -232,7 +272,7 @@ class WorkflowManager:
     def get_workflow_metrics(self):
         """Return metrics for active workflows"""
         metrics = []
-        for wtype, wid, args, kwargs, background, start_time in self._workflow_data:
+        for wtype, wid, args, kwargs, delete_unfinished, start_time in self._workflow_data:
             metrics.append({
                 "workflow_id": wid,
                 "workflow_type": wtype,
@@ -250,8 +290,8 @@ class WorkflowManager:
         try:
             result = await future
             if isinstance(result, dict) and "type" in result:  # Check if it is exception
-                exception = deserialize_exception(result)
-                raise exception
+                exception_obj = deserialize_exception(result)
+                raise exception_obj
             return result
 
         finally:

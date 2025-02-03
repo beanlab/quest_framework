@@ -147,7 +147,7 @@ async def test_manager_background():
 
     async with WorkflowManager('test-manager', storage, create_history, lambda w_type: workflow,
                                serializer=NoopSerializer()) as manager:
-        manager.start_workflow_background('workflow', 'wid1', 1)
+        manager.start_workflow('workflow', 'wid1', 1)
         await asyncio.sleep(0.1)
         await manager.send_event('wid1', 'messages', None, 'put', 2)
         await asyncio.sleep(0.1)

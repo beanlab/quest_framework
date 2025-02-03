@@ -539,6 +539,7 @@ class Historian:
                         return deserialized_result
                     else:
                         exception_data = record['exception']
+                        # pass exception data directly
                         ex = deserialize_exception({
                             "type": exception_data["type"],
                             "args": exception_data["args"],
@@ -592,6 +593,7 @@ class Historian:
                     task_id=self._get_task_name(),
                     step_id=step_id,
                     result=None,
+                    #  serialized_exception should return ExceptionDetails
                     exception=ExceptionDetails(
                         type=serialized_exception["type"],
                         args=serialized_exception["args"],
