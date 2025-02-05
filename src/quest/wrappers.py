@@ -36,7 +36,7 @@ def task(func: Callable[..., Coroutine]) -> Callable[..., Task]:
 T = TypeVar('T')
 
 
-def wrap_steps(obj: T) -> T:
+def wrap_steps(obj: T, methods: list[str]) -> T:
     class Wrapped:
         pass
 
@@ -46,7 +46,8 @@ def wrap_steps(obj: T) -> T:
             continue
 
         if callable(method := getattr(obj, field)):
-            method = step(method)
+            if methods is not None and method in methods:
+                method = step(method)
             setattr(wrapped, field, method)
 
     return wrapped
