@@ -36,7 +36,7 @@ def task(func: Callable[..., Coroutine]) -> Callable[..., Task]:
 T = TypeVar('T')
 
 
-def wrap_steps(obj: T, methods: list[str]) -> T:
+def wrap_steps(obj: T, methods: list[str] = None) -> T:
     class Wrapped:
         pass
 
