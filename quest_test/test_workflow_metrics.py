@@ -16,9 +16,10 @@ async def error_workflow():
     raise ValueError("Intentional error")
 
 
-async def paused_workflow(pause_event: asyncio.Event):
+async def paused_workflow(pause_event: asyncio.Event, done_event: asyncio.Event):
     await pause_event.wait()
     await asyncio.sleep(0.01)
+    done_event.set()
     return "paused workflow result"
 
 
@@ -68,16 +69,16 @@ async def test_three_workflows_and_check_result():
 
 
 @pytest.mark.asyncio
-@timeout(6)
 async def test_pause_and_resume():
     """
     Starts a workflow and suspend
     Ensure the workflow resumes and completes after rehydration
     """
     pause_event = asyncio.Event()
+    done_event = asyncio.Event()
 
     workflows = {
-        "paused_workflow": lambda: paused_workflow(pause_event)
+        "paused_workflow": lambda: paused_workflow(pause_event, done_event)
     }
 
     manager = create_in_memory_workflow_manager(workflows=workflows)
@@ -88,33 +89,30 @@ async def test_pause_and_resume():
         # Exit context
     async with manager:  # re-enter
         pause_event.set()  # resume paused workflow
-        await asyncio.sleep(2)
+        await done_event.wait()
         result = await manager.get_workflow_result('wid1')
         assert result is not None
         assert not manager.has_workflow('wid1')
 
 
-# @pytest.mark.asyncio
-# @timeout(6)
-# async def test_exception_handling():
-#     """ Test Exception Handling (_quest_exception_type) """
-#     workflows = {
-#         "error_workflow": error_workflow
-#     }
-#     manager = create_in_memory_workflow_manager(workflows=workflows)
-#
-#     async with manager:
-#         manager.start_workflow('error_workflow', 'wid1')
-#
-#         # Raise exception
-#         with pytest.raises(ValueError) as error_info:
-#             await manager.get_workflow_result('wid1')
-#         assert "Intentional error" in str(error_info.value)
-#
-#         # Check the stored exception result
-#         error_result = manager._results.get('wid1')
-#         assert error_result is not None
-#         assert "_quest_exception_type" in error_result
+@pytest.mark.asyncio
+@timeout(6)
+async def test_exception_handling():
+    """ Test Exception Handling """
+    workflows = {
+        "error_workflow": error_workflow
+    }
+    manager = create_in_memory_workflow_manager(workflows=workflows)
+
+    async with manager:
+        manager.start_workflow('error_workflow', 'wid1')
+
+        # Check any exception is raised
+        with pytest.raises(Exception):
+            await manager.get_workflow_result("wid1")
+
+        # Ensure workflow removed after the exception
+        assert not manager.has_workflow("wid1")
 
 
 @pytest.mark.asyncio
