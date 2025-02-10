@@ -50,11 +50,13 @@ class WorkflowManager:
     async def __aenter__(self) -> 'WorkflowManager':
         """Load the workflows and get them running again"""
 
-        def our_handler(sig, frame):
-            self._quest_signal_handler(sig, frame)
+        loop = asyncio.get_event_loop()
+
+        def our_handler():
+            self._quest_signal_handler(signal.SIGINT, None)
             raise asyncio.CancelledError(SUSPENDED)
 
-        signal.signal(signal.SIGINT, our_handler)
+        loop.add_signal_handler(signal.SIGINT, our_handler)
 
         if self._storage.has_blob(self._namespace):
             self._workflow_data = self._storage.read_blob(self._namespace)

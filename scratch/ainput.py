@@ -1,12 +1,18 @@
 import asyncio
-from quest.utils import ainput, stdio
-
+from quest.utils import ainput
 
 async def check_yield():
     """Runs while `ainput()` is waiting, proving it yields control."""
-    await asyncio.sleep(0.05)  # Ensure this runs while waiting for input
+    for i in range(10):
+        await asyncio.sleep(0.5)
+        print(i)
     global flag
     flag = True  # If this runs, ainput() yielded control
+
+async def get_input():
+    thing = await ainput("Enter something: ")
+    print(f'You entered: {thing}')
+    return thing
 
 async def ainput_yields():
     """Tests if `ainput()` yields control while waiting for input."""
@@ -14,7 +20,7 @@ async def ainput_yields():
     flag = False  # Reset flag before test
 
     # Create async input task
-    input_task = asyncio.create_task(ainput("Enter something: "))
+    input_task = asyncio.create_task(get_input())
     yield_task = asyncio.create_task(check_yield())  # Should run if ainput() yields
 
     # Wait for both tasks to finish
