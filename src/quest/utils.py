@@ -4,7 +4,8 @@ from contextvars import ContextVar
 import sys
 import os
 
-task_name_getter = ContextVar("task_name_getter", default=lambda : "-")
+task_name_getter = ContextVar("task_name_getter", default=lambda: "-")
+
 
 async def stdio(loop=None):
     if loop is None:
@@ -21,6 +22,7 @@ async def stdio(loop=None):
     await loop.connect_read_pipe(lambda: protocol, read_pipe)
 
     return reader
+
 
 # def _win32_stdio(loop):
 #     class Win32StdinReader:
@@ -47,6 +49,7 @@ async def ainput(prompt: str, reader=None):
     line = await reader.readline()
     return line.decode()
 
+
 # async def read_from_stdin(reader):
 #     buffer = []
 #     while True:
@@ -65,6 +68,7 @@ class TaskFieldFilter(logging.Filter):
     def filter(self, record):
         record.task = task_name_getter.get()()
         return True
+
 
 logging.getLogger().addFilter(TaskFieldFilter())
 quest_logger = logging.getLogger('quest')
