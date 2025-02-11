@@ -1,5 +1,16 @@
 import asyncio
+import signal
+
 from quest.utils import ainput
+
+
+def handle(*args):
+    print('Interrupt handled')
+    raise KeyboardInterrupt()
+
+
+signal.signal(signal.SIGINT, handle)
+
 
 async def check_yield():
     """Runs while `ainput()` is waiting, proving it yields control."""
@@ -9,10 +20,12 @@ async def check_yield():
     global flag
     flag = True  # If this runs, ainput() yielded control
 
+
 async def get_input():
     thing = await ainput("Enter something: ")
     print(f'You entered: {thing}')
     return thing
+
 
 async def ainput_yields():
     """Tests if `ainput()` yields control while waiting for input."""
@@ -27,7 +40,9 @@ async def ainput_yields():
     response = await input_task
     await yield_task
 
-    assert flag and (print(f"ainput() did yield control; {response}") or True), "ainput() did not yield control while waiting for input"
+    assert flag and (print(
+        f"ainput() did yield control; {response}") or True), "ainput() did not yield control while waiting for input"
+
 
 # Run the test
 if __name__ == '__main__':
