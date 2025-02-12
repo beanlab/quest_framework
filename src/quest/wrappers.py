@@ -6,16 +6,25 @@ from typing import Callable, Coroutine, TypeVar
 from .historian import find_historian
 
 
+def _get_func_name(func) -> str:
+    if hasattr(func, '__name__'):
+        return func.__name__
+    # Probably callable class
+    return func.__class__.__name__
+
+
 def step(func):
+    func_name = _get_func_name(func)
+
     if not inspect.iscoroutinefunction(func):
-        raise ValueError(f'Step function must be async: {func.__name__}')
+        raise ValueError(f'Step function must be async: {func_name}')
 
     if hasattr(func, '_is_quest_step'):
-        raise ValueError(f'Step function is already wrapped in @step: {func.__name__}')
+        raise ValueError(f'Step function is already wrapped in @step: {func_name}')
 
     @wraps(func)
     async def new_func(*args, **kwargs):
-        return await find_historian().handle_step(func.__name__, func, *args, **kwargs)
+        return await find_historian().handle_step(func_name, func, *args, **kwargs)
 
     new_func._is_quest_step = True
 
