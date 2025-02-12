@@ -107,9 +107,9 @@ class Server:
         # Receive initial parameters
         message = await ws.recv()
         params = json.loads(message)
-
         wid = params.get('wid')
         ident = params.get('identity')
-        async with self.manager.get_resource_stream(wid, ident) as stream:
+
+        with self.manager.get_resource_stream(wid, ident) as stream:
             async for resources in stream:
                 await ws.send(json.dumps(resources))
