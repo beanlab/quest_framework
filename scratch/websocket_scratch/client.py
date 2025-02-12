@@ -1,6 +1,51 @@
 import asyncio
+import functools
 import json
+
 import websockets
+
+from quest import WorkflowManager
+
+
+class Faker:
+    def epic(self, *args, **kwargs):
+        print('EPIC!')
+        return 8
+
+    def __getattr__(self, item):
+        print(f'member {item} does not exist, so I will make one')
+
+        def func(*args, **kwargs):
+            print(args, kwargs)
+            return 7
+
+        return func
+
+
+if __name__ == '__main__':
+    fake = Faker()
+    print(fake.epic(7, name='foo'))
+    fake.more_epic(8, 9, 10)
+
+
+class Forward:
+    def __init__(self, websocket):
+        self._sock = websocket
+
+    def __getattr__(self, item):
+        async def func(*args, **kwargs):
+            await self._sock.send({'method': item, 'args': args, 'kwargs': kwargs})
+            return await self._sock.recv()
+
+        return func
+
+
+def get_wm(server) -> WorkflowManager:
+    return Forward(server)
+
+
+async def dostuff():
+    wm = get_wm(None)
 
 
 class Client:
@@ -36,11 +81,16 @@ class Client:
         else:
             return response_data['result']
 
+    def forward(self, func):
+        @functools.wraps(func)
+        async def new_func(*args, **kwargs):
+            return await self._make_call(func.__name__, args, kwargs)
+
+        return new_func
+
+    @forward
     async def start_workflow(self, workflow_type: str, workflow_id: str, *workflow_args, **workflow_kwargs):
-        method = 'start_workflow'
-        args = [workflow_type, workflow_id, *workflow_args]
-        kwargs = workflow_kwargs
-        return await self._make_call(method, args, kwargs)
+        ...
 
     async def start_workflow_background(self, workflow_type: str, workflow_id: str, *workflow_args, **workflow_kwargs):
         method = 'start_workflow_background'
@@ -87,7 +137,7 @@ class Client:
         kwargs = kwargs
         return await self._make_call(method, args, kwargs)
 
-    async def get_queue(self, workflow_id: str, name: str, identity):
+    async def get_queue(self, workflow_id: str, name: str, identity) -> Queue:
         method = 'get_queue'
         args = [workflow_id, name, identity]
         kwargs = {}
