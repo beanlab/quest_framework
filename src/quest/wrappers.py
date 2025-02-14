@@ -14,9 +14,12 @@ def _get_func_name(func) -> str:
 
 
 def step(func):
+    if not callable(func):
+        raise ValueError(f'Step can only wrap functions.')
+
     func_name = _get_func_name(func)
 
-    if not inspect.iscoroutinefunction(func):
+    if not inspect.iscoroutinefunction(func) and not inspect.iscoroutinefunction(getattr(func, '__call__')):
         raise ValueError(f'Step function must be async: {func_name}')
 
     if hasattr(func, '_is_quest_step'):
