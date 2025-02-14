@@ -45,17 +45,19 @@ def task(func: Callable[..., Coroutine]) -> Callable[..., Task]:
 T = TypeVar('T')
 
 
-def wrap_steps(obj: T) -> T:
+def wrap_steps(obj: T, methods: list[str] = None) -> T:
     class Wrapped:
         pass
 
     wrapped = Wrapped()
+
     for field in dir(obj):
         if field.startswith('_'):
             continue
 
-        if callable(method := getattr(obj, field)):
-            method = step(method)
-            setattr(wrapped, field, method)
+        method = getattr(obj, field)
+        if callable(method) and (methods is None or method in methods):
+            field = step(method)
+        setattr(wrapped, field, method)
 
     return wrapped

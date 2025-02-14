@@ -11,7 +11,7 @@ from .persistence import LocalFileSystemBlobStorage, PersistentHistory, BlobStor
 from .serializer import StepSerializer, MasterSerializer, NoopSerializer
 from .utils import ainput
 from .versioning import version, get_version
-from .wrappers import step, task
+from .wrappers import step, task, wrap_steps
 
 
 def create_filesystem_historian(save_folder: Path, historian_id: str, function: Callable,
