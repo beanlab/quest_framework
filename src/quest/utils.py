@@ -66,12 +66,32 @@ async def ainput(prompt: str, reader=None):
 
 class TaskFieldFilter(logging.Filter):
     def filter(self, record):
-        record.task = task_name_getter.get()()
+        try:
+            record.task = task_name_getter.get()()
+        except Exception as e:
+            record.task = "UNKNOWN_TASK"  # Fallback if there's an issue
+            print(f"Logging filter error: {e}")
         return True
-
 
 logging.getLogger().addFilter(TaskFieldFilter())
 quest_logger = logging.getLogger('quest')
+# Create a StreamHandler to print logs to the terminal
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.DEBUG)  # Set level for the handler
+
+# Create and set a formatter
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(task)s - %(message)s')
+console_handler.setFormatter(formatter)
+
+# Add the handler to the logger
+quest_logger.addHandler(console_handler)
+quest_logger.propagate=True
+
+# Ensure root logger has a handler
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.DEBUG)
+if not root_logger.hasHandlers():
+    root_logger.addHandler(console_handler)
 
 for logger_name in logging.root.manager.loggerDict.keys():
     logger = logging.getLogger(logger_name)

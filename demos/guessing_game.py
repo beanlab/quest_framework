@@ -6,36 +6,36 @@ from pathlib import Path
 
 from quest import step, create_filesystem_manager, ainput
 
-sel = selectors.DefaultSelector()
-sel.register(sys.stdin, selectors.EVENT_READ)
+# sel = selectors.DefaultSelector()
+# sel.register(sys.stdin, selectors.EVENT_READ)
+#
+#
+# def stdin_has_data():
+#     return sel.select(timeout=0)
 
 
-def stdin_has_data():
-    return sel.select(timeout=0)
+# async def ainput(prompt: str) -> str:
+#     print(prompt, end='', flush=True)
+#     line = []
+#     while True:
+#         if not stdin_has_data():
+#             await asyncio.sleep(0.01)
+#         else:
+#             for i in range(sys.stdin.buffer.tell()):
+#                 char = sys.stdin.read(1)
+#                 if char == '\n':
+#                     return ''.join(line)
+#                 else:
+#                     line.append(char)
 
 
-async def ainput(prompt: str) -> str:
-    print(prompt, end='', flush=True)
-    line = []
-    while True:
-        if not stdin_has_data():
-            await asyncio.sleep(0.01)
-        else:
-            for i in range(sys.stdin.buffer.tell()):
-                char = sys.stdin.read(1)
-                if char == '\n':
-                    return ''.join(line)
-                else:
-                    line.append(char)
-
-
-async def ainput(prompt: str) -> str:
-    print(prompt, end='', flush=True)
-    line = []
-    while len(line) < 5:
-        await asyncio.sleep(1)
-        line.append(str(len(line)))
-    return ''.join(line)
+# async def ainput(prompt: str) -> str:
+#     print(prompt, end='', flush=True)
+#     line = []
+#     while len(line) < 5:
+#         await asyncio.sleep(1)
+#         line.append(str(len(line)))
+#     return ''.join(line)
 
 
 @step

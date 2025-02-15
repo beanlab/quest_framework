@@ -2,7 +2,8 @@ import asyncio
 import signal
 
 from quest.utils import ainput
-
+from quest import step, create_filesystem_manager
+from pathlib import Path
 
 def handle(*args):
     print('Interrupt handled')
@@ -43,7 +44,22 @@ async def ainput_yields():
     assert flag and (print(
         f"ainput() did yield control; {response}") or True), "ainput() did not yield control while waiting for input"
 
+@step
+async def sleep_step():
+    print('Sleep step running for 10 seconds')
+    await asyncio.sleep(10)
+
+async def sleep_workflow():
+    print('Sleep workflow running')
+    async with create_filesystem_manager(
+            Path('ainput_state'),
+            'sleep',
+            lambda wid: sleep_step
+    ) as manager:
+        manager.start_workflow('sleep_workflow', 'sleep_workflow')
+
+        await manager.get_workflow('sleep_workflow')
 
 # Run the test
 if __name__ == '__main__':
-    asyncio.run(ainput_yields())
+    asyncio.run(sleep_workflow())

@@ -15,4 +15,4 @@ def main(wid: str, namespace_folder: Path):
 
 
 if __name__ == '__main__':
-    main('demo', Path('../demos/state/guess_game_demo'))
+    main('sleep_workflow', Path('ainput_state/sleep'))
