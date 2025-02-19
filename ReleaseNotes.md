@@ -1,5 +1,8 @@
 # Release Notes
 
+## 0.2.7
+- *DuplicateWorkflowException* to prevent duplicate workflows from being started while already running
+
 ## 0.2.3
 
 - *resource stream* feature
