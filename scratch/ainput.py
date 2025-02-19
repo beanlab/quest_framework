@@ -49,17 +49,22 @@ async def sleep_step():
     print('Sleep step running for 10 seconds')
     await asyncio.sleep(10)
 
+async def the_workflow():
+    print('Workflow running')
+    await sleep_step()
+
 async def sleep_workflow():
     print('Sleep workflow running')
     async with create_filesystem_manager(
             Path('ainput_state'),
             'sleep',
-            lambda wid: sleep_step
+            lambda wid: the_workflow
     ) as manager:
-        manager.start_workflow('sleep_workflow', 'sleep_workflow')
+        if not manager.has_workflow('sleep_workflow'):
+            manager.start_workflow('sleep_workflow', 'sleep_workflow')
 
         await manager.get_workflow('sleep_workflow')
 
 # Run the test
 if __name__ == '__main__':
-    asyncio.run(sleep_workflow())
+    asyncio.run(ainput_yields())

@@ -6,38 +6,6 @@ from pathlib import Path
 
 from quest import step, create_filesystem_manager, ainput
 
-# sel = selectors.DefaultSelector()
-# sel.register(sys.stdin, selectors.EVENT_READ)
-#
-#
-# def stdin_has_data():
-#     return sel.select(timeout=0)
-
-
-# async def ainput(prompt: str) -> str:
-#     print(prompt, end='', flush=True)
-#     line = []
-#     while True:
-#         if not stdin_has_data():
-#             await asyncio.sleep(0.01)
-#         else:
-#             for i in range(sys.stdin.buffer.tell()):
-#                 char = sys.stdin.read(1)
-#                 if char == '\n':
-#                     return ''.join(line)
-#                 else:
-#                     line.append(char)
-
-
-# async def ainput(prompt: str) -> str:
-#     print(prompt, end='', flush=True)
-#     line = []
-#     while len(line) < 5:
-#         await asyncio.sleep(1)
-#         line.append(str(len(line)))
-#     return ''.join(line)
-
-
 @step
 async def pick_number(lower, upper):
     return random.randint(lower, upper)
@@ -75,10 +43,11 @@ async def main():
             'guess_game_demo',
             lambda wid: guessing_game
     ) as manager:
-        manager.start_workflow(
-            '',
-            f'demo'
-        )
+        if not manager.has_workflow('demo'):
+            manager.start_workflow(
+                '',
+                f'demo'
+            )
         await manager.get_workflow('demo')
 
 
