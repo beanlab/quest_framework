@@ -1,9 +1,10 @@
 import asyncio
 import random
+import selectors
+import sys
 from pathlib import Path
 
 from quest import step, create_filesystem_manager, ainput
-
 
 @step
 async def pick_number(lower, upper):
@@ -35,15 +36,18 @@ async def guessing_game():
 
 
 async def main():
+    state = Path('state')
+    # state.rmdir()
     async with create_filesystem_manager(
-            Path('state'),
+            state,
             'guess_game_demo',
             lambda wid: guessing_game
     ) as manager:
-        manager.start_workflow(
-            '',
-            'demo'
-        )
+        if not manager.has_workflow('demo'):
+            manager.start_workflow(
+                '',
+                f'demo'
+            )
         await manager.get_workflow('demo')
 
 
