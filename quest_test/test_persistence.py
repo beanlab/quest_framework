@@ -2,7 +2,6 @@ import asyncio
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from dotenv import load_dotenv
 
 import pytest
 

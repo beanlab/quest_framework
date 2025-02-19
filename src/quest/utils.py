@@ -30,6 +30,7 @@ class TaskFieldFilter(logging.Filter):
         record.task = task_name_getter.get()()
         return True
 
+
 logging.getLogger().addFilter(TaskFieldFilter())
 quest_logger = logging.getLogger('quest')
 
