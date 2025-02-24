@@ -975,6 +975,27 @@ class Historian:
             await self._fatal_exception
 
         # Return a dictionary of resources wrapped in register_external_event wrappers
+        resources: dict[(str, str), str] = {}
+        for entry in self._resources.values():
+            # Always return public resources and private resources for the specified identity
+            if entry['identity'] is None or entry['identity'] == identity:
+                resources[(entry['name'], entry['identity'])] = entry['type']
+
+        return resources
+
+    # TODO: In order for this to be able to use get_resources and then wrap them, we would need to probably include
+    #  the resource id in the resturned json so that this function could access the resource via self._resources.
+    async def get_wrapped_resources(self, identity):
+        # Wait until the replay is done.
+        # This ensures that all pre-existing resources have been rebuilt.
+        await self._replay_started.wait()
+        await self._replay_complete()
+
+        # If the application has failed, let the caller know
+        if self._fatal_exception.done():
+            await self._fatal_exception
+
+        # Return a dictionary of resources wrapped in register_external_event wrappers
         resources: dict[(str, str), object] = {}
         for entry in self._resources.values():
             # Always return public resources and private resources for the specified identity
@@ -993,6 +1014,12 @@ class Historian:
         return self._resource_stream_manager.get_resource_stream(
             identity,
             lambda: self.get_resources(identity),
+        )
+
+    def get_wrapped_resource_stream(self, identity):
+        return self._resource_stream_manager.get_resource_stream(
+            identity,
+            lambda: self.get_wrapped_resources(identity),
         )
 
     async def _update_resource_stream(self, identity):
