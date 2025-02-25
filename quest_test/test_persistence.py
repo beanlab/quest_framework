@@ -11,6 +11,7 @@ from quest.serializer import NoopSerializer
 from quest.persistence import PersistentHistory, LocalFileSystemBlobStorage
 from .utils import timeout
 
+
 @step
 async def simple_step():
     return 7
@@ -24,6 +25,7 @@ async def simple_workflow():
     await pause.wait()
     foo += await simple_step()
     return foo
+
 
 @pytest.mark.asyncio
 @timeout(3)
@@ -39,6 +41,7 @@ async def test_persistence_local():
 
     await persistence_basic(FileSystemStorageContext())
     await resume_step_persistence(FileSystemStorageContext())
+
 
 @pytest.mark.asyncio
 @timeout(3)
@@ -58,11 +61,13 @@ async def test_persistence_sql():
 
     await resume_step_persistence(SqlStorageContext())
 
+
 @pytest.mark.asyncio
 @timeout(6)
 @pytest.mark.integration
 async def test_persistence_aws():
     from quest.extras.aws import S3BlobStorage, S3Bucket, DynamoDB, DynamoDBBlobStorage
+
     class DynamoDBStorageContext:
         def __enter__(self):
             dynamodb = DynamoDB()
@@ -81,13 +86,11 @@ async def test_persistence_aws():
         def __exit__(self, *args):
             return True
 
-
     await persistence_basic(S3StorageContext())
     await resume_step_persistence(S3StorageContext())
 
     await persistence_basic(DynamoDBStorageContext())
     await resume_step_persistence(DynamoDBStorageContext())
-
 
 
 async def persistence_basic(storage_ctx):
@@ -129,6 +132,7 @@ async def blocks():
 
 async def resume_this_workflow():
     await blocks()
+
 
 async def resume_step_persistence(storage_ctx):
     with storage_ctx as storage:
@@ -186,7 +190,7 @@ async def test_workflow_cleanup_suspend(tmp_path):
 
     await historian.run()
 
-    assert not any (tmp_path.iterdir())
+    assert not any(tmp_path.iterdir())
 
 
 @pytest.mark.asyncio
@@ -204,4 +208,3 @@ async def test_workflow_cleanup_basic(tmp_path):
     await historian.run()
 
     assert not os.listdir(tmp_path)
-

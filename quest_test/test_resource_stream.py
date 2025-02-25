@@ -68,7 +68,7 @@ async def test_default():
 
     w_task = historian.run()
 
-    with historian.get_resource_stream(None) as resource_stream:
+    with historian.get_wrapped_resource_stream(None) as resource_stream:
         updates = aiter(resource_stream)
         resources = await anext(updates)
         assert not resources
@@ -145,7 +145,7 @@ async def test_typical():
     async def typical_listener():
         reported_resources = []
 
-        with historian.get_resource_stream(None) as resource_stream:
+        with historian.get_wrapped_resource_stream(None) as resource_stream:
             async for resources in resource_stream:
                 reported_resources.append(resources)
 
@@ -183,7 +183,7 @@ async def test_public_streaming_private_resources():
     )
 
     w_task = historian.run()
-    with historian.get_resource_stream(None) as resource_stream:
+    with historian.get_wrapped_resource_stream(None) as resource_stream:
         async for resources in resource_stream:
             assert not resources
     await w_task
@@ -233,7 +233,7 @@ async def test_concurrent_none_streams():
 @timeout(3)
 async def test_mult_identity_workflow():
     async def public_listener():
-        with historian.get_resource_stream(None) as resource_stream:
+        with historian.get_wrapped_resource_stream(None) as resource_stream:
             phrase1_fail = True
             async for resources in resource_stream:
                 if ('phrase1', None) in resources:
@@ -264,7 +264,7 @@ async def test_mult_identity_workflow():
 @timeout(3)
 async def test_multiple_private_identity_streams():
     async def ident1_listener():
-        with historian.get_resource_stream('ident1') as resource_stream:
+        with historian.get_wrapped_resource_stream('ident1') as resource_stream:
             ident1_fail = True
             ident2_fail = False
             async for resources in resource_stream:
@@ -276,7 +276,7 @@ async def test_multiple_private_identity_streams():
                 assert False
 
     async def ident2_listener():
-        with historian.get_resource_stream('ident2') as resource_stream:
+        with historian.get_wrapped_resource_stream('ident2') as resource_stream:
             ident1_fail = False
             ident2_fail = True
             async for resources in resource_stream:
@@ -328,7 +328,7 @@ async def test_suspend_workflow():
 
     historian.run()
 
-    with historian.get_resource_stream(None) as resource_stream:
+    with historian.get_wrapped_resource_stream(None) as resource_stream:
         updates = aiter(resource_stream)
         for i in range(4):
             await anext(updates)
@@ -355,7 +355,7 @@ async def test_suspend_resume_workflow():
     )
 
     historian.run()
-    with historian.get_resource_stream(None) as resource_stream:
+    with historian.get_wrapped_resource_stream(None) as resource_stream:
         updates = aiter(resource_stream)
         for i in range(3):  # Call anext up to just before creation of phrase2
             await anext(updates)
@@ -363,7 +363,7 @@ async def test_suspend_resume_workflow():
     await historian.suspend()
     w_task = historian.run()
 
-    with historian.get_resource_stream(None) as resource_stream:
+    with historian.get_wrapped_resource_stream(None) as resource_stream:
         updates = aiter(resource_stream)
         await anext(updates)  # Get initial snapshot of resources
         resources = await anext(updates)

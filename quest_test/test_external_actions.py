@@ -54,17 +54,17 @@ async def test_external_state():
     await wait_for(historian)
 
     # Observe state
-    resources = await historian.get_resources(None)  # i.e. public resources
+    resources = await historian.get_wrapped_resources(None)  # i.e. public resources
     assert not resources  # should be empty
 
-    resources = await historian.get_resources(identity)
+    resources = await historian.get_wrapped_resources(identity)
     assert ('name', 'foo_ident') in resources
     assert await resources[('name', 'foo_ident')].value() == 'Foobar'
 
     # Set state
     await resources[('name', 'foo_ident')].set('Barbaz')
 
-    resources = await historian.get_resources(identity)
+    resources = await historian.get_wrapped_resources(identity)
     assert ('name', 'foo_ident') in resources
     assert await resources[('name', 'foo_ident')].value() == 'Barbaz'
 
@@ -96,10 +96,10 @@ async def test_external_queue():
     workflow = historian.run(identity)
     await wait_for(historian)
 
-    resources = await historian.get_resources(None)
+    resources = await historian.get_wrapped_resources(None)
     assert not resources
 
-    resources = await historian.get_resources(identity)
+    resources = await historian.get_wrapped_resources(identity)
     assert ('items', 'foo_ident') in resources
 
     await resources[('items', 'foo_ident')].put(7)
