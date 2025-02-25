@@ -2,11 +2,14 @@
 import asyncio
 import json
 import traceback
+import jwt
 import websockets
-from websockets import WebSocketServerProtocol
+from jwt import InvalidTokenError
 
 from quest import WorkflowManager
 from quest.utils import quest_logger
+
+SECRET_KEY = "C@n'tT0uchThis!"
 
 
 class Server:
@@ -22,14 +25,6 @@ class Server:
         self.host = host
         self.port = port
         self.server = None
-
-    @classmethod
-    def serve(cls, target, host: str, port: int):
-        """
-        Create and return a server instance for use in an async context.
-        """
-        instance = cls(target, host, port)
-        return instance
 
     async def __aenter__(self):
         """
@@ -47,13 +42,30 @@ class Server:
         await self.server.wait_closed()
         quest_logger.info(f'Server at ws://{self.host}:{self.port} stopped')
 
-    async def handler(self, ws: WebSocketServerProtocol, path: str):
+    async def _authorize(self, ws):
+        try:
+            token = ws.request_headers['Authorization']
+            if token.startswith("Bearer "):
+                token = token.split(" ")[1]
+            else:
+                return False
+
+            jwt.decode(token, SECRET_KEY, algorithms="HS256")
+            return True
+        except (KeyError, InvalidTokenError):
+            return False
+
+    async def handler(self, ws, path: str):
         """
         Handle incoming WebSocket connections and messages.
 
         :param ws: The WebSocket connection.
         :param path: The requested path.
         """
+        if not (authorized := await self._authorize(ws)):
+            await ws.close(reason="Unauthorized")
+            return
+
         quest_logger.info(f'New connection: {path}')
         if path == '/call':
             await self.handle_call(ws)
@@ -64,10 +76,9 @@ class Server:
             response = {'error': 'Invalid path'}
             await ws.send(json.dumps(response))
 
-    async def handle_call(self, ws: WebSocketServerProtocol):
+    async def handle_call(self, ws):
         async for message in ws:
             try:
-                print(f'Received message: {message}')
                 data = json.loads(message)
 
                 method_name = data['method']
@@ -103,7 +114,7 @@ class Server:
 
             await ws.send(json.dumps(response))
 
-    async def handle_stream(self, ws: WebSocketServerProtocol):
+    async def handle_stream(self, ws):
         # Receive initial parameters
         message = await ws.recv()
         params = json.loads(message)
@@ -112,4 +123,7 @@ class Server:
 
         with self.manager.get_resource_stream(wid, ident) as stream:
             async for resources in stream:
+                # TODO: Do we want to change the keys used for resources?
+                # Because json can't serialize tuples, convert tuple keys into strings
+                resources = {str(key): value for key, value in resources.items()}
                 await ws.send(json.dumps(resources))
