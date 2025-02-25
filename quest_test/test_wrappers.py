@@ -33,7 +33,7 @@ async def test_wrap_steps():
     historian = Historian('test', workflow, [], serializer=NoopSerializer())
     historian.run()
 
-    with historian.get_resource_stream(None) as resource_stream:
+    with historian.get_wrapped_resource_stream(None) as resource_stream:
         updates = aiter(resource_stream)
         await anext(updates)  # First update should be empty
         resources = await anext(updates)  # second event should now show the 'gate' Event
@@ -43,7 +43,7 @@ async def test_wrap_steps():
 
     wtask = historian.run()
 
-    with historian.get_resource_stream(None) as resource_stream:
+    with historian.get_wrapped_resource_stream(None) as resource_stream:
         updates = aiter(resource_stream)
         resources = await anext(updates)  # should include 'gate' already because that is where the first run left off
         await resources[('gate', None)].set()

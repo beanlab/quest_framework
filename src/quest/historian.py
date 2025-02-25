@@ -935,8 +935,6 @@ class Historian:
                 kwargs=kwargs
             ))
 
-
-
     def signal_suspend(self):
         quest_logger.debug(f'-- Suspending {self.workflow_id} --')
 
@@ -984,7 +982,7 @@ class Historian:
         return resources
 
     # TODO: In order for this to be able to use get_resources and then wrap them, we would need to probably include
-    #  the resource id in the resturned json so that this function could access the resource via self._resources.
+    #  the resource id in the returned json so that this function could access the resource via self._resources.
     async def get_wrapped_resources(self, identity):
         # Wait until the replay is done.
         # This ensures that all pre-existing resources have been rebuilt.
