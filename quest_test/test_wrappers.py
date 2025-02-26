@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from quest import Historian
@@ -5,6 +7,16 @@ from quest.external import event
 from quest.wrappers import wrap_steps
 from quest.serializer import NoopSerializer
 from .utils import timeout
+
+
+@pytest.mark.asyncio
+async def test_step_class():
+    class CallMe:
+        async def __call__(self):
+            await asyncio.sleep(0.01)
+
+    historian = Historian('test', CallMe(), [], serializer=NoopSerializer())
+    await historian.run()
 
 
 @pytest.mark.asyncio

@@ -580,7 +580,7 @@ class Historian:
         except asyncio.CancelledError as cancel:
             if cancel.args and cancel.args[0] == SUSPENDED:
                 prune_on_exit = False
-                raise asyncio.CancelledError(SUSPENDED)
+                raise asyncio.CancelledError(SUSPENDED) from cancel
             else:
                 quest_logger.exception(f'{step_id} canceled')
                 self._history.append(StepEndRecord(

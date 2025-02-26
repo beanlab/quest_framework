@@ -2,7 +2,6 @@ import asyncio
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from dotenv import load_dotenv
 
 import pytest
 
@@ -71,8 +70,6 @@ async def test_persistence_aws():
 
     class DynamoDBStorageContext:
         def __enter__(self):
-            env_path = Path('.integration.env')
-            load_dotenv(dotenv_path=env_path)
             dynamodb = DynamoDB()
             storage = DynamoDBBlobStorage('test', dynamodb.get_table())
             return storage
@@ -82,8 +79,6 @@ async def test_persistence_aws():
 
     class S3StorageContext:
         def __enter__(self):
-            env_path = Path('.integration.env')
-            load_dotenv(dotenv_path=env_path)
             s3 = S3Bucket()
             storage = S3BlobStorage('test', s3.get_s3_client(), s3.get_bucket_name())
             return storage

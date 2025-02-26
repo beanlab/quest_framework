@@ -24,10 +24,11 @@ T = TypeVar('T')
 
 workflow_manager = ContextVar('workflow_manager')
 
-
 class DuplicateAliasException(Exception):
     ...
 
+class DuplicateWorkflowException(Exception):
+    ...
 
 class WorkflowManager:
     """
@@ -102,6 +103,8 @@ class WorkflowManager:
 
     def start_workflow(self, workflow_type: str, workflow_id: str, *workflow_args, **workflow_kwargs):
         """Start the workflow"""
+        if workflow_id in self._workflow_tasks:
+            raise DuplicateWorkflowException(f'Workflow "{workflow_id}" already exists')
         self._workflow_data.append((workflow_type, workflow_id, workflow_args, workflow_kwargs, False))
         self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs)
 
