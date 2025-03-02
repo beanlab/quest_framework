@@ -82,10 +82,6 @@ class Client:
                 yield json.loads(message)
 
     @forward
-    async def wait_for_completion(self, workflow_id: str, identity):
-        ...
-
-    @forward
     async def send_event(self, workflow_id: str, name: str, identity, action, *args, **kwargs):
         ...
 

@@ -2,18 +2,16 @@
 import asyncio
 import json
 import traceback
-import jwt
+from collections.abc import Callable
 import websockets
-from jwt import InvalidTokenError
+from websockets import WebSocketServerProtocol
 
 from quest import WorkflowManager
 from quest.utils import quest_logger
 
-SECRET_KEY = "C@n'tT0uchThis!"
-
 
 class Server:
-    def __init__(self, manager: WorkflowManager, host: str, port: int):
+    def __init__(self, manager: WorkflowManager, host: str, port: int, authorizer: Callable[dict[str, str], bool]):
         """
         Initialize the server.
 
@@ -21,48 +19,36 @@ class Server:
         :param host: Host address for the server.
         :param port: Port for the server.
         """
-        self.manager: WorkflowManager = manager
-        self.host = host
-        self.port = port
-        self.server = None
+        self._manager: WorkflowManager = manager
+        self._host = host
+        self._port = port
+        self._authorizer = authorizer
+        self._server = None
 
     async def __aenter__(self):
         """
         Start the server in an async with context.
         """
-        self.server = await websockets.serve(self.handler, self.host, self.port)
-        quest_logger.info(f'Server started at ws://{self.host}:{self.port}')
+        self._server = await websockets.serve(self.handler, self._host, self._port)
+        quest_logger.info(f'Server started at ws://{self._host}:{self._port}')
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """
         Stop the server when exiting the context.
         """
-        self.server.close()
-        await self.server.wait_closed()
-        quest_logger.info(f'Server at ws://{self.host}:{self.port} stopped')
+        self._server.close()
+        await self._server.wait_closed()
+        quest_logger.info(f'Server at ws://{self._host}:{self._port} stopped')
 
-    async def _authorize(self, ws):
-        try:
-            token = ws.request_headers['Authorization']
-            if token.startswith("Bearer "):
-                token = token.split(" ")[1]
-            else:
-                return False
-
-            jwt.decode(token, SECRET_KEY, algorithms="HS256")
-            return True
-        except (KeyError, InvalidTokenError):
-            return False
-
-    async def handler(self, ws, path: str):
+    async def handler(self, ws: WebSocketServerProtocol, path: str):
         """
         Handle incoming WebSocket connections and messages.
 
         :param ws: The WebSocket connection.
         :param path: The requested path.
         """
-        if not (authorized := await self._authorize(ws)):
+        if not (self._authorizer(ws.request_headers)):
             await ws.close(reason="Unauthorized")
             return
 
@@ -72,23 +58,22 @@ class Server:
         elif path == '/stream':
             await self.handle_stream(ws)
         else:
-            # TODO: Maybe provide some information about correct paths?
             response = {'error': 'Invalid path'}
             await ws.send(json.dumps(response))
 
-    async def handle_call(self, ws):
+    async def handle_call(self, ws: WebSocketServerProtocol):
         async for message in ws:
             try:
                 data = json.loads(message)
 
                 method_name = data['method']
-                args = data.get('args', [])
-                kwargs = data.get('kwargs', {})
+                args = data['args']
+                kwargs = data['kwargs']
 
-                if not hasattr(self.manager, method_name):
+                if not hasattr(self._manager, method_name):
                     response = {'error': f'Method {method_name} not found'}
                 else:
-                    method = getattr(self.manager, method_name)
+                    method = getattr(self._manager, method_name)
                     if callable(method):
                         result = method(*args, **kwargs)
                         if asyncio.iscoroutine(result):
@@ -97,6 +82,7 @@ class Server:
                     else:
                         response = {'error': f'{method_name} is not callable'}
 
+            # TODO: Use built-in Quest Serialization
             except (TypeError, ValueError) as e:
                 # Handle JSON parsing errors or incorrect data types
                 response = {
@@ -114,14 +100,14 @@ class Server:
 
             await ws.send(json.dumps(response))
 
-    async def handle_stream(self, ws):
+    async def handle_stream(self, ws: WebSocketServerProtocol):
         # Receive initial parameters
         message = await ws.recv()
         params = json.loads(message)
         wid = params.get('wid')
         ident = params.get('identity')
 
-        with self.manager.get_resource_stream(wid, ident) as stream:
+        with self._manager.get_resource_stream(wid, ident) as stream:
             async for resources in stream:
                 # TODO: Do we want to change the keys used for resources?
                 # Because json can't serialize tuples, convert tuple keys into strings

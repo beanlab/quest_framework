@@ -972,7 +972,7 @@ class Historian:
         if self._fatal_exception.done():
             await self._fatal_exception
 
-        # Return a dictionary of resources wrapped in register_external_event wrappers
+        # Return a dictionary of resources
         resources: dict[(str, str), str] = {}
         for entry in self._resources.values():
             # Always return public resources and private resources for the specified identity
