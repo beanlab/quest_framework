@@ -3,6 +3,8 @@ import asyncio
 import json
 import traceback
 from collections.abc import Callable
+from typing import Dict
+
 import websockets
 from websockets import WebSocketServerProtocol
 
@@ -11,7 +13,7 @@ from quest.utils import quest_logger
 
 
 class Server:
-    def __init__(self, manager: WorkflowManager, host: str, port: int, authorizer: Callable[dict[str, str], bool]):
+    def __init__(self, manager: WorkflowManager, host: str, port: int, authorizer: Callable[[Dict[str, str]], bool]):
         """
         Initialize the server.
 
@@ -104,8 +106,8 @@ class Server:
         # Receive initial parameters
         message = await ws.recv()
         params = json.loads(message)
-        wid = params.get('wid')
-        ident = params.get('identity')
+        wid = params['wid']
+        ident = params['identity']
 
         with self._manager.get_resource_stream(wid, ident) as stream:
             async for resources in stream:

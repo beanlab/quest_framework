@@ -1,24 +1,22 @@
 import asyncio
 import functools
 import json
-import jwt
+from typing import Dict
 import websockets
 
 
 def forward(func):
     @functools.wraps(func)
     async def new_func(self, *args, **kwargs):
-        if not self.call_ws:
-            self.call_ws = await websockets.connect(self.url + '/call', extra_headers=self._get_headers())
-
         call = {
             'method': func.__name__,
             'args': args,
             'kwargs': kwargs
         }
-        await self.call_ws.send(json.dumps(call))
-        response = await self.call_ws.recv()
+        await (await self.call_ws).send(json.dumps(call))
+        response = await (await self.call_ws).recv()
         response_data = json.loads(response)
+        # TODO: Either custom error or deserialize error.
         if 'error' in response:
             raise Exception(response_data['error'])
         else:
@@ -28,24 +26,24 @@ def forward(func):
 
 
 class Client:
-    def __init__(self, url, secret):
-        self.url = url
-        self.call_ws = None
-        self.secret = secret
+    def __init__(self, url, headers: Dict[str, str]):
+        self._url = url
+        self._call_ws = None
+        self._headers = headers
 
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self.call_ws:
-            await self.call_ws.close()
+        if self._call_ws:
+            await self._call_ws.close()
 
-    def _get_headers(self):
-        payload = {}
-        token = jwt.encode(payload, self.secret, algorithm='HS256')
-        return {
-            'Authorization': f'Bearer {token}'
-        }
+    @property
+    async def call_ws(self):
+        print('property hit!')
+        if not self._call_ws:
+            self._call_ws = await websockets.connect(self._url + '/call', extra_headers=self._headers)
+        return self._call_ws
 
     @forward
     async def start_workflow(self, workflow_type: str, workflow_id: str, *workflow_args, **workflow_kwargs):
@@ -72,7 +70,7 @@ class Client:
         ...
 
     async def stream_resources(self, workflow_id: str, identity: str):
-        async with websockets.connect(f'{self.url}/stream', extra_headers=self._get_headers()) as ws:
+        async with websockets.connect(f'{self._url}/stream', extra_headers=self._headers) as ws:
             first_message = {
                 'wid': workflow_id,
                 'identity': identity,

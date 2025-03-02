@@ -1,18 +1,26 @@
 import asyncio
+from idlelib.debugger_r import DictProxy
+from typing import Dict
 
 from quest import state, queue
 from quest.server import Server
 from quest.client import Client
 from utils import create_in_memory_workflow_manager
 
+def authorize(headers: Dict[str, str]) -> bool:
+    if 'Authorization' not in headers:
+        return False
+    if headers['Authorization'] == "C@n'tT0uchThis!":
+        return True
+    return False
 
 async def serve(manager):
-    async with Server(manager, 'localhost', 8000):
+    async with Server(manager, 'localhost', 8000, authorizer=authorize):
         await asyncio.Future()
 
 
 async def connect():
-    async with Client('ws://localhost:8000', "C@n'tT0uchThis!") as client:
+    async with Client('ws://localhost:8000', {'Authorization': "C@n'tT0uchThis!"}) as client:
         messages_seen = False
         async for resources in client.stream_resources('workflow1', None):
             print("Resources:", resources)
