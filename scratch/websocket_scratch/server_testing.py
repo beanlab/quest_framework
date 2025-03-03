@@ -7,12 +7,14 @@ from quest.server import Server
 from quest.client import Client
 from utils import create_in_memory_workflow_manager
 
+
 def authorize(headers: Dict[str, str]) -> bool:
     if 'Authorization' not in headers:
         return False
     if headers['Authorization'] == "C@n'tT0uchThis!":
         return True
     return False
+
 
 async def serve(manager):
     async with Server(manager, 'localhost', 8000, authorizer=authorize):
@@ -24,7 +26,7 @@ async def connect():
         messages_seen = False
         async for resources in client.stream_resources('workflow1', None):
             print("Resources:", resources)
-            if "('messages', None)" in resources and not messages_seen:
+            if ('messages', None) in resources and not messages_seen:
                 messages_seen = True
                 response = await client.send_event('workflow1', 'messages', None, 'put', ['Hello world!'])
                 print("Response:", response)

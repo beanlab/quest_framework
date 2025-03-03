@@ -8,7 +8,7 @@ from typing import Dict
 import websockets
 from websockets import WebSocketServerProtocol
 
-from quest import WorkflowManager
+from quest import WorkflowManager, MasterSerializer
 from quest.utils import quest_logger
 
 
@@ -111,7 +111,15 @@ class Server:
 
         with self._manager.get_resource_stream(wid, ident) as stream:
             async for resources in stream:
-                # TODO: Do we want to change the keys used for resources?
-                # Because json can't serialize tuples, convert tuple keys into strings
-                resources = {str(key): value for key, value in resources.items()}
+                # Serialize tuple keys into strings joined by '||'
+                resources = await self._serialize_resources(resources)
                 await ws.send(json.dumps(resources))
+
+    async def _serialize_resources(self, resources):
+        serialized_resources = {}
+        for key, value in resources.items():
+            assert isinstance(key, tuple)
+            # Should 'None' be a protected string for valid identities?
+            new_key = '||'.join(k if k is not None else 'None' for k in key)
+            serialized_resources[new_key] = value
+        return serialized_resources

@@ -1,6 +1,7 @@
 import asyncio
 import functools
 import json
+from email.contentmanager import raw_data_manager
 from typing import Dict
 import websockets
 
@@ -40,10 +41,20 @@ class Client:
 
     @property
     async def call_ws(self):
-        print('property hit!')
         if not self._call_ws:
             self._call_ws = await websockets.connect(self._url + '/call', extra_headers=self._headers)
         return self._call_ws
+
+    def _deserialize_resources(self, message):
+        raw_resources = json.loads(message)
+        modified_resources = {}
+        for key, value in raw_resources.items():
+            key0, key1 = key.split('||')
+            if key1 == 'None':
+                key1 = None
+            tuple_key = (key0, key1)
+            modified_resources[tuple_key] = value
+        return modified_resources
 
     @forward
     async def start_workflow(self, workflow_type: str, workflow_id: str, *workflow_args, **workflow_kwargs):
@@ -77,7 +88,7 @@ class Client:
             }
             await ws.send(json.dumps(first_message))
             async for message in ws:
-                yield json.loads(message)
+                yield self._deserialize_resources(message)
 
     @forward
     async def send_event(self, workflow_id: str, name: str, identity, action, *args, **kwargs):
