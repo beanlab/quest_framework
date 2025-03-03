@@ -223,6 +223,9 @@ class WorkflowManager:
         """Start the workflow, but do not restart previously canceled ones"""
         start_time = datetime.utcnow().isoformat()
 
+        if workflow_id in self._workflow_tasks:
+            raise DuplicateWorkflowException(f'Workflow "{workflow_id}" already exists')
+
         # Prevent restarting previously canceled workflow
         if workflow_id in self._results and isinstance(self._results[workflow_id], WorkflowCancelled):
             return
