@@ -1,8 +1,8 @@
 import asyncio
 import functools
 import json
-from email.contentmanager import raw_data_manager
 from typing import Dict
+
 import websockets
 
 
@@ -14,6 +14,7 @@ def forward(func):
             'args': args,
             'kwargs': kwargs
         }
+        # TODO: This is stinky...
         await (await self.call_ws).send(json.dumps(call))
         response = await (await self.call_ws).recv()
         response_data = json.loads(response)
