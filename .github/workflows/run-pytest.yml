@@ -1,0 +1,64 @@
+name: Run Pytest
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+
+jobs:
+  quest_test:
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest
+        pip install pipreqs
+        pip install sqlalchemy
+        pip install pytest-asyncio
+
+    - name: Generate Requirements
+      run: |
+        pipreqs quest_test --savepath test-requirements.txt
+        pipreqs src --savepath src-requirements.txt
+        cat test-requirements.txt src-requirements.txt | sort | uniq > requirements.txt
+
+    - name: Install Requirements
+      run: |
+        echo quest==0.1.1 > requirements.ignore
+        pip install -r requirements.txt
+
+    - name: Run unit tests
+      env:
+        PYTHONPATH: ${{ github.workspace }}/src
+      run: |
+        pytest quest_test -o log_cli=true
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v3
+      with:
+        role-to-assume: arn:aws:iam::844825014198:role/QuestFramework-IntegrationTests
+        aws-region: us-west-2
+
+    - name: Verify AWS Credentials
+      run: aws sts get-caller-identity
+
+    - name: Run integration tests
+      env:
+        PYTHONPATH: ${{ github.workspace }}/src
+      run: |
+        pytest quest_test -m "integration" -o log_cli=true

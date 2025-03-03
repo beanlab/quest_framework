@@ -6,7 +6,7 @@ from quest.external import state, queue, event
 from quest.historian import Historian
 from quest.wrappers import task, step
 from quest.serializer import NoopSerializer
-from utils import timeout
+from .utils import timeout
 
 
 # External resource tests

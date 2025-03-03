@@ -5,7 +5,7 @@ from quest import step
 from quest.historian import Historian
 from quest.wrappers import task
 from quest.serializer import NoopSerializer
-from utils import timeout
+from .utils import timeout
 
 counters = {}
 pauses = {}

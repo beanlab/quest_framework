@@ -1,9 +1,9 @@
 import asyncio
-import logging
 import signal
 from contextvars import ContextVar
 from functools import wraps
 from typing import Protocol, Callable, TypeVar, Any
+from .utils import quest_logger
 from datetime import datetime
 
 from .external import State, IdentityQueue, Queue, Event
@@ -33,10 +33,11 @@ T = TypeVar('T')
 
 workflow_manager = ContextVar('workflow_manager')
 
-
 class DuplicateAliasException(Exception):
     ...
 
+class DuplicateWorkflowException(Exception):
+    ...
 
 class WorkflowManager:
     """
@@ -106,7 +107,7 @@ class WorkflowManager:
                 )
 
     def _quest_signal_handler(self, sig, frame):
-        logging.debug(f'Caught KeyboardInterrupt: {sig}')
+        quest_logger.debug(f'Caught KeyboardInterrupt: {sig}')
         for wid, historian in self._workflows.items():
             historian.signal_suspend()
 

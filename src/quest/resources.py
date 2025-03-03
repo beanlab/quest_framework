@@ -1,6 +1,6 @@
 import asyncio
-import logging
 from typing import Callable, Coroutine
+from .utils import quest_logger
 
 
 # noinspection PyProtectedMember
@@ -26,13 +26,13 @@ class ResourceStreamManager:
         def __enter__(self):
             self._is_entered = True
             self._on_open(self)
-            logging.debug(f'Resource stream opened for {id(self)}')
+            quest_logger.debug(f'Resource stream opened for {id(self)}')
             return self
 
         def __exit__(self, exc_type, exc_value, traceback):
             self._is_entered = False
             self._on_close(self)
-            logging.debug(f'Resource stream closed for {id(self)}')
+            quest_logger.debug(f'Resource stream closed for {id(self)}')
 
         async def __aiter__(self):
             """

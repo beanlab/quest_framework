@@ -3,7 +3,7 @@ import pytest
 
 from quest import Historian
 from quest.external import state, queue, event, identity_queue
-from utils import timeout, create_test_historian
+from .utils import timeout, create_test_historian
 
 # A general-use workflow for these tests
 async def simple_workflow(phrase1_ident, phrase2_ident):
