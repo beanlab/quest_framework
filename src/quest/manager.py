@@ -12,13 +12,12 @@ from .history import History
 from .persistence import BlobStorage
 from .serializer import StepSerializer
 
-from .utils import (
-    serialize_exception,
-    deserialize_exception,
-)
-
 
 class WorkflowNotFound(Exception):
+    pass
+
+
+class WorkflowCancelled(Exception):
     pass
 
 
@@ -66,6 +65,7 @@ class WorkflowManager:
             self._quest_signal_handler(sig, frame)
             raise asyncio.CancelledError(SUSPENDED)
 
+        # TODO - add cancel api - get cancel from historian api
         signal.signal(signal.SIGINT, our_handler)
 
         if self._storage.has_blob(self._namespace):
@@ -75,26 +75,17 @@ class WorkflowManager:
         if self._storage.has_blob(f'{self._namespace}_results'):
             self._results = self._storage.read_blob(f'{self._namespace}_results')
 
-        # Rehydration
+        # Rehydrate only non-canceled workflows
         for wtype, wid, args, kwargs, delete_on_finish, start_time in self._workflow_data:
-            print(f"[DEBUG] In __aenter__, rehydrating workflow: {wid}")
+            # Prevent rehydration of canceled workflows
+            if wid in self._results and isinstance(self._results[wid], WorkflowCancelled):
+                continue
 
-            # if future exists and done -> check SUSPENDED
-            if wid in self._futures and self._futures[wid].done():
-                future_result = self._futures[wid].result()
-
-                if future_result == SUSPENDED:
-                    print(f"[DEBUG] Workflow {wid} was suspended. Resuming execution.")
-                    self._start_workflow(wtype, wid, args, kwargs, delete_on_finish=delete_on_finish)
-                    continue  # Skip recreating future
-
-            # Set new future if it doesn't exist or cancelled
-            if wid not in self._futures or self._futures[wid].cancelled():
-                print(f"[DEBUG] Workflow {wid} was cancelled, recreating future")
-                self._futures[wid] = asyncio.Future()
-
-            print(f"[DEBUG] Starting workflow {wid}.")
-            self._start_workflow(wtype, wid, args, kwargs, delete_on_finish=delete_on_finish)
+            if wid not in self._workflows:
+                # Create new future if it does not exist or got cancelled.
+                if wid not in self._futures or self._futures[wid].cancelled():
+                    self._futures[wid] = asyncio.Future()
+                self._start_workflow(wtype, wid, args, kwargs, delete_on_finish=delete_on_finish)
 
         return self
 
@@ -102,12 +93,17 @@ class WorkflowManager:
         """Save whatever state is necessary before exiting"""
         self._storage.write_blob(self._namespace, self._workflow_data)
         self._storage.write_blob(f'{self._namespace}_results', self._results)
+
         for wid, historian in self._workflows.items():
             await historian.suspend()
-        # clear cancelled futures
-        to_remove = [wid for wid, future in self._futures.items() if future.cancelled()]
-        for wid in to_remove:
-            del self._futures[wid]
+
+        # All unfinished futures raise workflowCancelled when going out of scope
+        for wid, future in self._futures.items():
+            if not future.done():
+                future.set_exception(
+                    WorkflowCancelled(
+                        f"WorkflowManager exited before {wid} completed.")
+                )
 
     def _quest_signal_handler(self, sig, frame):
         logging.debug(f'Caught KeyboardInterrupt: {sig}')
@@ -123,7 +119,7 @@ class WorkflowManager:
             raise WorkflowNotFound(f"Workflow '{workflow_id}' not found.")
 
         self._workflows.pop(workflow_id)
-        self._workflow_tasks.pop(workflow_id)
+        self._workflow_tasks.pop(workflow_id, None)
         removable = [d for d in self._workflow_data if d[1] == workflow_id]
         for item in removable:
             self._workflow_data.remove(item)
@@ -149,90 +145,87 @@ class WorkflowManager:
 
     async def delete_workflow(self, workflow_id: str):
         """
-        Remove a workflow whether running or completed.
-        If the workflow is not completed, it is suspended, then deleted.
-        If not found, raises WorkflowNotFound error.
+        Cancel and remove a workflow, ensuring it is not rehydrated in the future.
         """
-        in_workflow_data = any(d[1] == workflow_id for d in self._workflow_data)
-        active = workflow_id in self._workflows
-        results = workflow_id in self._results or workflow_id in self._futures
-
-        if not (in_workflow_data or active or results):
+        if workflow_id not in self._workflows and workflow_id not in self._futures:
             raise WorkflowNotFound(f"Workflow '{workflow_id}' not found.")
 
-        # Check if the task is running, if running, cancel right away
+        # If the workflow is actively running, cancel its task
         if workflow_id in self._workflow_tasks:
             task = self._workflow_tasks[workflow_id]
             if not task.done():
-                await self._get_workflow(workflow_id).suspend()
+                task.cancel()
+
+        # Cancel and remove future if it exists
+        if workflow_id in self._futures:
+            future = self._futures[workflow_id]
+            if not future.done():
+                future.cancel()
+            del self._futures[workflow_id]
+
+        # Remove workflow from persistent storage list
+        self._workflow_data = [d for d in self._workflow_data if d[1] != workflow_id]
 
         if workflow_id in self._workflows:
-            self._remove_workflow(workflow_id)
-        if workflow_id in self._futures:
-            del self._futures[workflow_id]
+            del self._workflows[workflow_id]
+
+        if workflow_id in self._workflow_tasks:
+            del self._workflow_tasks[workflow_id]
+
         if workflow_id in self._results:
-            self._results.pop(workflow_id)
+            del self._results[workflow_id]
 
     def _store_result(self, workflow_id: str, task: asyncio.Task, delete_on_finish: bool):
         """Store the result or exception of a completed workflow"""
-        print(f"[DEBUG] _store_result called for workflow_id={workflow_id}")
-        if workflow_id not in self._futures:
-            raise WorkflowNotFound(f"Workflow '{workflow_id}' not found in futures.")
-
         future = self._futures[workflow_id]
 
-        if future is None:
-            print("[DEBUG] Future is None, returning early.")
-            return
-
         try:
+            # Retrieve the workflow result if it completed successfully
             result = task.result()
-            print(f"[DEBUG] Task completed successfully with result={result!r}")
-            if delete_on_finish:
-                if not future.done():
-                    future.set_result(None)
-            else:
-                # store the result and set it on future
-                self._results[workflow_id] = result
-                if not future.done():
-                    future.set_result(result)
+
+            self._results[workflow_id] = result
+
+            if not future.done():
+                future.set_result(result)
 
         # task cancelled
-        except asyncio.CancelledError as c:
-            print(f"[DEBUG] Task cancelled error, c.args={c.args}")
-            if c.args and c.args[0] == SUSPENDED:
-                if not future.done():
-                    future.set_result(SUSPENDED)
-                # For suspension, remove only the active references - workflow data is preserved
-                if workflow_id in self._workflow_tasks:
-                    self._workflow_tasks.pop(workflow_id)
-                if workflow_id in self._workflows:
-                    self._workflows.pop(workflow_id)
-                print(
-                    "[DEBUG] Workflow suspended, references removed but future not deleted (successful handling cancellederror suspended).")
-                # Exit without deleting future for rehydration later
-                return
-            # pass exception to future for other reason
+        except asyncio.CancelledError:
             if not future.done():
-                future.set_exception(c)
+                future.set_exception(asyncio.CancelledError())
 
         except Exception as e:
-            print(f"[DEBUG] Task raised general exception e={e}")
-            serialized_exception = serialize_exception(e)
-            serialized_exception["_quest_exception_type"] = serialized_exception.get("type", "generalException")
-            self._results[workflow_id] = serialized_exception
-            future.set_exception(e)
+            if not future.done():
+                future.set_exception(e)
 
         finally:
-            # remove active workflow tracked from the manager
-            if not task.cancelled() and workflow_id in self._workflows:
-                print(f"[DEBUG] Removing completed workflow {workflow_id}.")
-                self._remove_workflow(workflow_id)
+            # Remove workflow from _workflow_data to ensure get_workflow_metrics() is accurate
+            self._workflow_data = [d for d in self._workflow_data if d[1] != workflow_id]
+
+            # Completed workflow - remove the workflow from active workflows if delete_on_finish is True
+            if delete_on_finish:
+                self._remove_workflow(workflow_id)  # Cleanup
+
+                if workflow_id in self._results:
+                    del self._results[workflow_id]
+
+            if workflow_id in self._workflows:
+                del self._workflows[workflow_id]
+
+            if workflow_id in self._workflow_tasks:
+                del self._workflow_tasks[workflow_id]
+
+            if workflow_id in self._futures:
+                del self._futures[workflow_id]
 
     def start_workflow(self, workflow_type: str, workflow_id: str, *workflow_args, delete_on_finish: bool = True,
                        **workflow_kwargs):
-        """Start the workflow"""
+        """Start the workflow, but do not restart previously canceled ones"""
         start_time = datetime.utcnow().isoformat()
+
+        # Prevent restarting previously canceled workflow
+        if workflow_id in self._results and isinstance(self._results[workflow_id], WorkflowCancelled):
+            return
+
         self._workflow_data.append(
             (workflow_type, workflow_id, workflow_args, workflow_kwargs, delete_on_finish, start_time))
         self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs,
@@ -242,28 +235,11 @@ class WorkflowManager:
         workflow_id = self._alias_dictionary.get(workflow_id, workflow_id)
         return workflow_id in self._workflows
 
-    def get_workflow(self, workflow_id: str) -> asyncio.Task:
-        workflow_id = self._alias_dictionary.get(workflow_id, workflow_id)
-        return self._workflow_tasks[workflow_id]
-
-    async def suspend_workflow(self, workflow_id: str):
-        # Reset the future to avoid CancelledError blocking resumption
-        if workflow_id in self._futures:
-            future = self._futures[workflow_id]
-            if not future.done():
-                future.set_result(SUSPENDED)
-
-        self._get_workflow(workflow_id)._individual_suspend = True
-        await self._get_workflow(workflow_id).suspend()
-
     async def get_resources(self, workflow_id: str, identity):
         return await self._get_workflow(workflow_id).get_resources(identity)
 
     def get_resource_stream(self, workflow_id: str, identity):
         return self._get_workflow(workflow_id).get_resource_stream(identity)
-
-    async def wait_for_completion(self, workflow_id: str, identity):
-        return await self._get_workflow(workflow_id).wait_for_completion(identity)
 
     async def send_event(self, workflow_id: str, name: str, identity, action, *args, **kwargs):
         return await self._get_workflow(workflow_id).record_external_event(name, identity, action, *args, **kwargs)
@@ -339,41 +315,43 @@ class WorkflowManager:
 
     # Should not be used for background tasks
     async def get_workflow_result(self, workflow_id: str, delete: bool = False):
-        print(f"[DEBUG] get_workflow_result called for workflow_id={workflow_id}, delete={delete}")
-        if workflow_id not in self._futures:
-            print("[DEBUG] No future found, returning None.")
-            return None
+        """
+        Retrieve the result of a workflow, either by:
+        - Returning a previously stored result.
+        - Awaiting an active workflow's future if it's still running.
+        """
+        if workflow_id not in self._futures and workflow_id not in self._results:
+            raise WorkflowNotFound(f"Workflow '{workflow_id}' does not exist.")
 
-        future = self._futures[workflow_id]
-        try:
-            # Await future to get the workflow result
-            result = await future
-            print(f"[DEBUG] Future awaited, got result={result}")
-
-            # Return suspended for suspended workflows
-            if result == SUSPENDED:
-                print("[DEBUG] Workflow was suspended, returning SUSPENDED.")
-                return SUSPENDED
-
-            if isinstance(result, dict) and "type" in result:  # Check if it is exception
-                exception_obj = deserialize_exception(result)
-                raise exception_obj
+        # If workflow completed successfully, return its stored result
+        if workflow_id in self._results:
+            result = self._results[workflow_id]
+            if delete:
+                del self._results[workflow_id]  # Cleanup after retrieval
             return result
 
-        # future raises cancelled error
-        except asyncio.CancelledError as c:
-            print(f"[DEBUG] get_workflow_result saw CancelledError with c.args={c.args}")
-            if c.args and c.args[0] == SUSPENDED:
-                # workflow was suspended - return suspended
-                return SUSPENDED
-            raise
+        # If future exists, await it to get the result or exception
+        future = self._futures[workflow_id]
+
+        try:
+            result = await future
+            return result
+
+        # Prevent awaiting a cancelled future when client calls get_workflow_result
+        except asyncio.CancelledError:
+            raise WorkflowCancelled(f"Workflow {workflow_id} was cancelled and has no result.")
 
         finally:
+            # If delete is True, clean up workflow references after the retrieval
             if delete:
-                del self._futures[workflow_id]
+                if workflow_id in self._futures:
+                    del self._futures[workflow_id]
                 if workflow_id in self._results:
                     del self._results[workflow_id]
-                print("[DEBUG] Result deleted after retrieval.")
+                if workflow_id in self._workflows:
+                    del self._workflows[workflow_id]
+                if workflow_id in self._workflow_tasks:
+                    del self._workflow_tasks[workflow_id]
 
 
 def find_workflow_manager() -> WorkflowManager:
