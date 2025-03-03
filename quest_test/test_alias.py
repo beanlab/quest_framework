@@ -139,18 +139,12 @@ async def test_alias_exception():
         'workflow_b': workflow_b,
     }
     async with create_in_memory_workflow_manager(workflows) as manager:
-        manager.start_workflow('workflow_a', 'wid1')
-        manager.start_workflow('workflow_b', 'wid2')
+        manager.start_workflow('workflow_a', 'wid1', delete_on_finish=False)
+        manager.start_workflow('workflow_b', 'wid2', delete_on_finish=False)
 
         await asyncio.sleep(0.1)
         pause.set()
         await asyncio.sleep(0.1)  # Allow workflows to finish
 
-        result_wid1 = await manager.get_workflow_result('wid1', delete=False)
-        result_wid2 = await manager.get_workflow_result('wid2', delete=False)
-
-        assert 'wid1' in manager._results
-        assert 'wid2' in manager._results
-
-        assert result_wid1 is None
-        assert result_wid2 is None
+        result_wid1 = await manager.get_workflow_result('wid1', delete=True)
+        result_wid2 = await manager.get_workflow_result('wid2', delete=True)

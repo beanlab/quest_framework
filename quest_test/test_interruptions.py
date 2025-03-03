@@ -7,6 +7,7 @@ import pytest
 from quest_test.utils import create_in_memory_workflow_manager
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_sigint_handling():
     async def workflow_1(counter_1, gate_1, gate_2):

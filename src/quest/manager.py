@@ -33,11 +33,14 @@ T = TypeVar('T')
 
 workflow_manager = ContextVar('workflow_manager')
 
+
 class DuplicateAliasException(Exception):
     ...
 
+
 class DuplicateWorkflowException(Exception):
     ...
+
 
 class WorkflowManager:
     """

@@ -105,7 +105,7 @@ async def test_manager_events():
         await asyncio.sleep(0.1)
         await manager.send_event('wid1', 'messages', None, 'put', 3)
         await manager.send_event('wid1', 'messages', None, 'put', 0)  # i.e. end the workflow
-        result = await manager.get_workflow('wid1')
+        result = await manager.get_workflow_result('wid1')
         assert result == 6
 
     assert counter_a == 2

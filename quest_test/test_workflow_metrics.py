@@ -14,11 +14,9 @@ async def error_workflow():
     raise Exception("Intended failure")
 
 
-async def paused_workflow(pause_event: asyncio.Event, done_event: asyncio.Event):
+async def pause_resume_workflow(pause_event: asyncio.Event):
     await pause_event.wait()
-    await asyncio.sleep(0.01)
-    done_event.set()
-    return "paused workflow result"
+    return "resumed successfully"
 
 
 @pytest.mark.asyncio
@@ -139,3 +137,31 @@ async def test_workflow_cancellation():
 
         with pytest.raises(WorkflowNotFound):
             await manager.get_workflow_result('wid1')
+
+
+@pytest.mark.asyncio
+@timeout(6)
+async def test_rehydration_single_workflow():
+    workflows = {
+        "pause_resume_workflow": pause_resume_workflow
+    }
+    manager = create_in_memory_workflow_manager(workflows=workflows)
+
+    pause_event = asyncio.Event()
+
+    async with manager:
+        manager.start_workflow("pause_resume_workflow", "wid_1", pause_event, delete_on_finish=False)
+        assert manager.has_workflow("wid_1")
+
+        # Workflow paused
+        await asyncio.sleep(0.2)
+        assert manager.has_workflow("wid_1")
+
+        # Resume workflow
+        pause_event.set()
+
+        # Workflow completed
+        result = await manager.get_workflow_result("wid_1")
+        assert result is not None
+
+        assert not manager.has_workflow("wid_1")
