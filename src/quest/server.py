@@ -4,11 +4,10 @@ import json
 import traceback
 from collections.abc import Callable
 from typing import Dict
-
 import websockets
 from websockets import WebSocketServerProtocol
 
-from quest import WorkflowManager, MasterSerializer
+from quest import WorkflowManager
 from quest.utils import quest_logger
 
 
@@ -119,7 +118,7 @@ class Server:
         serialized_resources = {}
         for key, value in resources.items():
             assert isinstance(key, tuple)
-            # Should 'None' be a protected string for valid identities?
+            # TODO: Should 'None' be a protected string for valid identities?
             new_key = '||'.join(k if k is not None else 'None' for k in key)
             serialized_resources[new_key] = value
         return serialized_resources

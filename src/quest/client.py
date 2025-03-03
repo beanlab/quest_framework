@@ -9,14 +9,15 @@ import websockets
 def forward(func):
     @functools.wraps(func)
     async def new_func(self, *args, **kwargs):
+        if not self._call_ws:
+            self._call_ws = await websockets.connect(self._url + '/call', extra_headers=self._headers)
         call = {
             'method': func.__name__,
             'args': args,
             'kwargs': kwargs
         }
-        # TODO: This is stinky...
-        await (await self.call_ws).send(json.dumps(call))
-        response = await (await self.call_ws).recv()
+        await self.call_ws.send(json.dumps(call))
+        response = await self.call_ws.recv()
         response_data = json.loads(response)
         # TODO: Either custom error or deserialize error.
         if 'error' in response:
@@ -39,12 +40,6 @@ class Client:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self._call_ws:
             await self._call_ws.close()
-
-    @property
-    async def call_ws(self):
-        if not self._call_ws:
-            self._call_ws = await websockets.connect(self._url + '/call', extra_headers=self._headers)
-        return self._call_ws
 
     def _deserialize_resources(self, message):
         raw_resources = json.loads(message)
