@@ -4,12 +4,13 @@ import json
 import traceback
 from collections.abc import Callable
 from typing import Dict
+from quest.utils import quest_logger
 import websockets
 from websockets import WebSocketServerProtocol
-
 from quest import WorkflowManager
-from quest.utils import quest_logger
 
+class MethodNotFoundException(Exception):
+    pass
 
 class Server:
     def __init__(self, manager: WorkflowManager, host: str, port: int, authorizer: Callable[[Dict[str, str]], bool]):
@@ -72,6 +73,7 @@ class Server:
                 kwargs = data['kwargs']
 
                 if not hasattr(self._manager, method_name):
+                    # Serialize MethodNotFoundException
                     response = {'error': f'Method {method_name} not found'}
                 else:
                     method = getattr(self._manager, method_name)
@@ -81,18 +83,18 @@ class Server:
                             result = await result
                         response = {'result': result}
                     else:
+                        # Could maybe reuse MethodNotFoundException
                         response = {'error': f'{method_name} is not callable'}
 
-            # TODO: Use built-in Quest Serialization
             except (TypeError, ValueError) as e:
-                # Handle JSON parsing errors or incorrect data types
+                # TODO: Serialize e
                 response = {
                     'error': 'Invalid message format',
                     'details': str(e),
                     'traceback': traceback.format_exc()
                 }
             except Exception as e:
-                # Catch any other unexpected exceptions
+                # TODO: Serialize e
                 response = {
                     'error': 'Error occurred during execution',
                     'details': str(e),
@@ -102,23 +104,33 @@ class Server:
             await ws.send(json.dumps(response))
 
     async def handle_stream(self, ws: WebSocketServerProtocol):
-        # Receive initial parameters
-        message = await ws.recv()
-        params = json.loads(message)
-        wid = params['wid']
-        ident = params['identity']
+        try:
+            # Receive initial parameters
+            message = await ws.recv()
+            params = json.loads(message)
+            wid = params['wid']
+            ident = params['identity']
+        except (TypeError, ValueError, KeyError) as e:
+            # TODO: Serialize e
+            response = {'error': 'Invalid parameters format'}
+            await ws.send(json.dumps(response))
+            return
 
-        with self._manager.get_resource_stream(wid, ident) as stream:
-            async for resources in stream:
-                # Serialize tuple keys into strings joined by '||'
-                resources = await self._serialize_resources(resources)
-                await ws.send(json.dumps(resources))
+        try:
+            with self._manager.get_resource_stream(wid, ident) as stream:
+                async for resources in stream:
+                    # Serialize tuple keys into strings joined by '||'
+                    resources = await self._serialize_resources(resources)
+                    await ws.send(json.dumps(resources))
+        except Exception as e:
+            # TODO: Serialize e
+            response = {'error': 'Error occurred during execution'}
+            await ws.send(json.dumps(response))
 
     async def _serialize_resources(self, resources):
         serialized_resources = {}
         for key, value in resources.items():
             assert isinstance(key, tuple)
-            # TODO: Should 'None' be a protected string for valid identities?
-            new_key = '||'.join(k if k is not None else 'None' for k in key)
+            new_key = '||'.join(k if k is not None else '' for k in key)
             serialized_resources[new_key] = value
         return serialized_resources

@@ -1,22 +1,25 @@
 import asyncio
 from typing import Dict
+import pytest
 from quest import state, queue
-from quest.server import Server
 from quest.client import Client
+from quest.server import Server
 from utils import create_in_memory_workflow_manager
 
 
 def authorize(headers: Dict[str, str]) -> bool:
     if 'Authorization' not in headers:
+        pytest.fail('No authorization header')
         return False
     if headers['Authorization'] == "C@n'tT0uchThis!":
         return True
+    pytest.fail('Authorization key incorrect')
     return False
 
 
 async def serve(manager):
     async with Server(manager, 'localhost', 8000, authorizer=authorize):
-        await asyncio.Future()
+        await asyncio.sleep(1)
 
 
 async def connect():
@@ -29,8 +32,12 @@ async def connect():
                 response = await client.send_event('workflow1', 'messages', None, 'put', ['Hello world!'])
                 print("Response:", response)
 
+        if not messages_seen:
+            pytest.fail('Message not found in resources')
 
-async def main():
+
+@pytest.mark.asyncio
+async def test_websockets():
     async def workflow():
         async with state('phrase', None, '') as phrase:
             async with queue('messages', None) as messages:
@@ -40,7 +47,3 @@ async def main():
     manager = create_in_memory_workflow_manager({'workflow': workflow})
     manager.start_workflow('workflow', 'workflow1')
     await asyncio.gather(serve(manager), connect())
-
-
-if __name__ == '__main__':
-    asyncio.run(main())

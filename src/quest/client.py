@@ -2,7 +2,6 @@ import asyncio
 import functools
 import json
 from typing import Dict
-
 import websockets
 
 
@@ -16,8 +15,8 @@ def forward(func):
             'args': args,
             'kwargs': kwargs
         }
-        await self.call_ws.send(json.dumps(call))
-        response = await self.call_ws.recv()
+        await self._call_ws.send(json.dumps(call))
+        response = await self._call_ws.recv()
         response_data = json.loads(response)
         # TODO: Either custom error or deserialize error.
         if 'error' in response:
@@ -46,7 +45,7 @@ class Client:
         modified_resources = {}
         for key, value in raw_resources.items():
             key0, key1 = key.split('||')
-            if key1 == 'None':
+            if key1 == '':
                 key1 = None
             tuple_key = (key0, key1)
             modified_resources[tuple_key] = value
