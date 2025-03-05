@@ -198,6 +198,10 @@ class WorkflowManager:
             if not future.done():
                 future.set_exception(e)
 
+        else:
+            if workflow_id in self._futures:
+                del self._futures[workflow_id]
+
         finally:
             # Completed workflow - remove the workflow from active workflows if delete_on_finish is True
             if delete_on_finish:
@@ -212,9 +216,6 @@ class WorkflowManager:
 
             if workflow_id in self._workflow_tasks:
                 del self._workflow_tasks[workflow_id]
-
-            if workflow_id in self._futures:
-                del self._futures[workflow_id]
 
     def start_workflow(self, workflow_type: str, workflow_id: str, *workflow_args, delete_on_finish: bool = True,
                        **workflow_kwargs):
