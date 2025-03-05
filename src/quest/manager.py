@@ -341,10 +341,6 @@ class WorkflowManager:
             result = await future
             return result
 
-        # Prevent awaiting a cancelled future when client calls get_workflow_result
-        except asyncio.CancelledError:
-            raise WorkflowCancelled(f"Workflow {workflow_id} was cancelled and has no result.")
-
         finally:
             # If delete is True, clean up workflow references after the retrieval
             if delete:
