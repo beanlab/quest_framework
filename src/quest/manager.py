@@ -199,17 +199,13 @@ class WorkflowManager:
                 future.set_exception(e)
 
         finally:
-            if workflow_id in self._results:
-                if isinstance(self._results[workflow_id], WorkflowCancelled):
-                    pass  # Keep interrupted workflows
-                else:
-                    self._workflow_data = [d for d in self._workflow_data if d[1] != workflow_id]
-            elif workflow_id not in self._workflows and workflow_id not in self._workflow_tasks:
-                # Workflow explicitly deleted, remove it from _workflow_data
+            # Explicitly deleted or canceled workflows removed
+            if workflow_id in self._results and isinstance(self._results[workflow_id], WorkflowCancelled):
                 self._workflow_data = [d for d in self._workflow_data if d[1] != workflow_id]
 
             # Completed workflow - remove the workflow from active workflows if delete_on_finish is True
             if delete_on_finish:
+                self._workflow_data = [d for d in self._workflow_data if d[1] != workflow_id]
                 self._remove_workflow(workflow_id)  # Cleanup
 
                 if workflow_id in self._results:
@@ -316,11 +312,12 @@ class WorkflowManager:
         """Return metrics for active workflows"""
         metrics = []
         for wtype, wid, args, kwargs, delete_on_finish, start_time in self._workflow_data:
-            metrics.append({
-                "workflow_id": wid,
-                "workflow_type": wtype,
-                "start_time": start_time
-            })
+            if wid in self._workflows:
+                metrics.append({
+                    "workflow_id": wid,
+                    "workflow_type": wtype,
+                    "start_time": start_time
+                })
         return metrics
 
     # Should not be used for background tasks
