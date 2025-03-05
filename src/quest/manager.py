@@ -124,9 +124,6 @@ class WorkflowManager:
 
         self._workflows.pop(workflow_id)
         self._workflow_tasks.pop(workflow_id, None)
-        removable = [d for d in self._workflow_data if d[1] == workflow_id]
-        for item in removable:
-            self._workflow_data.remove(item)
 
     def _start_workflow(self,
                         workflow_type: str, workflow_id: str, workflow_args, workflow_kwargs,
@@ -202,8 +199,14 @@ class WorkflowManager:
                 future.set_exception(e)
 
         finally:
-            # Remove workflow from _workflow_data to ensure get_workflow_metrics() is accurate
-            self._workflow_data = [d for d in self._workflow_data if d[1] != workflow_id]
+            if workflow_id in self._results:
+                if isinstance(self._results[workflow_id], WorkflowCancelled):
+                    pass  # Keep interrupted workflows
+                else:
+                    self._workflow_data = [d for d in self._workflow_data if d[1] != workflow_id]
+            elif workflow_id not in self._workflows and workflow_id not in self._workflow_tasks:
+                # Workflow explicitly deleted, remove it from _workflow_data
+                self._workflow_data = [d for d in self._workflow_data if d[1] != workflow_id]
 
             # Completed workflow - remove the workflow from active workflows if delete_on_finish is True
             if delete_on_finish:
