@@ -199,10 +199,6 @@ class WorkflowManager:
                 future.set_exception(e)
 
         finally:
-            # Explicitly deleted or canceled workflows removed
-            if workflow_id in self._results and isinstance(self._results[workflow_id], WorkflowCancelled):
-                self._workflow_data = [d for d in self._workflow_data if d[1] != workflow_id]
-
             # Completed workflow - remove the workflow from active workflows if delete_on_finish is True
             if delete_on_finish:
                 self._workflow_data = [d for d in self._workflow_data if d[1] != workflow_id]
