@@ -85,11 +85,11 @@ class WorkflowManager:
             if wid in self._results and isinstance(self._results[wid], WorkflowCancelled):
                 continue
 
-            if wid not in self._workflows:
-                # Create new future if it does not exist or got cancelled.
-                if wid not in self._futures or self._futures[wid].cancelled():
-                    self._futures[wid] = asyncio.Future()
-                self._start_workflow(wtype, wid, args, kwargs, delete_on_finish=delete_on_finish)
+            # Create new future if it does not exist or got cancelled due to WorkflowManager going out of scope.
+            if wid not in self._futures or self._futures[wid].cancelled():
+                self._futures[wid] = asyncio.Future()
+
+            self._start_workflow(wtype, wid, args, kwargs, delete_on_finish=delete_on_finish)
 
         return self
 
