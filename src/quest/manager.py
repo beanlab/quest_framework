@@ -124,9 +124,6 @@ class WorkflowManager:
 
         self._workflows.pop(workflow_id)
         self._workflow_tasks.pop(workflow_id, None)
-        removable = [d for d in self._workflow_data if d[1] == workflow_id]
-        for item in removable:
-            self._workflow_data.remove(item)
 
     def _start_workflow(self,
                         workflow_type: str, workflow_id: str, workflow_args, workflow_kwargs,
@@ -202,11 +199,9 @@ class WorkflowManager:
                 future.set_exception(e)
 
         finally:
-            # Remove workflow from _workflow_data to ensure get_workflow_metrics() is accurate
-            self._workflow_data = [d for d in self._workflow_data if d[1] != workflow_id]
-
             # Completed workflow - remove the workflow from active workflows if delete_on_finish is True
             if delete_on_finish:
+                self._workflow_data = [d for d in self._workflow_data if d[1] != workflow_id]
                 self._remove_workflow(workflow_id)  # Cleanup
 
                 if workflow_id in self._results:
@@ -313,11 +308,12 @@ class WorkflowManager:
         """Return metrics for active workflows"""
         metrics = []
         for wtype, wid, args, kwargs, delete_on_finish, start_time in self._workflow_data:
-            metrics.append({
-                "workflow_id": wid,
-                "workflow_type": wtype,
-                "start_time": start_time
-            })
+            if wid in self._workflows:
+                metrics.append({
+                    "workflow_id": wid,
+                    "workflow_type": wtype,
+                    "start_time": start_time
+                })
         return metrics
 
     # Should not be used for background tasks
