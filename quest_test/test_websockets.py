@@ -4,7 +4,7 @@ import pytest
 from quest import state, queue
 from quest.client import Client
 from quest.server import Server
-from utils import create_in_memory_workflow_manager
+from quest_test.utils import create_in_memory_workflow_manager
 
 
 def authorize(headers: Dict[str, str]) -> bool:
