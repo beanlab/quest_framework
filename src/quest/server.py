@@ -2,8 +2,7 @@
 import asyncio
 import json
 import traceback
-from collections.abc import Callable
-from typing import Dict
+from typing import Callable
 from quest.utils import quest_logger
 import websockets
 from websockets import WebSocketServerProtocol
@@ -13,7 +12,7 @@ class MethodNotFoundException(Exception):
     pass
 
 class Server:
-    def __init__(self, manager: WorkflowManager, host: str, port: int, authorizer: Callable[[Dict[str, str]], bool]):
+    def __init__(self, manager: WorkflowManager, host: str, port: int, authorizer: Callable[[dict[str, str]], bool]):
         """
         Initialize the server.
 

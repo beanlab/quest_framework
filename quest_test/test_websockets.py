@@ -1,5 +1,4 @@
 import asyncio
-from typing import Dict
 import pytest
 from quest import state, queue
 from quest.client import Client
@@ -7,7 +6,7 @@ from quest.server import Server
 from quest_test.utils import create_in_memory_workflow_manager
 
 
-def authorize(headers: Dict[str, str]) -> bool:
+def authorize(headers: dict[str, str]) -> bool:
     if 'Authorization' not in headers:
         pytest.fail('No authorization header')
         return False

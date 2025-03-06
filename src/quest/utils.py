@@ -22,6 +22,9 @@ class TaskFieldLogger(logging.getLoggerClass()):
         self.addFilter(TaskFieldFilter())
 
 
+# Set class to be used for instantiating loggers
+logging.setLoggerClass(TaskFieldLogger)
+
 logging.getLogger().addFilter(TaskFieldFilter())  # Add filter on root logger
 quest_logger = logging.getLogger('quest')  # Create custom quest logger
 
@@ -29,6 +32,3 @@ quest_logger = logging.getLogger('quest')  # Create custom quest logger
 for logger_name in logging.root.manager.loggerDict.keys():
     logger = logging.getLogger(logger_name)
     logger.addFilter(TaskFieldFilter())
-
-# Set class to be used for instantiating loggers
-logging.setLoggerClass(TaskFieldLogger)

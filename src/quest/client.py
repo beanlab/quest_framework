@@ -1,7 +1,6 @@
 import asyncio
 import functools
 import json
-from typing import Dict
 import websockets
 
 
@@ -28,7 +27,7 @@ def forward(func):
 
 
 class Client:
-    def __init__(self, url, headers: Dict[str, str]):
+    def __init__(self, url, headers: dict[str, str]):
         self._url = url
         self._call_ws = None
         self._headers = headers
