@@ -82,6 +82,20 @@ class _Wrapper:
     pass
 
 
+class _ResourceWrapper:
+    def __init__(self, name: str, identity: str | None, historian: 'Historian'):
+        self._name = name
+        self._identity = identity
+        self._historian = historian
+        pass
+
+    # TODO: Need to check if item is _private or even callable?
+    def __getattr__(self, item):
+        async def wrapper(*args, _name=self._name, _identity=self._identity, **kwargs):
+            return await self._historian.record_external_event(_name, _identity, item, *args, **kwargs)
+        return wrapper
+
+
 def wrap_methods_as_historian_events(resource: T, name: str, identity: str | None, historian: 'Historian',
                                      internal=True) -> T:
     wrapper = _Wrapper()
@@ -972,8 +986,7 @@ class Historian:
         if self._fatal_exception.done():
             await self._fatal_exception
 
-        # Return a dictionary of resources
-        resources: dict[(str, str), str] = {}
+        resources: dict[(str, str), str] = {}  # dict[(name, identity), type]
         for entry in self._resources.values():
             # Always return public resources and private resources for the specified identity
             if entry['identity'] is None or entry['identity'] == identity:
@@ -981,32 +994,14 @@ class Historian:
 
         return resources
 
-    # TODO: In order for this to be able to use get_resources and then wrap them, we would need to probably include
-    #  the resource id in the returned json so that this function could access the resource via self._resources.
     async def get_wrapped_resources(self, identity):
-        # Wait until the replay is done.
-        # This ensures that all pre-existing resources have been rebuilt.
-        await self._replay_started.wait()
-        await self._replay_complete()
+        resources = await self.get_resources(identity)
+        wrapped_resources: dict[(str, str), object] = {}
+        for key, resource_type in resources.items():
+            name, identity = key
+            wrapped_resources[key] = _ResourceWrapper(name, identity, self)
 
-        # If the application has failed, let the caller know
-        if self._fatal_exception.done():
-            await self._fatal_exception
-
-        # Return a dictionary of resources wrapped in register_external_event wrappers
-        resources: dict[(str, str), object] = {}
-        for entry in self._resources.values():
-            # Always return public resources and private resources for the specified identity
-            if entry['identity'] is None or entry['identity'] == identity:
-                resources[(entry['name'], entry['identity'])] = wrap_methods_as_historian_events(
-                    entry['resource'],
-                    entry['name'],
-                    entry['identity'],
-                    self,
-                    internal=False
-                )
-
-        return resources
+        return wrapped_resources
 
     def get_resource_stream(self, identity):
         return self._resource_stream_manager.get_resource_stream(
