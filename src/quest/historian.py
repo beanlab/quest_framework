@@ -1,4 +1,5 @@
 import asyncio
+import importlib
 import inspect
 import traceback
 from asyncio import Task
@@ -83,17 +84,35 @@ class _Wrapper:
 
 
 class _ResourceWrapper:
-    def __init__(self, name: str, identity: str | None, historian: 'Historian'):
+    def __init__(self, name: str, identity: str | None, resource_class, historian: 'Historian'):
         self._name = name
         self._identity = identity
+        self._resource_class = resource_class
         self._historian = historian
         pass
 
-    # TODO: Need to check if item is _private or even callable?
-    def __getattr__(self, item):
+    # TODO: Is it fine that we essentially don't do anything if `field` is an attribute or private?
+    def __getattr__(self, field):
+        if field.startswith('_'):
+            return
+        if not callable(getattr(self._resource_class, field)):
+            return
+
         async def wrapper(*args, _name=self._name, _identity=self._identity, **kwargs):
-            return await self._historian.record_external_event(_name, _identity, item, *args, **kwargs)
+            return await self._historian.record_external_event(_name, _identity, field, *args, **kwargs)
+
         return wrapper
+
+
+def wrap_resources(resources: dict[(str, str), str], historian: 'Historian'):
+    wrapped_resources: dict[(str, str), object] = {}
+    for key, resource_type in resources.items():
+        name, identity = key
+        module_path, class_name = resource_type.rsplit('.', 1)
+        resource_class = getattr(importlib.import_module(module_path), class_name)
+        wrapped_resources[key] = _ResourceWrapper(name, identity, resource_class, historian)
+
+    return wrapped_resources
 
 
 def wrap_methods_as_historian_events(resource: T, name: str, identity: str | None, historian: 'Historian',
@@ -995,13 +1014,7 @@ class Historian:
         return resources
 
     async def get_wrapped_resources(self, identity):
-        resources = await self.get_resources(identity)
-        wrapped_resources: dict[(str, str), object] = {}
-        for key, resource_type in resources.items():
-            name, identity = key
-            wrapped_resources[key] = _ResourceWrapper(name, identity, self)
-
-        return wrapped_resources
+        return wrap_resources(await self.get_resources(identity), self)
 
     def get_resource_stream(self, identity):
         return self._resource_stream_manager.get_resource_stream(
@@ -1013,6 +1026,7 @@ class Historian:
         return self._resource_stream_manager.get_resource_stream(
             identity,
             lambda: self.get_wrapped_resources(identity),
+            # Or: lambda: wrap_resources(await self.get_resources(identity), self)
         )
 
     async def _update_resource_stream(self, identity):
