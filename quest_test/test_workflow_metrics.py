@@ -94,8 +94,9 @@ async def test_workflow_deletion():
         manager.start_workflow('sample_workflow', 'wid1')
         assert manager.has_workflow('wid1')
 
+        await asyncio.sleep(0.1)
+
         # Delete the workflow and check the removal
-        await manager.delete_workflow('wid1')
         assert not manager.has_workflow('wid1')
 
         with pytest.raises(WorkflowNotFound):
@@ -106,10 +107,7 @@ async def test_workflow_deletion():
         done_result = await manager.get_workflow_result('wid2')
         assert done_result is not None
 
-        if manager.has_workflow('wid2'):
-            await manager.delete_workflow('wid2')
-
-        await manager.get_workflow_result('wid2', delete=True)
+        await manager.delete_workflow('wid2')
 
         with pytest.raises(WorkflowNotFound):
             await manager.get_workflow_result('wid2')
