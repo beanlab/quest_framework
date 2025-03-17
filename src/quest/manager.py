@@ -61,7 +61,6 @@ class WorkflowManager:
     async def __aenter__(self) -> 'WorkflowManager':
         """Load the workflows and get them running again"""
 
-
         def our_handler(sig, frame):
             self._quest_signal_handler(sig, frame)
             raise asyncio.CancelledError(SUSPENDED)
@@ -75,7 +74,6 @@ class WorkflowManager:
         # Check storage to load stored workflow results from persistent storage
         if self._storage.has_blob(f'{self._namespace}_results'):
             self._results = self._storage.read_blob(f'{self._namespace}_results')
-
 
         # Rehydrate workflows
         for wid, data in self._workflow_data.items():
@@ -97,6 +95,7 @@ class WorkflowManager:
 
         return self
 
+    # don't need to set future when rehydrating
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Save whatever state is necessary before exiting"""
         for wid, historian in self._workflows.items():
@@ -332,17 +331,13 @@ class WorkflowManager:
             else:
                 result = await self._serializer.deserialize(result)
 
-            if delete:
-                del self._results[workflow_id]  # Cleanup after retrieval
+            future = asyncio.Future()
+            future.set_result(result)
 
-            return result
-
-        # If future exists, await it to get the result or exception
-        future = self._futures[workflow_id]
+            return await future
 
         try:
-            result = await future
-            return result
+            return await self._futures[workflow_id]
 
         finally:
             # If delete is True, clean up workflow references after the retrieval
