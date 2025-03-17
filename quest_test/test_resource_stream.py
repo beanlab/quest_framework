@@ -2,7 +2,8 @@ import asyncio
 import pytest
 
 from quest import Historian
-from quest.external import state, queue, event, identity_queue
+from quest.external import state, queue, event, identity_queue, wrap_as_state, wrap_as_queue, wrap_as_identity_queue, \
+    wrap_as_event
 from .utils import timeout, create_test_historian
 
 # A general-use workflow for these tests
@@ -68,7 +69,12 @@ async def test_default():
 
     w_task = historian.run()
 
-    with historian.get_wrapped_resource_stream(None) as resource_stream:
+    with historian.get_resource_stream(None) as resource_stream:
+        phrase = wrap_as_state('phrase', None, historian)
+        messages = wrap_as_queue('messages', None, historian)
+        ident_messages = wrap_as_identity_queue('ident_messages', None, historian)
+        gate = wrap_as_event('gate', None, historian)
+
         updates = aiter(resource_stream)
         resources = await anext(updates)
         assert not resources
@@ -76,11 +82,11 @@ async def test_default():
         # Phrase created
         resources = await anext(updates)
         assert ('phrase', None) in resources
-        assert await resources[('phrase', None)].value() == 'Hello'
+        assert await phrase.value() == 'Hello'
 
         resources = await anext(updates)
         assert ('phrase', None) in resources
-        assert await resources[('phrase', None)].value() == 'World!'
+        assert await phrase.value() == 'World!'
 
         resources = await anext(updates)  # Phrase deleted
         assert ('phrase', None) not in resources
@@ -88,7 +94,7 @@ async def test_default():
         # Messages created
         resources = await anext(updates)
         assert ('messages', None) in resources
-        await resources[('messages', None)].put('Hello!')
+        await messages.put('Hello!')
 
         resources = await anext(updates)  # messages.get()
         assert ('messages', None) in resources
@@ -99,7 +105,7 @@ async def test_default():
         # Identity messages created
         resources = await anext(updates)
         assert ('ident_messages', None) in resources
-        await resources[('ident_messages', None)].put('Hello!')
+        await ident_messages.put('Hello!')
 
         resources = await anext(updates)  # ident_messages.get()
         assert ('ident_messages', None) in resources
@@ -110,7 +116,7 @@ async def test_default():
         # Gate created
         resources = await anext(updates)
         assert ('gate', None) in resources
-        await resources[('gate', None)].set()
+        await gate.set()
 
         resources = await anext(updates)  # gate.wait()
         assert ('gate', None) in resources
@@ -145,7 +151,7 @@ async def test_typical():
     async def typical_listener():
         reported_resources = []
 
-        with historian.get_wrapped_resource_stream(None) as resource_stream:
+        with historian.get_resource_stream(None) as resource_stream:
             async for resources in resource_stream:
                 reported_resources.append(resources)
 
@@ -183,7 +189,7 @@ async def test_public_streaming_private_resources():
     )
 
     w_task = historian.run()
-    with historian.get_wrapped_resource_stream(None) as resource_stream:
+    with historian.get_resource_stream(None) as resource_stream:
         async for resources in resource_stream:
             assert not resources
     await w_task
@@ -233,7 +239,7 @@ async def test_concurrent_none_streams():
 @timeout(3)
 async def test_mult_identity_workflow():
     async def public_listener():
-        with historian.get_wrapped_resource_stream(None) as resource_stream:
+        with historian.get_resource_stream(None) as resource_stream:
             phrase1_fail = True
             async for resources in resource_stream:
                 if ('phrase1', None) in resources:
@@ -264,7 +270,7 @@ async def test_mult_identity_workflow():
 @timeout(3)
 async def test_multiple_private_identity_streams():
     async def ident1_listener():
-        with historian.get_wrapped_resource_stream('ident1') as resource_stream:
+        with historian.get_resource_stream('ident1') as resource_stream:
             ident1_fail = True
             ident2_fail = False
             async for resources in resource_stream:
@@ -276,7 +282,7 @@ async def test_multiple_private_identity_streams():
                 assert False
 
     async def ident2_listener():
-        with historian.get_wrapped_resource_stream('ident2') as resource_stream:
+        with historian.get_resource_stream('ident2') as resource_stream:
             ident1_fail = False
             ident2_fail = True
             async for resources in resource_stream:
@@ -328,7 +334,7 @@ async def test_suspend_workflow():
 
     historian.run()
 
-    with historian.get_wrapped_resource_stream(None) as resource_stream:
+    with historian.get_resource_stream(None) as resource_stream:
         updates = aiter(resource_stream)
         for i in range(4):
             await anext(updates)
@@ -355,7 +361,7 @@ async def test_suspend_resume_workflow():
     )
 
     historian.run()
-    with historian.get_wrapped_resource_stream(None) as resource_stream:
+    with historian.get_resource_stream(None) as resource_stream:
         updates = aiter(resource_stream)
         for i in range(3):  # Call anext up to just before creation of phrase2
             await anext(updates)
@@ -363,16 +369,18 @@ async def test_suspend_resume_workflow():
     await historian.suspend()
     w_task = historian.run()
 
-    with historian.get_wrapped_resource_stream(None) as resource_stream:
+    with historian.get_resource_stream(None) as resource_stream:
+        phrase2 = wrap_as_state('phrase2', None, historian)
+
         updates = aiter(resource_stream)
         await anext(updates)  # Get initial snapshot of resources
         resources = await anext(updates)
         assert ('phrase2', None) in resources
-        assert await resources[('phrase2', None)].value() == 'Goodbye'
+        assert await phrase2.value() == 'Goodbye'
 
         resources = await anext(updates)
         assert ('phrase2', None) in resources
-        assert await resources[('phrase2', None)].value() == 'Everyone!'
+        assert await phrase2.value() == 'Everyone!'
 
         resources = await anext(updates)
         assert ('phrase1', None) in resources

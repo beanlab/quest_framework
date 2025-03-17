@@ -130,9 +130,6 @@ class WorkflowManager:
     def get_resource_stream(self, workflow_id: str, identity):
         return self._get_workflow(workflow_id).get_resource_stream(identity)
 
-    def get_wrapped_resource_stream(self, workflow_id: str, identity):
-        return self._get_workflow(workflow_id).get_wrapped_resource_stream(identity)
-
     async def send_event(self, workflow_id: str, name: str, identity, action, *args, **kwargs):
         return await self._get_workflow(workflow_id).record_external_event(name, identity, action, *args, **kwargs)
 
