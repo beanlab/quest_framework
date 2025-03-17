@@ -92,7 +92,6 @@ class WorkflowManager:
         self._storage.write_blob(self._namespace, self._workflow_data)
         self._storage.write_blob(f'{self._namespace}_results', self._results)
 
-        self._futures.clear()
         self._workflows.clear()
         self._workflow_tasks.clear()
 
@@ -108,8 +107,6 @@ class WorkflowManager:
     def _start_workflow(self,
                         workflow_type: str, workflow_id: str, workflow_args, workflow_kwargs,
                         delete_on_finish: bool = True):
-
-        self._futures[workflow_id] = asyncio.Future()
 
         workflow_function = self._create_workflow(workflow_type)
 
