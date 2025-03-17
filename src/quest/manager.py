@@ -80,17 +80,7 @@ class WorkflowManager:
             args = data["workflow_args"]
             kwargs = data["workflow_kwargs"]
             delete_on_finish = data["delete_on_finish"]
-
-            if wid in self._results:
-                future = asyncio.Future()
-                result = self._serializer.deserialize(self._results[wid])
-                if isinstance(result, Exception):
-                    future.set_exception(result)
-                else:
-                    future.set_result(result)
-                self._futures[wid] = future
-            else:
-                self._start_workflow(wtype, wid, args, kwargs, delete_on_finish=delete_on_finish)
+            self._start_workflow(wtype, wid, args, kwargs, delete_on_finish=delete_on_finish)
 
         return self
 
