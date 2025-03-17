@@ -1,16 +1,16 @@
 import asyncio
 import signal
 from contextvars import ContextVar
+from datetime import datetime
 from functools import wraps
 from typing import Protocol, Callable, TypeVar, Any
-from .utils import quest_logger, serialize_exception, deserialize_exception
-from datetime import datetime
 
 from .external import State, IdentityQueue, Queue, Event
 from .historian import Historian, _Wrapper, SUSPENDED
 from .history import History
 from .persistence import BlobStorage
 from .serializer import StepSerializer
+from .utils import quest_logger, deserialize_exception
 
 
 class WorkflowNotFound(Exception):
@@ -56,7 +56,6 @@ class WorkflowManager:
         self._alias_dictionary = {}
         self._serializer: StepSerializer = serializer
         self._results: dict[str, Any] = {}
-        self._futures: dict[str, asyncio.Future] = {}  # Track futures for workflow results
 
     async def __aenter__(self) -> 'WorkflowManager':
         """Load the workflows and get them running again"""
@@ -116,16 +115,6 @@ class WorkflowManager:
         workflow_id = self._alias_dictionary.get(workflow_id, workflow_id)
         return self._workflows[workflow_id]
 
-    def _remove_workflow(self, workflow_id: str):
-        if workflow_id not in self._workflows:
-            raise WorkflowNotFound(f"Workflow '{workflow_id}' not found.")
-
-        self._workflows.pop(workflow_id)
-        self._workflow_data.pop(workflow_id, None)
-        self._workflow_tasks.pop(workflow_id, None)
-        self._results.pop(workflow_id, None)
-        self._futures.pop(workflow_id, None)
-
     def _start_workflow(self,
                         workflow_type: str, workflow_id: str, workflow_args, workflow_kwargs,
                         delete_on_finish: bool = True):
@@ -149,70 +138,35 @@ class WorkflowManager:
         """
         Cancel and remove a workflow, ensuring it is not rehydrated in the future.
         """
-        if workflow_id not in self._workflows and workflow_id not in self._futures:
-            raise WorkflowNotFound(f"Workflow '{workflow_id}' not found.")
-
-        # If the workflow is actively running, cancel its task
-        if workflow_id in self._workflow_tasks:
-            task = self._workflow_tasks[workflow_id]
-            if not task.done():
-                task.cancel()
-
-        # Cancel and remove future if it exists
-        if workflow_id in self._futures:
-            future = self._futures[workflow_id]
-            if not future.done():
-                future.cancel()
-            del self._futures[workflow_id]
-
-        if workflow_id in self._workflow_data:
-            del self._workflow_data[workflow_id]
-
-        if workflow_id in self._workflows:
-            del self._workflows[workflow_id]
-
-        if workflow_id in self._workflow_tasks:
-            del self._workflow_tasks[workflow_id]
-
         if workflow_id in self._results:
             del self._results[workflow_id]
 
+        elif workflow_id in self._workflows:
+            task = self._workflow_tasks[workflow_id]
+            if not task.done():
+                task.cancel()
+                # cancelling the task will cause _store_result to run, which cleans up
+
+        else:
+            raise WorkflowNotFound(f"Workflow '{workflow_id}' not found.")
+
     async def _store_result(self, workflow_id: str, task: asyncio.Task, delete_on_finish: bool):
         """Store the result or exception of a completed workflow"""
-        future = self._futures[workflow_id]
+        if not delete_on_finish:
+            try:
+                # Retrieve the workflow result if it completed successfully
+                result = task.result()
+                serialized_result = await self._serializer.serialize(result)
+                self._results[workflow_id] = serialized_result
 
-        try:
-            # Retrieve the workflow result if it completed successfully
-            result = task.result()
-            serialized_result = await self._serializer.serialize(result)
-            self._results[workflow_id] = serialized_result
+            except BaseException as e:
+                serialized_exception = self._serializer.serialize(e)
+                self._results[workflow_id] = serialized_exception
 
-            if not future.done():
-                future.set_result(result)
-
-        # except asyncio.CancelledError as e:
-        #     serialized_exception = serialize_exception(e)
-        #     self._results[workflow_id] = serialized_exception
-        #     if not future.done():
-        #         future.set_exception(e)
-
-        except Exception as e:
-            serialized_exception = serialize_exception(e)
-            self._results[workflow_id] = serialized_exception
-
-            if not future.done():
-                future.set_exception(e)
-
-        finally:
-            # Completed workflow - remove the workflow from active workflows if delete_on_finish is True
-            if delete_on_finish:
-                self._remove_workflow(workflow_id)  # Cleanup
-
-            if workflow_id in self._workflows:
-                del self._workflows[workflow_id]
-
-            if workflow_id in self._workflow_tasks:
-                del self._workflow_tasks[workflow_id]
+        # Completed workflow
+        del self._workflows[workflow_id]
+        del self._workflow_tasks[workflow_id]
+        del self._workflow_data[workflow_id]
 
     def start_workflow(self, workflow_type: str, workflow_id: str, *workflow_args, delete_on_finish: bool = True,
                        **workflow_kwargs):
@@ -315,39 +269,27 @@ class WorkflowManager:
                 })
         return metrics
 
-    # Should not be used for background tasks
     async def get_workflow_result(self, workflow_id: str, delete: bool = False):
-        """
-        Retrieve the result of a workflow, either by:
-        - Returning a previously stored result.
-        - Awaiting an active workflow's future if it's still running.
-        """
-        if workflow_id not in self._futures and workflow_id not in self._results:
-            raise WorkflowNotFound(f"Workflow '{workflow_id}' does not exist.")
+        if workflow_id in self._workflow_tasks:
+            # The workflow is still running, so return the running task
+            return self._workflow_tasks[workflow_id]
 
-        # If workflow completed successfully, return its stored result
-        if workflow_id in self._results:
-            result = self._results[workflow_id]
+        elif workflow_id in self._results:
+            # The workflow has finished and we saved the result
+            serialized_result = self._results[workflow_id]
 
-            if isinstance(result, dict) and "type" in result:
-                result = deserialize_exception(result)
+            if isinstance(serialized_result, dict) and "type" in serialized_result:
+                result = deserialize_exception(serialized_result)
             else:
-                result = await self._serializer.deserialize(result)
+                result = await self._serializer.deserialize(serialized_result)
 
-            return result
+            future = asyncio.Future()
+            if isinstance(result, BaseException):
+                future.set_exception(result)
+            else:
+                future.set_result(result)
 
-        # If future exists, await it to get the result or exception
-        future = self._futures[workflow_id]
-
-        try:
-            result = await future
-            return result
-
-        finally:
-            # If delete is True, clean up workflow references after the retrieval
             if delete:
-                if workflow_id in self._futures:
-                    del self._futures[workflow_id]
                 if workflow_id in self._results:
                     del self._results[workflow_id]
                 if workflow_id in self._workflows:
@@ -355,41 +297,10 @@ class WorkflowManager:
                 if workflow_id in self._workflow_tasks:
                     del self._workflow_tasks[workflow_id]
 
-    # async def get_workflow_result(self, workflow_id: str, delete: bool = False):
-    #     if workflow_id in self._workflow_tasks:
-    #         return self._workflow_tasks[workflow_id]
-    #
-    #     elif workflow_id in self._results:
-    #         serialized_result = self._results[workflow_id]
-    #
-    #         if isinstance(serialized_result, dict) and "type" in serialized_result:
-    #             result = deserialize_exception(serialized_result)
-    #         else:
-    #             result = await self._serializer.deserialize(serialized_result)
-    #
-    #         if workflow_id in self._futures:
-    #             future = self._futures[workflow_id]
-    #         else:
-    #             future = asyncio.Future()
-    #             self._futures[workflow_id] = future
-    #
-    #         if not future.done():
-    #             future.set_result(result)
-    #
-    #         if delete:
-    #             if workflow_id in self._futures:
-    #                 del self._futures[workflow_id]
-    #             if workflow_id in self._results:
-    #                 del self._results[workflow_id]
-    #             if workflow_id in self._workflows:
-    #                 del self._workflows[workflow_id]
-    #             if workflow_id in self._workflow_tasks:
-    #                 del self._workflow_tasks[workflow_id]
-    #
-    #         return future.result()
-    #
-    #     else:
-    #         raise WorkflowNotFound(f"Workflow '{workflow_id}' does not exist.")
+            return future
+
+        else:
+            raise WorkflowNotFound(f"Workflow '{workflow_id}' does not exist.")
 
 
 def find_workflow_manager() -> WorkflowManager:
