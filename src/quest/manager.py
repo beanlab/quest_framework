@@ -331,13 +331,18 @@ class WorkflowManager:
             else:
                 result = await self._serializer.deserialize(result)
 
-            future = asyncio.Future()
-            future.set_result(result)
+            if workflow_id in self._futures and not self._futures[workflow_id].done():
+                self._futures[workflow_id].set_result(result)
 
-            return await future
+            return result
+
+        future = self._futures[workflow_id]
+
+        if future.cancelled():
+            raise WorkflowNotFound(f"Workflow '{workflow_id}' was cancelled.")
 
         try:
-            return await self._futures[workflow_id]
+            return await future
 
         finally:
             # If delete is True, clean up workflow references after the retrieval
