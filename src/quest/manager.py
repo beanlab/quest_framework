@@ -10,7 +10,7 @@ from .historian import Historian, _Wrapper, SUSPENDED
 from .history import History
 from .persistence import BlobStorage
 from .serializer import StepSerializer
-from .utils import quest_logger, deserialize_exception
+from .utils import quest_logger, serialize_exception, deserialize_exception
 
 
 class WorkflowNotFound(Exception):
@@ -147,7 +147,7 @@ class WorkflowManager:
                 self._results[workflow_id] = serialized_result
 
             except BaseException as e:
-                serialized_exception = self._serializer.serialize(e)
+                serialized_exception = serialize_exception(e)
                 self._results[workflow_id] = serialized_exception
 
         # Completed workflow
@@ -175,6 +175,7 @@ class WorkflowManager:
 
     def has_workflow(self, workflow_id: str) -> bool:
         workflow_id = self._alias_dictionary.get(workflow_id, workflow_id)
+
         return workflow_id in self._workflows
 
     async def get_resources(self, workflow_id: str, identity):
@@ -258,7 +259,7 @@ class WorkflowManager:
 
     async def get_workflow_result(self, workflow_id: str, delete: bool = False):
         if workflow_id in self._workflow_tasks:
-            # The workflow is still running, so return the running task
+            # The workflow is still running, so return the running
             return self._workflow_tasks[workflow_id]
 
         elif workflow_id in self._results:

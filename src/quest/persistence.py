@@ -1,4 +1,5 @@
 # Enable event histories to be persistent
+import copy
 import json
 from hashlib import md5
 from pathlib import Path
@@ -87,10 +88,10 @@ class InMemoryBlobStorage(BlobStorage):
         self._data = {}
 
     def write_blob(self, key: str, blob: Blob):
-        self._data[key] = blob
+        self._data[key] = copy.deepcopy(blob)
 
     def read_blob(self, key: str) -> Blob:
-        return self._data[key]
+        return copy.deepcopy(self._data[key])
 
     def has_blob(self, key: str) -> bool:
         return key in self._data

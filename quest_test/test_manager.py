@@ -49,7 +49,8 @@ async def test_manager():
         # At this point, all workflows should be resumed
         pause.set()
         await asyncio.sleep(0.1)
-        result = await manager.get_workflow_result('wid1', delete=False)
+        future_result = await manager.get_workflow_result('wid1', delete=False)
+        result = await future_result
         assert result == 11
 
     assert counter_a == 2
@@ -105,7 +106,8 @@ async def test_manager_events():
         await asyncio.sleep(0.1)
         await manager.send_event('wid1', 'messages', None, 'put', 3)
         await manager.send_event('wid1', 'messages', None, 'put', 0)  # i.e. end the workflow
-        result = await manager.get_workflow_result('wid1')
+        future_result = await manager.get_workflow_result('wid1')
+        result = await future_result
         assert result == 6
 
     assert counter_a == 2

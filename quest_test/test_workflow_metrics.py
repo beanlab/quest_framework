@@ -37,14 +37,18 @@ async def test_three_workflows_and_check_result():
         assert len(metrics) == 3
 
         # Retrieve result for wid1 and check if it's removed
-        result_wid1 = await manager.get_workflow_result('wid1')
+        future_wid1 = await manager.get_workflow_result('wid1')
+        result_wid1 = await future_wid1
+        await asyncio.sleep(0.1)
         assert result_wid1 is not None
         assert not manager.has_workflow('wid1')
 
         await asyncio.sleep(0.1)
 
         # Retrieve result for wid2 and check if it's removed
-        result_wid2 = await manager.get_workflow_result('wid2')
+        future_wid2 = await manager.get_workflow_result('wid2')
+        result_wid2 = await future_wid2
+        await asyncio.sleep(0.1)
         assert result_wid2 is not None
         assert not manager.has_workflow('wid2')
 
@@ -57,7 +61,8 @@ async def test_three_workflows_and_check_result():
             await manager.delete_workflow('wid3')
 
         with pytest.raises(WorkflowNotFound):
-            await manager.get_workflow_result('wid3')
+            future_wid3 = await manager.get_workflow_result('wid3')
+            await future_wid3
 
         metrics = manager.get_workflow_metrics()
         assert len(metrics) == 0
@@ -76,9 +81,11 @@ async def test_exception_handling():
 
         # Retrieving the result raises an exception
         with pytest.raises(Exception):
-            await manager.get_workflow_result("wid1")
+            future = await manager.get_workflow_result("wid1")
+            await future
 
         # Check the workflow is removed after failure
+        await asyncio.sleep(0.1)
         assert not manager.has_workflow("wid1")
 
 
@@ -100,17 +107,21 @@ async def test_workflow_deletion():
         assert not manager.has_workflow('wid1')
 
         with pytest.raises(WorkflowNotFound):
-            await manager.get_workflow_result('wid1')
+            future_wid1 = await manager.get_workflow_result('wid1')
+            await future_wid1
 
         # Start another workflow but don't delete its result immediately
         manager.start_workflow('sample_workflow', 'wid2', delete_on_finish=False)
-        done_result = await manager.get_workflow_result('wid2')
+        future_wid2 = await manager.get_workflow_result('wid2')
+        done_result = await future_wid2
+        await asyncio.sleep(0.1)
         assert done_result is not None
 
         await manager.delete_workflow('wid2')
 
         with pytest.raises(WorkflowNotFound):
-            await manager.get_workflow_result('wid2')
+            future_wid2 = await manager.get_workflow_result('wid2')
+            await future_wid2
 
         # Trying to delete a non-existing workflow raises WorkflowNotFound as well
         with pytest.raises(WorkflowNotFound):
@@ -131,10 +142,12 @@ async def test_workflow_cancellation():
 
         # Cancel the workflow
         await manager.delete_workflow('wid1')
+        await asyncio.sleep(0.1)
         assert not manager.has_workflow('wid1')
 
         with pytest.raises(WorkflowNotFound):
-            await manager.get_workflow_result('wid1')
+            future_wid1 = await manager.get_workflow_result('wid1')
+            await future_wid1
 
 
 @pytest.mark.asyncio
@@ -159,7 +172,9 @@ async def test_rehydration_single_workflow():
         pause_event.set()
 
         # Workflow completed
-        result = await manager.get_workflow_result("wid_1")
+        future_wid1 = await manager.get_workflow_result("wid_1")
+        result = await future_wid1
+        await asyncio.sleep(0.1)
         assert result is not None
 
         assert not manager.has_workflow("wid_1")

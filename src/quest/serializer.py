@@ -10,10 +10,10 @@ class SerializedData(TypedDict):
 
 
 class StepSerializer(Protocol):
-    async def serialize(self, obj):
+    async def serialize(self, obj: Any) -> Any:
         ...
 
-    async def deserialize(self, data):
+    async def deserialize(self, data: Any) -> Any:
         ...
 
 
@@ -35,8 +35,7 @@ class NoopSerializer(StepSerializer):
 
 
 class MasterSerializer(StepSerializer):
-    def __init__(self, exception_serialize: StepSerializer, type_serializers: Dict[type, TypeSerializer[Any]]):
-        self._exception_serializer = exception_serialize
+    def __init__(self, type_serializers: Dict[type, TypeSerializer[Any]]):
         self._type_serializers = {str(tp): ser for tp, ser in type_serializers.items()}
 
     async def serialize(self, obj: Any) -> Any:
@@ -60,8 +59,6 @@ class MasterSerializer(StepSerializer):
                 args=args,
                 kwargs=kwargs
             )
-
-        # TODO - check if exception and use exception serializer
 
         # Default
         return obj
