@@ -1,5 +1,4 @@
 import asyncio
-import importlib
 import inspect
 import traceback
 from asyncio import Task
@@ -7,13 +6,13 @@ from contextvars import ContextVar
 from datetime import datetime
 from functools import wraps
 from typing import Callable, TypeVar
-from .utils import quest_logger, task_name_getter
 
 from .history import History
 from .quest_types import ConfigurationRecord, VersionRecord, StepStartRecord, StepEndRecord, \
     ExceptionDetails, ResourceAccessEvent, ResourceEntry, ResourceLifecycleEvent, TaskEvent
 from .resources import ResourceStreamManager
 from .serializer import StepSerializer
+from .utils import quest_logger, task_name_getter
 
 QUEST_VERSIONS = "_quest_versions"
 GLOBAL_VERSION = "_global_version"

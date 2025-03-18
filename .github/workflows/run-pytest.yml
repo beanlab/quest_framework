@@ -30,12 +30,14 @@ jobs:
         pip install pipreqs
         pip install sqlalchemy
         pip install pytest-asyncio
+        pip install websockets==12.*
 
     - name: Generate Requirements
       run: |
         pipreqs quest_test --savepath test-requirements.txt
         pipreqs src --savepath src-requirements.txt
         cat test-requirements.txt src-requirements.txt | sort | uniq > requirements.txt
+        echo requirements.txt
 
     - name: Install Requirements
       run: |
