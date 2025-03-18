@@ -54,12 +54,12 @@ async def test_external_state():
     await wait_for(historian)
 
     # Observe state
-    name = wrap_as_state('name', 'foo_ident', historian)
     resources = await historian.get_resources(None)  # i.e. public resources
     assert not resources  # should be empty
 
     resources = await historian.get_resources(identity)
     assert ('name', 'foo_ident') in resources
+    name = wrap_as_state('name', 'foo_ident', historian)
     assert await name.value() == 'Foobar'
 
     # Set state

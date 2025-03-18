@@ -1,6 +1,7 @@
 import asyncio
 import functools
 import json
+# TODO: Update websockets to use latest version
 import websockets
 
 
@@ -17,7 +18,7 @@ def forward(func):
         await self._call_ws.send(json.dumps(call))
         response = await self._call_ws.recv()
         response_data = json.loads(response)
-        # TODO: Either custom error or deserialize error.
+        # TODO: Deserialize the error.
         if 'error' in response:
             raise Exception(response_data['error'])
         else:

@@ -4,12 +4,24 @@ import json
 import traceback
 from typing import Callable
 from quest.utils import quest_logger
+# TODO: Update websockets to use latest version
 import websockets
 from websockets import WebSocketServerProtocol
 from quest import WorkflowManager
 
+
 class MethodNotFoundException(Exception):
     pass
+
+
+async def serialize_resources(resources):
+    serialized_resources = {}
+    for key, value in resources.items():
+        assert isinstance(key, tuple)
+        new_key = '||'.join(k if k is not None else '' for k in key)
+        serialized_resources[new_key] = value
+    return serialized_resources
+
 
 class Server:
     def __init__(self, manager: WorkflowManager, host: str, port: int, authorizer: Callable[[dict[str, str]], bool]):
@@ -72,8 +84,7 @@ class Server:
                 kwargs = data['kwargs']
 
                 if not hasattr(self._manager, method_name):
-                    # Serialize MethodNotFoundException
-                    response = {'error': f'Method {method_name} not found'}
+                    raise MethodNotFoundException(f'{method_name} is not a valid method')
                 else:
                     method = getattr(self._manager, method_name)
                     if callable(method):
@@ -82,16 +93,8 @@ class Server:
                             result = await result
                         response = {'result': result}
                     else:
-                        # Could maybe reuse MethodNotFoundException
-                        response = {'error': f'{method_name} is not callable'}
+                        raise MethodNotFoundException(f'{method_name} is not callable')
 
-            except (TypeError, ValueError) as e:
-                # TODO: Serialize e
-                response = {
-                    'error': 'Invalid message format',
-                    'details': str(e),
-                    'traceback': traceback.format_exc()
-                }
             except Exception as e:
                 # TODO: Serialize e
                 response = {
@@ -107,6 +110,7 @@ class Server:
             # Receive initial parameters
             message = await ws.recv()
             params = json.loads(message)
+            # TODO: Assert or test that these are there instead of catching broad KeyError exception.
             wid = params['wid']
             ident = params['identity']
         except (TypeError, ValueError, KeyError) as e:
@@ -119,17 +123,9 @@ class Server:
             with self._manager.get_resource_stream(wid, ident) as stream:
                 async for resources in stream:
                     # Serialize tuple keys into strings joined by '||'
-                    resources = await self._serialize_resources(resources)
+                    resources = await serialize_resources(resources)
                     await ws.send(json.dumps(resources))
         except Exception as e:
             # TODO: Serialize e
             response = {'error': 'Error occurred during execution'}
             await ws.send(json.dumps(response))
-
-    async def _serialize_resources(self, resources):
-        serialized_resources = {}
-        for key, value in resources.items():
-            assert isinstance(key, tuple)
-            new_key = '||'.join(k if k is not None else '' for k in key)
-            serialized_resources[new_key] = value
-        return serialized_resources
