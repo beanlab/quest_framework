@@ -13,8 +13,9 @@ from quest.manager import find_workflow_manager
 async def test_sigint_handling():
     async def workflow_1(counter_1, gate_1_id, gate_2_id):
         manager = find_workflow_manager()
-        gate_1 = await manager.get_event(gate_1_id)
-        gate_2 = await manager.get_event(gate_2_id)
+        gate_1 = await manager.get_event("w1", gate_1_id, None)
+        gate_2 = await manager.get_event("w1", gate_2_id, None)
+
         for i in range(1, 5):
             await gate_1.wait()
             counter_1[0] += 1
@@ -23,8 +24,9 @@ async def test_sigint_handling():
 
     async def workflow_2(counter_2, gate_1_id, gate_2_id):
         manager = find_workflow_manager()
-        gate_1 = await manager.get_event(gate_1_id)
-        gate_2 = await manager.get_event(gate_2_id)
+        gate_1 = await manager.get_event("w1", gate_1_id, None)
+        gate_2 = await manager.get_event("w1", gate_2_id, None)
+
         for i in range(1, 5):
             await gate_2.wait()
             counter_2[0] += 1
@@ -46,8 +48,8 @@ async def test_sigint_handling():
         manager.start_workflow('workflow_1', 'w1', counter_1, 'gate_1', 'gate_2', delete_on_finish=False)
         manager.start_workflow('workflow_2', 'w2', counter_2, 'gate_1', 'gate_2', delete_on_finish=False)
 
-        gate_1 = await manager.get_event("w1", "gate_1")
-        gate_2 = await manager.get_event("w2", "gate_2")
+        gate_1 = await manager.get_event("w1", 'gate_1', None)
+        gate_2 = await manager.get_event("w1", 'gate_2', None)
 
         gate_1.set()
 
