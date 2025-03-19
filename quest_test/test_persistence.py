@@ -1,6 +1,6 @@
 import asyncio
 import os
-from pathlib import Path
+from pathlib2 import Path
 from tempfile import TemporaryDirectory
 
 import pytest

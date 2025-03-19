@@ -1,32 +1,47 @@
-import sys
 import asyncio
-import websockets
+from quest import state, queue, ainput
+from quest.client import Client
+from quest.server import Server
+from quest_test.utils import create_in_memory_workflow_manager
 
-async def converse(websocket):
-    async def listen():
-        async for message in websocket:
-            print(f"< {message}")
 
-    async def write():
-        while True:
-            message = await ainput('> ')
-            await websocket.send(message)
+def authorize(headers: dict[str, str]) -> bool:
+    if 'Authorization' not in headers:
+        return False
+    if headers['Authorization'] == "C@n'tT0uchThis!":
+        return True
+    return False
 
-    await asyncio.gather(listen(), write())
 
-async def main(is_server):
-    if is_server:
-        async with websockets.serve(converse, "localhost", 8765):
-            await asyncio.Future()
-    else:
-        uri = "ws://localhost:8765"  # The URI of your websocket server
-        async with websockets.connect(uri) as websocket:
-            await converse(websocket)
+async def serve(manager):
+    async with Server(manager, 'localhost', 8000, authorizer=authorize):
+        await asyncio.sleep(1)
 
-# For asynchronous input (aiinput function)
-async def ainput(prompt: str = ""):
-    return await asyncio.get_event_loop().run_in_executor(None, input, prompt)
 
-# Entry point
-if __name__ == "__main__":
-    asyncio.run(main(len(sys.argv) > 1))
+async def connect():
+    async with Client('ws://localhost:8000', {'Authorization': "C@n'tT0uchThis!"}) as client:
+        messages_seen = False
+        async for resources in client.stream_resources('workflow1', None):
+            print("Resources:", resources)
+            if ('messages', None) in resources and not messages_seen:
+                messages_seen = True
+                message_to_send = await ainput("Enter a message to send: ")
+                response = await client.send_event('workflow1', 'messages', None, 'put', [message_to_send])
+                print("Response:", response)
+
+
+
+async def main():
+    async def workflow():
+        async with state('phrase', None, '') as phrase:
+            async with queue('messages', None) as messages:
+                messages = await messages.get()
+                await phrase.set(messages)
+                print(f'Phrase: {await phrase.get()}')
+
+    manager = create_in_memory_workflow_manager({'workflow': workflow})
+    manager.start_workflow('workflow', 'workflow1')
+    await asyncio.gather(serve(manager), connect())
+
+if __name__ == '__main__':
+    asyncio.run(main())
