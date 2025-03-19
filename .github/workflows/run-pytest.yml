@@ -30,20 +30,17 @@ jobs:
         pip install pipreqs
         pip install sqlalchemy
         pip install pytest-asyncio
-        pip install -e src
 
     - name: Generate Requirements
       run: |
         pipreqs quest_test --savepath test-requirements.txt
         pipreqs src --savepath src-requirements.txt
         cat test-requirements.txt src-requirements.txt | sort | uniq > requirements.txt
-        cat requirements.txt
 
     - name: Install Requirements
       run: |
         grep -v '^quest==' src/requirements.txt > src/requirements_clean.txt
         mv src/requirements_clean.txt src/requirements.txt
-        cat requirements.txt
         pip install -r requirements.txt
 
     - name: Run unit tests
