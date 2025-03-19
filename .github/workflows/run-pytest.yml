@@ -33,7 +33,7 @@ jobs:
 
     - name: Generate Requirements
       run: |
-        pipreqs quest_test --savepath test-requirements.txt --ignore quest
+        pipreqs quest_test --savepath test-requirements.txt --use-local
         pipreqs src --savepath src-requirements.txt --ignore quest
         cat test-requirements.txt src-requirements.txt | sort | uniq > requirements.txt
         cat requirements.txt
