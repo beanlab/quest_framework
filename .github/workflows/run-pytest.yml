@@ -45,8 +45,6 @@ jobs:
         pip install -r requirements.txt
 
     - name: Run unit tests
-#      env:
-#        PYTHONPATH: ${{ github.workspace }}/src
       run: |
         pytest quest_test -o log_cli=true
 
@@ -60,7 +58,5 @@ jobs:
       run: aws sts get-caller-identity
 
     - name: Run integration tests
-#      env:
-#        PYTHONPATH: ${{ github.workspace }}/src
       run: |
         pytest quest_test -m "integration" -o log_cli=true
