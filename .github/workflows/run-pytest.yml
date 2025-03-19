@@ -30,6 +30,7 @@ jobs:
         pip install pipreqs
         pip install sqlalchemy
         pip install pytest-asyncio
+        pip install -e .
 
     - name: Generate Requirements
       run: |
@@ -39,8 +40,6 @@ jobs:
 
     - name: Install Requirements
       run: |
-        grep -v '^quest==' src/requirements.txt > src/requirements_clean.txt
-        mv src/requirements_clean.txt src/requirements.txt
         pip install -r requirements.txt
 
     - name: Run unit tests
