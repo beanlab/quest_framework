@@ -40,6 +40,8 @@ jobs:
 
     - name: Install Requirements
       run: |
+        grep -v '^quest==' requirements.txt > requirements_clean.txt
+        mv requirements_clean.txt requirements.txt
         pip install -r requirements.txt
 
     - name: Run unit tests
