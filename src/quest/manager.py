@@ -3,7 +3,7 @@ import signal
 from contextvars import ContextVar
 from datetime import datetime
 from functools import wraps
-from typing import Protocol, Callable, TypeVar, Any
+from typing import Protocol, Callable, TypeVar, Any, TypedDict
 
 from .external import State, IdentityQueue, Queue, Event
 from .historian import Historian, _Wrapper, SUSPENDED
@@ -38,6 +38,21 @@ class DuplicateWorkflowException(Exception):
     ...
 
 
+class WorkflowResult(TypedDict):
+    workflow_id: str
+    workflow_type: str
+    start_time: str
+    result: Any
+
+
+class WorkflowData(TypedDict):
+    workflow_type: str
+    workflow_args: list | tuple
+    workflow_kwargs: dict
+    delete_on_finish: bool
+    start_time: str
+
+
 class WorkflowManager:
     """
     Runs workflow tasks
@@ -50,12 +65,12 @@ class WorkflowManager:
         self._storage = storage
         self._create_history = create_history
         self._create_workflow = create_workflow
-        self._workflow_data = {}  # Tracks all workflows
+        self._workflow_data: dict[str, WorkflowData] = {}  # Tracks all workflows
         self._workflows: dict[str, Historian] = {}
         self._workflow_tasks: dict[str, asyncio.Task] = {}
         self._alias_dictionary = {}
         self._serializer: StepSerializer = serializer
-        self._results: dict[str, Any] = {}
+        self._results: dict[str, WorkflowResult] = {}
 
     async def __aenter__(self) -> 'WorkflowManager':
         """Load the workflows and get them running again"""
@@ -144,11 +159,19 @@ class WorkflowManager:
                 # Retrieve the workflow result if it completed successfully
                 result = task.result()
                 serialized_result = await self._serializer.serialize(result)
-                self._results[workflow_id] = serialized_result
+                result = serialized_result
 
             except BaseException as e:
                 serialized_exception = serialize_exception(e)
-                self._results[workflow_id] = serialized_exception
+                result = serialized_exception
+
+            wdata = self._workflow_data[workflow_id]
+            self._results[workflow_id] = WorkflowResult(
+                workflow_id=workflow_id,
+                workflow_type=wdata['workflow_type'],
+                start_time=wdata['start_time'],
+                result=result
+            )
 
         # Completed workflow
         del self._workflows[workflow_id]
@@ -163,25 +186,31 @@ class WorkflowManager:
         if workflow_id in self._workflow_tasks:
             raise DuplicateWorkflowException(f'Workflow "{workflow_id}" already exists')
 
-        self._workflow_data[workflow_id] = {
-            "workflow_type": workflow_type,
-            "workflow_args": workflow_args,
-            "workflow_kwargs": workflow_kwargs,
-            "delete_on_finish": delete_on_finish,
-            "start_time": start_time
-        }
+        self._workflow_data[workflow_id] = WorkflowData(
+            workflow_type=workflow_type,
+            workflow_args=workflow_args,
+            workflow_kwargs=workflow_kwargs,
+            delete_on_finish=delete_on_finish,
+            start_time=start_time
+        )
         self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs,
                              delete_on_finish=delete_on_finish)
 
     def has_workflow(self, workflow_id: str) -> bool:
         workflow_id = self._alias_dictionary.get(workflow_id, workflow_id)
 
-        return workflow_id in self._workflows
+        return workflow_id in self._workflows or workflow_id in self._results
 
     async def get_resources(self, workflow_id: str, identity):
+        if workflow_id in self._results:
+            raise NotImplementedError('todo')  # TODO
+
         return await self._get_workflow(workflow_id).get_resources(identity)
 
     def get_resource_stream(self, workflow_id: str, identity):
+        if workflow_id in self._results:
+            raise NotImplementedError('todo')  # TODO
+
         return self._get_workflow(workflow_id).get_resource_stream(identity)
 
     async def send_event(self, workflow_id: str, name: str, identity, action, *args, **kwargs):
@@ -248,23 +277,28 @@ class WorkflowManager:
     def get_workflow_metrics(self):
         """Return metrics for active workflows"""
         metrics = []
+        for wid, data in self._results.items():
+            metrics.append({
+                "workflow_id": wid,
+                "workflow_type": data["workflow_type"],
+                "start_time": data["start_time"]
+            })
         for wid, data in self._workflow_data.items():
-            if wid in self._workflows:
-                metrics.append({
-                    "workflow_id": wid,
-                    "workflow_type": data["workflow_type"],
-                    "start_time": data["start_time"]
-                })
+            metrics.append({
+                "workflow_id": wid,
+                "workflow_type": data["workflow_type"],
+                "start_time": data["start_time"]
+            })
         return metrics
 
     async def get_workflow_result(self, workflow_id: str, delete: bool = False):
         if workflow_id in self._workflow_tasks:
             # The workflow is still running, so return the running
-            return self._workflow_tasks[workflow_id]
+            return await self._workflow_tasks[workflow_id]
 
         elif workflow_id in self._results:
             # The workflow has finished and we saved the result
-            serialized_result = self._results[workflow_id]
+            serialized_result = self._results[workflow_id]['result']
 
             if isinstance(serialized_result, dict) and "type" in serialized_result:
                 result = deserialize_exception(serialized_result)
@@ -285,7 +319,7 @@ class WorkflowManager:
                 if workflow_id in self._workflow_tasks:
                     del self._workflow_tasks[workflow_id]
 
-            return future
+            return await future
 
         else:
             raise WorkflowNotFound(f"Workflow '{workflow_id}' does not exist.")

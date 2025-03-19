@@ -1,4 +1,5 @@
 import asyncio
+
 import pytest
 
 from quest.manager import WorkflowNotFound
@@ -6,7 +7,6 @@ from .utils import timeout, create_in_memory_workflow_manager
 
 
 async def sample_workflow():
-    await asyncio.sleep(0.01)
     return "sample workflow result"
 
 
@@ -21,14 +21,55 @@ async def pause_resume_workflow(pause_event: asyncio.Event):
 
 @pytest.mark.asyncio
 @timeout(6)
+async def test_workflow_metrics():
+    gate1 = asyncio.Event()
+
+    async def workflow1():
+        await gate1.wait()
+        return "done"
+
+    gate2 = asyncio.Event()
+
+    async def workflow2():
+        await gate2.wait()
+        return "done"
+
+    async with create_in_memory_workflow_manager({'w1': workflow1, 'w2': workflow2}) as manager:
+        manager.start_workflow('w1', 'wid1', delete_on_finish=False)
+        manager.start_workflow('w2', 'wid2')
+
+        # Scheduled workflows are counted as "running"
+        assert len(manager.get_workflow_metrics()) == 2
+
+        # Yield to let the workflows start
+        await asyncio.sleep(0.01)
+
+        # Let wf1 finish (but it doesn't self-delete)
+        gate1.set()
+        await asyncio.sleep(0.01)
+
+        # Finished workflows with a stored result are still "running"
+        assert len(manager.get_workflow_metrics()) == 2
+
+        # Allow wid1 to return result and clean up
+        await manager.get_workflow_result('wid1', delete=True)
+
+        assert len(manager.get_workflow_metrics()) == 1
+
+        gate2.set()
+        await asyncio.sleep(0.01)
+
+        assert len(manager.get_workflow_metrics()) == 0
+
+
+@pytest.mark.asyncio
+@timeout(6)
 async def test_three_workflows_and_check_result():
     workflows = {
         "sample_workflow": sample_workflow
     }
 
-    manager = create_in_memory_workflow_manager(workflows=workflows)
-
-    async with manager:
+    async with create_in_memory_workflow_manager(workflows=workflows) as manager:
         manager.start_workflow('sample_workflow', 'wid1', delete_on_finish=False)
         manager.start_workflow('sample_workflow', 'wid2', delete_on_finish=False)
         manager.start_workflow('sample_workflow', 'wid3')
@@ -37,9 +78,7 @@ async def test_three_workflows_and_check_result():
         assert len(metrics) == 3
 
         # Retrieve result for wid1 and check if it's removed
-        future_wid1 = await manager.get_workflow_result('wid1')
-        result_wid1 = await future_wid1
-        await asyncio.sleep(0.1)
+        result_wid1 = await manager.get_workflow_result('wid1')
         assert result_wid1 is not None
         assert not manager.has_workflow('wid1')
 
