@@ -13,14 +13,14 @@ gate_2 = asyncio.Event()
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_sigint_handling():
-    async def workflow_1(counter_1, gate_1, gate_2):
+    async def workflow_1(counter_1):
         for i in range(1, 5):
             await gate_1.wait()
             counter_1[0] += 1
             gate_1.clear()
             gate_2.set()
 
-    async def workflow_2(counter_2, gate_1, gate_2):
+    async def workflow_2(counter_2):
         for i in range(1, 5):
             await gate_2.wait()
             counter_2[0] += 1
