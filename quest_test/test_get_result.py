@@ -6,6 +6,10 @@ from quest.manager import WorkflowNotFound
 from .utils import timeout, create_in_memory_workflow_manager
 
 
+class OurException(Exception):
+    pass
+
+
 @pytest.mark.asyncio
 @timeout(3)
 async def test_basic_store_result():
@@ -14,7 +18,7 @@ async def test_basic_store_result():
 
     async with create_in_memory_workflow_manager({'w1': workflow1}) as manager:
         manager.start_workflow('w1', 'wid1', delete_on_finish=False)
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0.1)
 
         assert await manager.get_workflow_result('wid1') == 'done'
         assert manager.has_workflow('wid1')
@@ -30,7 +34,7 @@ async def test_workflows_not_saved_have_no_results():
 
     async with create_in_memory_workflow_manager({'w1': workflow1}) as manager:
         manager.start_workflow('w1', 'wid1')
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0.1)
         assert not manager.has_workflow('wid1')
 
 
@@ -42,7 +46,7 @@ async def test_get_result_on_missing_workflow_raises():
 
     async with create_in_memory_workflow_manager({'w1': workflow1}) as manager:
         manager.start_workflow('w1', 'wid1')
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0.1)
         assert not manager.has_workflow('wid1')
 
         with pytest.raises(WorkflowNotFound):
@@ -52,15 +56,12 @@ async def test_get_result_on_missing_workflow_raises():
 @pytest.mark.asyncio
 @timeout(3)
 async def test_exception_store_result():
-    class OurException(Exception):
-        pass
-
     async def workflow1():
         raise OurException('died')
 
     async with create_in_memory_workflow_manager({'w1': workflow1}) as manager:
         manager.start_workflow('w1', 'wid1', delete_on_finish=False)
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0.1)
 
         assert manager.has_workflow('wid1')
 
@@ -73,4 +74,3 @@ async def test_exception_store_result():
             await manager.get_workflow_result('wid1', delete=True)
 
         assert not manager.has_workflow('wid1')
-

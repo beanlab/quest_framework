@@ -867,20 +867,27 @@ class Historian:
 
         # We use a TaskGroup here to ensure that the external_replay task
         #  exits when the main task fails
-        async with asyncio.TaskGroup() as _task_factory:
-            external_task = _task_factory.create_task(
-                self._external_handler(),
-                name=self._get_external_task_name()
-            )
-            self._open_tasks.append(external_task)
-            external_task.add_done_callback(lambda t: self._open_tasks.remove(t) if t in self._open_tasks else None)
+        try:
+            async with asyncio.TaskGroup() as _task_factory:
+                external_task = _task_factory.create_task(
+                    self._external_handler(),
+                    name=self._get_external_task_name()
+                )
+                self._open_tasks.append(external_task)
+                external_task.add_done_callback(lambda t: self._open_tasks.remove(t) if t in self._open_tasks else None)
 
-            return await self.start_task(
-                self._run_with_exception_handling,
-                *args, **kwargs,
-                name=f'{self.workflow_id}.main',
-                task_factory=_task_factory.create_task
-            )
+                return await self.start_task(
+                    self._run_with_exception_handling,
+                    *args, **kwargs,
+                    name=f'{self.workflow_id}.main',
+                    task_factory=_task_factory.create_task
+                )
+
+        except ExceptionGroup as eg:
+            if len(eg.exceptions) == 1:
+                raise eg.exceptions[0]
+            else:
+                raise
 
         # Workflow logic completed
 
