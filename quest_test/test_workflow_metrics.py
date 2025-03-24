@@ -6,10 +6,6 @@ from quest.manager import WorkflowNotFound
 from .utils import timeout, create_in_memory_workflow_manager
 
 
-async def sample_workflow():
-    return "sample workflow result"
-
-
 @pytest.mark.asyncio
 @timeout(6)
 async def test_workflow_metrics():
@@ -56,6 +52,9 @@ async def test_workflow_metrics():
 @pytest.mark.asyncio
 @timeout(6)
 async def test_workflow_deletion():
+    async def sample_workflow():
+        return "sample workflow result"
+
     workflows = {
         "sample_workflow": sample_workflow
     }
@@ -81,20 +80,23 @@ async def test_workflow_deletion():
 @pytest.mark.asyncio
 @timeout(6)
 async def test_workflow_cancellation():
-    workflows = {
-        "sample_workflow": sample_workflow
-    }
-    manager = create_in_memory_workflow_manager(workflows=workflows)
+    gate = asyncio.Event()
+
+    async def long_running_workflow():
+        await gate.wait()
+        return "should not reach"
+
+    manager = create_in_memory_workflow_manager(workflows={"long_workflow": long_running_workflow})
 
     async with manager:
-        manager.start_workflow('sample_workflow', 'wid1')
-        await asyncio.sleep(0.01)
+        manager.start_workflow('long_workflow', 'wid1')
+        await asyncio.sleep(0.1)
 
-        # Cancel the workflow
+        # Cancel the running workflow
+        assert manager.has_workflow('wid1')
         await manager.delete_workflow('wid1')
         await asyncio.sleep(0.1)
-        assert not manager.has_workflow('wid1')
 
+        assert not manager.has_workflow('wid1')
         with pytest.raises(WorkflowNotFound):
-            future_wid1 = await manager.get_workflow_result('wid1')
-            await future_wid1
+            await manager.get_workflow_result('wid1')
