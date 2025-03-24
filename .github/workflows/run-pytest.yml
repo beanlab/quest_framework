@@ -30,6 +30,7 @@ jobs:
         pip install pipreqs
         pip install sqlalchemy
         pip install pytest-asyncio
+        pip install websockets==12.*
 
     - name: Generate Requirements
       run: |
