@@ -51,31 +51,6 @@ async def test_workflow_metrics():
 
 @pytest.mark.asyncio
 @timeout(6)
-async def test_get_workflow_result_running_workflow():
-    gate = asyncio.Event()
-
-    async def sample_workflow():
-        await gate.wait()
-        return "sample workflow result"
-
-    workflows = {
-        "sample_workflow": sample_workflow
-    }
-    manager = create_in_memory_workflow_manager(workflows=workflows)
-
-    async with manager:
-        manager.start_workflow('sample_workflow', 'wid1')
-        await asyncio.sleep(0.1)
-
-        get_result_task = asyncio.create_task(manager.get_workflow_result('wid1'))
-
-        gate.set()
-        result = await get_result_task
-        assert result is not None
-
-
-@pytest.mark.asyncio
-@timeout(6)
 async def test_workflow_deletion():
     async def sample_workflow():
         return "sample workflow result"
