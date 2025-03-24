@@ -14,6 +14,11 @@ from .resources import ResourceStreamManager
 from .serializer import StepSerializer
 from .utils import quest_logger, task_name_getter
 
+from .utils import (
+    serialize_exception,
+    deserialize_exception
+)
+
 QUEST_VERSIONS = "_quest_versions"
 GLOBAL_VERSION = "_global_version"
 
@@ -540,9 +545,9 @@ class Historian:
                         deserialized_result = await self._serializer.deserialize(record['result'])
                         return deserialized_result
                     else:
-                        exception_class = _get_exception_class(record['exception']['type'])
-                        exception_args = record['exception']['args']
-                        raise exception_class(*exception_args)
+                        exception_data = record['exception']
+                        ex = deserialize_exception(exception_data)
+                        raise ex
                 else:
                     assert record['type'] == 'start'
 
@@ -583,33 +588,27 @@ class Historian:
                 raise asyncio.CancelledError(SUSPENDED) from cancel
             else:
                 quest_logger.exception(f'{step_id} canceled')
+                serialized_exception = serialize_exception(cancel)
                 self._history.append(StepEndRecord(
                     type='end',
                     timestamp=_get_current_timestamp(),
                     task_id=self._get_task_name(),
                     step_id=step_id,
                     result=None,
-                    exception=ExceptionDetails(
-                        type=_get_type_name(cancel),
-                        args=cancel.args,
-                        details=traceback.format_exc()
-                    )
+                    exception=serialized_exception
                 ))
                 raise
 
         except Exception as ex:
             quest_logger.exception(f'Error in {step_id}')
+            serialized_exception = serialize_exception(ex)
             self._history.append(StepEndRecord(
                 type='end',
                 timestamp=_get_current_timestamp(),
                 step_id=step_id,
                 task_id=self._get_task_name(),
                 result=None,
-                exception=ExceptionDetails(
-                    type=_get_type_name(ex),
-                    args=ex.args,
-                    details=traceback.format_exc()
-                )
+                exception=serialized_exception
             ))
             raise
 
@@ -868,20 +867,27 @@ class Historian:
 
         # We use a TaskGroup here to ensure that the external_replay task
         #  exits when the main task fails
-        async with asyncio.TaskGroup() as _task_factory:
-            external_task = _task_factory.create_task(
-                self._external_handler(),
-                name=self._get_external_task_name()
-            )
-            self._open_tasks.append(external_task)
-            external_task.add_done_callback(lambda t: self._open_tasks.remove(t) if t in self._open_tasks else None)
+        try:
+            async with asyncio.TaskGroup() as _task_factory:
+                external_task = _task_factory.create_task(
+                    self._external_handler(),
+                    name=self._get_external_task_name()
+                )
+                self._open_tasks.append(external_task)
+                external_task.add_done_callback(lambda t: self._open_tasks.remove(t) if t in self._open_tasks else None)
 
-            return await self.start_task(
-                self._run_with_exception_handling,
-                *args, **kwargs,
-                name=f'{self.workflow_id}.main',
-                task_factory=_task_factory.create_task
-            )
+                return await self.start_task(
+                    self._run_with_exception_handling,
+                    *args, **kwargs,
+                    name=f'{self.workflow_id}.main',
+                    task_factory=_task_factory.create_task
+                )
+
+        except ExceptionGroup as eg:
+            if len(eg.exceptions) == 1:
+                raise eg.exceptions[0]
+            else:
+                raise
 
         # Workflow logic completed
 

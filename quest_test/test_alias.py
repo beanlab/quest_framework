@@ -48,6 +48,7 @@ async def test_alias():
 
         assert '2' in data
 
+
 @pytest.mark.asyncio
 @timeout(3)
 async def test_alias_trade():
@@ -115,10 +116,12 @@ async def test_alias_trade():
         assert data_a == ['data a 1', 'data foo 1', 'data a 2']
         assert data_b == ['data b 1', 'data b 2', 'data foo 2']
 
+
 @pytest.mark.asyncio
 @timeout(3)
 async def test_alias_exception():
     pause = asyncio.Event()
+
     async def workflow_a():
         async with alias('the_foo'):
             await pause.wait()
@@ -136,16 +139,12 @@ async def test_alias_exception():
         'workflow_b': workflow_b,
     }
     async with create_in_memory_workflow_manager(workflows) as manager:
-        manager.start_workflow('workflow_a', 'wid1')
-        manager.start_workflow('workflow_b', 'wid2')
+        manager.start_workflow('workflow_a', 'wid1', delete_on_finish=False)
+        manager.start_workflow('workflow_b', 'wid2', delete_on_finish=False)
 
         await asyncio.sleep(0.1)
         pause.set()
+        await asyncio.sleep(0.1)  # Allow workflows to finish
 
-        await manager.get_workflow('wid1')
-        await manager.get_workflow('wid2')
-
-
-
-
-
+        result_wid1 = await manager.get_workflow_result('wid1', delete=True)
+        result_wid2 = await manager.get_workflow_result('wid2', delete=True)
