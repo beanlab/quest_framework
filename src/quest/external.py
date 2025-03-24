@@ -2,7 +2,7 @@ import asyncio
 import uuid
 from typing import TypeVar, Generic
 
-from .historian import find_historian, SUSPENDED, wrap_methods_as_historian_events
+from .historian import Historian, find_historian, SUSPENDED, wrap_methods_as_historian_events
 
 
 #
@@ -109,3 +109,34 @@ def state(name, identity, value):
 
 def identity_queue(name):
     return InternalResource(name, None, IdentityQueue())
+
+class _ResourceWrapper:
+    def __init__(self, name: str, identity: str | None, historian: 'Historian', resource_class):
+        self._name = name
+        self._identity = identity
+        self._historian = historian
+        self._resource_class = resource_class
+
+    # TODO: Is it fine that we essentially don't do anything if `field` is an attribute or private?
+    def __getattr__(self, field):
+        if field.startswith('_'):
+            return
+        if not callable(getattr(self._resource_class, field)):
+            return
+
+        async def wrapper(*args, _name=self._name, _identity=self._identity, **kwargs):
+            return await self._historian.record_external_event(_name, _identity, field, *args, **kwargs)
+
+        return wrapper
+
+def wrap_as_queue(name: str, identity: str | None, historian: Historian) -> Queue:
+    return _ResourceWrapper(name, identity, historian, Queue)
+
+def wrap_as_event(name: str, identity: str | None, historian: Historian) -> Event:
+    return _ResourceWrapper(name, identity, historian, Event)
+
+def wrap_as_state(name: str, identity: str | None, historian: Historian) -> State:
+    return _ResourceWrapper(name, identity, historian, State)
+
+def wrap_as_identity_queue(name: str, identity: str | None, historian: Historian) -> IdentityQueue:
+    return _ResourceWrapper(name, identity, historian, IdentityQueue)

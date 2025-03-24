@@ -2,7 +2,8 @@ import asyncio
 import pytest
 
 from quest import Historian
-from quest.external import state, queue, event, identity_queue
+from quest.external import state, queue, event, identity_queue, wrap_as_state, wrap_as_queue, wrap_as_identity_queue, \
+    wrap_as_event
 from .utils import timeout, create_test_historian
 
 # A general-use workflow for these tests
@@ -69,6 +70,11 @@ async def test_default():
     w_task = historian.run()
 
     with historian.get_resource_stream(None) as resource_stream:
+        phrase = wrap_as_state('phrase', None, historian)
+        messages = wrap_as_queue('messages', None, historian)
+        ident_messages = wrap_as_identity_queue('ident_messages', None, historian)
+        gate = wrap_as_event('gate', None, historian)
+
         updates = aiter(resource_stream)
         resources = await anext(updates)
         assert not resources
@@ -76,11 +82,11 @@ async def test_default():
         # Phrase created
         resources = await anext(updates)
         assert ('phrase', None) in resources
-        assert await resources[('phrase', None)].value() == 'Hello'
+        assert await phrase.value() == 'Hello'
 
         resources = await anext(updates)
         assert ('phrase', None) in resources
-        assert await resources[('phrase', None)].value() == 'World!'
+        assert await phrase.value() == 'World!'
 
         resources = await anext(updates)  # Phrase deleted
         assert ('phrase', None) not in resources
@@ -88,7 +94,7 @@ async def test_default():
         # Messages created
         resources = await anext(updates)
         assert ('messages', None) in resources
-        await resources[('messages', None)].put('Hello!')
+        await messages.put('Hello!')
 
         resources = await anext(updates)  # messages.get()
         assert ('messages', None) in resources
@@ -99,7 +105,7 @@ async def test_default():
         # Identity messages created
         resources = await anext(updates)
         assert ('ident_messages', None) in resources
-        await resources[('ident_messages', None)].put('Hello!')
+        await ident_messages.put('Hello!')
 
         resources = await anext(updates)  # ident_messages.get()
         assert ('ident_messages', None) in resources
@@ -110,7 +116,7 @@ async def test_default():
         # Gate created
         resources = await anext(updates)
         assert ('gate', None) in resources
-        await resources[('gate', None)].set()
+        await gate.set()
 
         resources = await anext(updates)  # gate.wait()
         assert ('gate', None) in resources
@@ -364,15 +370,17 @@ async def test_suspend_resume_workflow():
     w_task = historian.run()
 
     with historian.get_resource_stream(None) as resource_stream:
+        phrase2 = wrap_as_state('phrase2', None, historian)
+
         updates = aiter(resource_stream)
         await anext(updates)  # Get initial snapshot of resources
         resources = await anext(updates)
         assert ('phrase2', None) in resources
-        assert await resources[('phrase2', None)].value() == 'Goodbye'
+        assert await phrase2.value() == 'Goodbye'
 
         resources = await anext(updates)
         assert ('phrase2', None) in resources
-        assert await resources[('phrase2', None)].value() == 'Everyone!'
+        assert await phrase2.value() == 'Everyone!'
 
         resources = await anext(updates)
         assert ('phrase1', None) in resources

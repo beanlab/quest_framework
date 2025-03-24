@@ -6,13 +6,13 @@ from contextvars import ContextVar
 from datetime import datetime
 from functools import wraps
 from typing import Callable, TypeVar
-from .utils import quest_logger, task_name_getter
 
 from .history import History
 from .quest_types import ConfigurationRecord, VersionRecord, StepStartRecord, StepEndRecord, \
     ExceptionDetails, ResourceAccessEvent, ResourceEntry, ResourceLifecycleEvent, TaskEvent
 from .resources import ResourceStreamManager
 from .serializer import StepSerializer
+from .utils import quest_logger, task_name_getter
 
 from .utils import (
     serialize_exception,
@@ -978,18 +978,11 @@ class Historian:
         if self._fatal_exception.done():
             await self._fatal_exception
 
-        # Return a dictionary of resources wrapped in register_external_event wrappers
-        resources: dict[(str, str), object] = {}
+        resources: dict[(str, str), str] = {}  # dict[(name, identity), type]
         for entry in self._resources.values():
             # Always return public resources and private resources for the specified identity
             if entry['identity'] is None or entry['identity'] == identity:
-                resources[(entry['name'], entry['identity'])] = wrap_methods_as_historian_events(
-                    entry['resource'],
-                    entry['name'],
-                    entry['identity'],
-                    self,
-                    internal=False
-                )
+                resources[(entry['name'], entry['identity'])] = entry['type']
 
         return resources
 
