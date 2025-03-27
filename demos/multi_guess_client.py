@@ -1,6 +1,6 @@
 import asyncio
 
-from quest import client, step
+from quest import step
 
 
 # TODO - write a websocket client

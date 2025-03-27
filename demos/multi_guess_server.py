@@ -4,7 +4,7 @@ from pathlib import Path
 
 from quest import (step, queue, state, identity_queue,
                    create_filesystem_manager, these)
-from quest.server import Server
+from quest.extras.sockets.server import Server
 
 
 @step

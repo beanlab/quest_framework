@@ -12,6 +12,11 @@ from .serializer import StepSerializer, MasterSerializer, NoopSerializer
 from .utils import ainput
 from .versioning import version, get_version
 from .wrappers import step, task, wrap_steps
+try:
+    from .extras.sockets.server import Server
+    from .extras.sockets.client import Client
+except ImportError:
+    pass
 
 
 def create_filesystem_historian(save_folder: Path, historian_id: str, function: Callable,

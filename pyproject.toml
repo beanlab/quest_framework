@@ -14,10 +14,12 @@ pytest-asyncio = "^0.21.0"
 
 sqlalchemy = { version = "^2.0.36", optional = true }
 boto3 = { version = "^1.35.60", optional = true }
+websockets = { version = "12", optional = true }
 
 [tool.poetry.extras]
 sql = ["sqlalchemy"]
 aws = ["boto3"]
+sockets = ["websockets"]
 
 [tool.pytest.ini_options]
 log_cli = true
