@@ -1,11 +1,50 @@
 import asyncio
 import random
 from pathlib import Path
+from typing import Any
 
 from quest import (step, queue, state, identity_queue,
                    create_filesystem_manager, these)
 from scratch.websocket_scratch.server import serve
 
+
+class MultiQueue:
+    def __init__(self, queues: dict[str, Any]):
+        self.queues = queues
+        self.gets = {}  # asyncio tasks -> identity
+        self._active = set(queues.keys())  # Track identities that didn't get removed
+
+    async def __aenter__(self):
+        # Listen on all queues -> create a task for each queue.get()
+        self.gets = {
+            asyncio.create_task(q.get()): ident for ident, q in self.queues.items()
+        }
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        # Cancel all pending tasks - context exits
+        for task in self.gets:
+            task.cancel()
+
+    def remove(self, ident: str):
+        # Done waiting for this identity -> remove
+        self._active.discard(ident)
+
+    async def __anext__(self):
+        # All identities removed -> done
+        if not self._active:
+            raise StopAsyncIteration
+
+        # Wait until any of the current task is done
+        done, _ = await asyncio.wait(self.gets.keys(), return_when=asyncio.FIRST_COMPLETED)
+
+        for task in done:
+            ident = self.gets.pop(task)
+            if ident not in self._active:
+                continue # Skip - already removed
+
+            result = await task
+            return ident, result
 
 # TODO - write a websocket server that wraps
 # an existing workflow manager
@@ -38,7 +77,6 @@ async def get_secret():
 @step
 async def get_guesses(players: dict[str, str], message) -> dict[str, int]:
     guesses = {}
-
     status_message = []
 
     # TODO - the following code sequence is a little verbose
@@ -51,28 +89,20 @@ async def get_guesses(players: dict[str, str], message) -> dict[str, int]:
     # it easy and clear
 
     async with (
-        # Create a guess queue for each player
-        these({
-            ident: queue('guess', ident)
-            for ident in players
-        }) as guess_queues
+        these({ident: queue('guess', ident) for ident in players}) as guess_queues,
+        MultiQueue(guess_queues) as mq
     ):
-        # Wait for guesses to come in.
-        # As they do, remove their queue so they can't guess again.
-        guess_gets = {q.get(): ident for ident, q in guess_queues.items()}
-        for guess_get in asyncio.as_completed(guess_gets):
-            guess = await guess_get
-            ident = guess_gets[guess]
+        # Iterate guesses one at a time
+        async for ident, guess in mq:
             guesses[ident] = guess
 
-            # Update the status
+            # Status message
             name = players[ident]
             status_message.append(f'{name} guessed {guess}')
             message.set('\n'.join(status_message))
 
-            # Remove the queue
-            # The user will no longer see it
-            guess_queues.remove(ident)
+            # Stop listening from this identity
+            mq.remove(ident)
 
     return guesses
 
@@ -99,6 +129,7 @@ async def play_game(players: dict[str, str]):
 async def multi_guess():
     players = await get_players()
     await play_game(players)
+
 
 # TODO: Rewrite this function to import and use serve from server.py
 async def main():
