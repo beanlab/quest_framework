@@ -129,7 +129,7 @@ async def test_long_fast_race():
     await asyncio.sleep(1)
     await history.suspend()
     print('original', records)
-    print('_history', history._history)
+    print('_history', history._book)
 
     workflow = history.run()
     workflow_pause.set()

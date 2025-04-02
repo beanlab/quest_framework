@@ -17,16 +17,16 @@ async def test_versioning():
                 phrase.append(word)
         return phrase
 
-    history = []
-    historian = History('test', application, history, serializer=NoopSerializer())
-    historian.run()
+    book = []
+    history = History('test', application, book, serializer=NoopSerializer())
+    history.run()
     await asyncio.sleep(0.1)
-    await historian.record_external_event('words', None, 'put', 'foo')
-    await historian.record_external_event('words', None, 'put', 'bar')
+    await history.record_external_event('words', None, 'put', 'foo')
+    await history.record_external_event('words', None, 'put', 'bar')
     await asyncio.sleep(0.01)
 
     # Application shuts down
-    await historian.suspend()
+    await history.suspend()
 
     # New version of application is deployed
     @version(V2)
@@ -41,10 +41,10 @@ async def test_versioning():
                     phrase.append(word + '2')
         return phrase
 
-    historian = History('test', application, history, serializer=NoopSerializer())
-    result = historian.run()
+    history = History('test', application, book, serializer=NoopSerializer())
+    result = history.run()
     await asyncio.sleep(0.1)
-    await historian.record_external_event('words', None, 'put', 'baz')
+    await history.record_external_event('words', None, 'put', 'baz')
 
     assert (await result) == ['foo', 'bar', 'baz2']
 

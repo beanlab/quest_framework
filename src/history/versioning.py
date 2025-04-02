@@ -1,7 +1,7 @@
 import inspect
 from functools import wraps
 
-from .history import GLOBAL_VERSION, HISTORY_VERSIONS, find_history
+from .history import GLOBAL_VERSION, find_history
 
 DEFAULT_VERSION = ''
 
@@ -25,7 +25,7 @@ def version(global_version: str = None, **versions: str):
                 versions_discovered = True
             return await func(*args, **kwargs)
 
-        setattr(_quest_versioned_function, HISTORY_VERSIONS, _quest_versions)
+        setattr(_quest_versioned_function, '_quest_versions', _quest_versions)
         return _quest_versioned_function
 
     return decorator
@@ -35,7 +35,7 @@ def _get_qualified_version(version_name):
     outer_frame = inspect.currentframe()
     while outer_frame is not None:
         if outer_frame.f_code.co_name == '_quest_versioned_function' and \
-                version_name in outer_frame.f_locals.get(HISTORY_VERSIONS):
+                version_name in outer_frame.f_locals.get('_quest_versions'):
             module_name = outer_frame.f_locals.get('func').__module__
             func_name = outer_frame.f_locals.get('func').__qualname__
             return module_name, func_name, version_name

@@ -19,7 +19,6 @@ from .utils import (
     deserialize_exception
 )
 
-HISTORY_VERSIONS = "_history_versions"
 GLOBAL_VERSION = "_global_version"
 
 # external replay:
@@ -87,11 +86,11 @@ class _Wrapper:
     pass
 
 
-def wrap_methods_as_history_events(resource: T, name: str, identity: str | None, historian: 'History',
+def wrap_methods_as_history_events(resource: T, name: str, identity: str | None, history: 'History',
                                    internal=True) -> T:
     wrapper = _Wrapper()
 
-    historian_action = historian.handle_internal_event if internal else historian.record_external_event
+    history_action = history.handle_internal_event if internal else history.record_external_event
 
     for field in dir(resource):
         if field.startswith('_'):
@@ -101,7 +100,7 @@ def wrap_methods_as_history_events(resource: T, name: str, identity: str | None,
             # Use default-value kwargs to force value binding instead of late binding
             @wraps(method)
             async def record(*args, _name=name, _identity=identity, _field=field, **kwargs):
-                return await historian_action(_name, _identity, _field, *args, **kwargs)
+                return await history_action(_name, _identity, _field, *args, **kwargs)
 
             setattr(wrapper, field, record)
 
@@ -181,7 +180,7 @@ def _create_resource_id(name: str, identity: str | None) -> str:
     return f'{name}|{identity}' if identity is not None else name
 
 
-historian_context = ContextVar('historian')
+history_context = ContextVar('history')
 
 
 def get_function_name(func):
@@ -199,7 +198,7 @@ def _get_exception_class(exception_type: str):
 
 
 class History:
-    def __init__(self, workflow_id: str, workflow: Callable, history: Book, serializer: StepSerializer):
+    def __init__(self, workflow_id: str, workflow: Callable, book: Book, serializer: StepSerializer):
         # TODO - change nomenclature (away from workflow)? Maybe just use workflow.__name__?
         self.workflow_id = workflow_id
         self.workflow = workflow
@@ -210,7 +209,7 @@ class History:
         self._workflow_completed = False
 
         # These things need to be serialized
-        self._history: Book = history
+        self._book: Book = book
 
         self._serializer: StepSerializer = serializer
 
@@ -242,7 +241,7 @@ class History:
         # See also external.py
         self._resources: dict[str, ResourceEntry] = {}
 
-        # This is the resource stream manager that handles calls to stream the historian's resources
+        # This is the resource stream manager that handles calls to stream the history's resources
         self._resource_stream_manager = ResourceStreamManager()
 
         # We keep track of all open tasks so we can properly suspend them
@@ -264,9 +263,9 @@ class History:
         # Then we wait until the replay has completed (see _replay_complete)
         self._replay_started = asyncio.Event()
 
-        # The existing history is a copy of the initial history
+        # The existing book is a copy of the initial book
         #  This ensures that we only replay the pre-existing records
-        self._existing_history = []
+        self._existing_book = []
 
         # Each task needs to replay its separate event records,
         #  but the records are all interleaved.
@@ -294,7 +293,7 @@ class History:
 
         self._versions = {}
 
-        self._existing_history = list(self._history)
+        self._existing_book = list(self._book)
         self._resources = {}
 
         # The workflow ID is used as the task name for the root task
@@ -309,7 +308,7 @@ class History:
 
         # We add the workflow ID and the external task name
         #  so that the root task (see run()) and the external event handler
-        #  are both recognized as "belonging" to this historian
+        #  are both recognized as "belonging" to this history
         #  See also _get_task_name()
         self._replay_records = {
             self.workflow_id: None,
@@ -318,7 +317,7 @@ class History:
 
         self._record_gates = {
             _get_id(record): asyncio.Future()
-            for record in self._existing_history
+            for record in self._existing_book
         }
 
         for self._last_record_gate in self._record_gates.values():
@@ -380,7 +379,7 @@ class History:
         self._task_replays[task_id] = task_replay
 
         """Yield the tasks for this task ID"""
-        for record in self._existing_history:
+        for record in self._existing_book:
             # If the record belongs to another task, we need to wait
             #  for that other task to finish with the record
             #  before we move on
@@ -487,7 +486,7 @@ class History:
         history_logger.debug(f'Version record: {version_name} = {version}')
         self._versions[version_name] = version
 
-        self._history.append(VersionRecord(
+        self._book.append(VersionRecord(
             type='set_version',
             timestamp=_get_current_timestamp(),
             step_id=version_name,
@@ -505,7 +504,7 @@ class History:
         history_logger.debug(f'{self._get_task_name()} is waiting for version {version_name}=={version}')
 
         found = False
-        for record in self._existing_history:
+        for record in self._existing_book:
             if record['type'] == 'version' \
                     and record['version_name'] == version_name \
                     and record['version'] == version:
@@ -523,7 +522,7 @@ class History:
                 assert record['version'] == version, str(record)
 
         else:
-            self._history.append(VersionRecord(
+            self._book.append(VersionRecord(
                 type='after_version',
                 timestamp=_get_current_timestamp(),
                 step_id='version',
@@ -553,7 +552,7 @@ class History:
 
         if next_record is None:
             history_logger.debug(f'{self._get_task_name()} starting step {func_name} with {args} and {kwargs}')
-            self._history.append(StepStartRecord(
+            self._book.append(StepStartRecord(
                 type='start',
                 timestamp=_get_current_timestamp(),
                 task_id=self._get_task_name(),
@@ -571,7 +570,7 @@ class History:
 
             serialized_result = await self._serializer.serialize(result)
 
-            self._history.append(StepEndRecord(
+            self._book.append(StepEndRecord(
                 type='end',
                 timestamp=_get_current_timestamp(),
                 task_id=self._get_task_name(),
@@ -589,7 +588,7 @@ class History:
             else:
                 history_logger.exception(f'{step_id} canceled')
                 serialized_exception = serialize_exception(cancel)
-                self._history.append(StepEndRecord(
+                self._book.append(StepEndRecord(
                     type='end',
                     timestamp=_get_current_timestamp(),
                     task_id=self._get_task_name(),
@@ -602,7 +601,7 @@ class History:
         except Exception as ex:
             history_logger.exception(f'Error in {step_id}')
             serialized_exception = serialize_exception(ex)
-            self._history.append(StepEndRecord(
+            self._book.append(StepEndRecord(
                 type='end',
                 timestamp=_get_current_timestamp(),
                 step_id=step_id,
@@ -614,7 +613,7 @@ class History:
 
         finally:
             if prune_on_exit:
-                _prune(step_id, self._history)
+                _prune(step_id, self._book)
             self._prefix[self._get_task_name()].pop(-1)
 
     async def record_external_event(self, name, identity, action, *args, **kwargs):
@@ -634,7 +633,7 @@ class History:
         else:
             result = function(*args, **kwargs)
 
-        self._history.append(ResourceAccessEvent(
+        self._book.append(ResourceAccessEvent(
             type='external',
             timestamp=_get_current_timestamp(),
             step_id=step_id,
@@ -677,7 +676,7 @@ class History:
         function = getattr(resource, action)
 
         if (next_record := await self._next_record()) is None:
-            self._history.append(ResourceAccessEvent(
+            self._book.append(ResourceAccessEvent(
                 type='internal_start',
                 timestamp=_get_current_timestamp(),
                 step_id=step_id,
@@ -703,7 +702,7 @@ class History:
             result = function(*args, **kwargs)
 
         if (next_record := await self._next_record()) is None:
-            self._history.append(ResourceAccessEvent(
+            self._book.append(ResourceAccessEvent(
                 type='internal_end',
                 timestamp=_get_current_timestamp(),
                 step_id=step_id,
@@ -746,7 +745,7 @@ class History:
         )
 
         if (next_record := await self._next_record()) is None:
-            self._history.append(ResourceLifecycleEvent(
+            self._book.append(ResourceLifecycleEvent(
                 type='create_resource',
                 timestamp=_get_current_timestamp(),
                 step_id=step_id,
@@ -775,7 +774,7 @@ class History:
 
         if not suspending:
             if (next_record := await self._next_record()) is None:
-                self._history.append(ResourceLifecycleEvent(
+                self._book.append(ResourceLifecycleEvent(
                     type='delete_resource',
                     timestamp=_get_current_timestamp(),
                     step_id=step_id,
@@ -791,7 +790,7 @@ class History:
                     assert record['resource_id'] == resource_id
 
     def start_task(self, func, *args, name=None, task_factory=asyncio.create_task, **kwargs):
-        historian_context.set(self)
+        history_context.set(self)
         task_id = name or self._get_unique_id(get_function_name(func))
         history_logger.debug(f'Requested {task_id} start')
 
@@ -800,7 +799,7 @@ class History:
             history_logger.debug(f'Starting task {task_id}')
 
             if (next_record := await self._next_record()) is None:
-                self._history.append(TaskEvent(
+                self._book.append(TaskEvent(
                     type='start_task',
                     timestamp=_get_current_timestamp(),
                     step_id=task_id + '.start',
@@ -814,7 +813,7 @@ class History:
             result = await func(*a, **kw)
 
             if (next_record := await self._next_record()) is None:
-                self._history.append(TaskEvent(
+                self._book.append(TaskEvent(
                     type='complete_task',
                     timestamp=_get_current_timestamp(),
                     step_id=task_id + '.complete',
@@ -859,7 +858,7 @@ class History:
             raise
 
     async def _run(self, *args, **kwargs):
-        historian_context.set(self)
+        history_context.set(self)
         task_name_getter.set(self._get_task_name)
         history_logger.debug(f'Running workflow {self.workflow_id}')
         self._add_new_configurations()
@@ -893,7 +892,7 @@ class History:
 
     def _clear_history(self, task):
         if self._workflow_completed:
-            self._history.clear()
+            self._book.clear()
 
     def run(self, *args, **kwargs):
         self._replay_started.clear()
@@ -915,7 +914,7 @@ class History:
     def _add_new_configurations(self):
         config_records = [
             record
-            for record in self._history
+            for record in self._book
             if record['type'] == 'configuration'
         ]
 
@@ -931,7 +930,7 @@ class History:
         for config_function, args, kwargs in self._configurations[len(config_records):]:
             history_logger.debug(f'Adding new configuration: {get_function_name(config_function)}(*{args}, **{kwargs}')
 
-            self._history.append(ConfigurationRecord(
+            self._book.append(ConfigurationRecord(
                 type='configuration',
                 timestamp=_get_current_timestamp(),
                 step_id='configuration',
@@ -996,12 +995,12 @@ class History:
         await self._resource_stream_manager.update(identity)
 
 
-class HistorianNotFoundException(Exception):
+class HistoryNotFoundException(Exception):
     pass
 
 
 def find_history() -> History:
-    if (workflow := historian_context.get()) is not None:
+    if (workflow := history_context.get()) is not None:
         return workflow
 
     outer_frame = inspect.currentframe()
@@ -1009,6 +1008,6 @@ def find_history() -> History:
     while not is_workflow:
         outer_frame = outer_frame.f_back
         if outer_frame is None:
-            raise HistorianNotFoundException("Historian object not found in event stack")
+            raise HistoryNotFoundException("History object not found in event stack")
         is_workflow = isinstance(outer_frame.f_locals.get('self'), History)
     return outer_frame.f_locals.get('self')
