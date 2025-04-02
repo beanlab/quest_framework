@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from quest import LocalFileSystemBlobStorage, PersistentHistory
+from history import LocalFileSystemBlobStorage, PersistentList
 
 
 def print_record(record):
@@ -9,7 +9,7 @@ def print_record(record):
 
 
 def main(wid: str, namespace_folder: Path):
-    history = PersistentHistory(wid, LocalFileSystemBlobStorage(namespace_folder / wid))
+    history = PersistentList(wid, LocalFileSystemBlobStorage(namespace_folder / wid))
     for record in history:
         print_record(record)
 

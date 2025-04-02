@@ -1,8 +1,8 @@
 import asyncio
 import signal
 
-from quest.utils import ainput
-from quest import step, create_filesystem_manager
+from history.utils import ainput
+from history import step, create_filesystem_historian
 from pathlib import Path
 
 def handle(*args):
@@ -55,13 +55,13 @@ async def the_workflow():
 
 async def sleep_workflow():
     print('Sleep workflow running')
-    async with create_filesystem_manager(
+    async with create_filesystem_historian(
             Path('ainput_state'),
             'sleep',
             lambda wid: the_workflow
     ) as manager:
-        if not manager.has_workflow('sleep_workflow'):
-            manager.start_workflow('sleep_workflow', 'sleep_workflow')
+        if not manager.has('sleep_workflow'):
+            manager.start_soon('sleep_workflow', 'sleep_workflow')
 
         await manager.get_workflow('sleep_workflow')
 

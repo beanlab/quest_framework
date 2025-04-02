@@ -5,8 +5,8 @@ import shutil
 import uuid
 from pathlib import Path
 
-from src.quest import step, create_filesystem_historian
-from src.quest.external import state, queue
+from src.history import step, create_filesystem_history
+from src.history.external import state, queue
 
 logging.basicConfig(level=logging.DEBUG)
 INPUT_EVENT_NAME = 'input'
@@ -39,7 +39,7 @@ async def main():
 
     workflow_id = str(uuid.uuid4())
 
-    historian = create_filesystem_historian(
+    historian = create_filesystem_history(
         saved_state, 'demo', register_user
     )
 

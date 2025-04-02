@@ -3,7 +3,7 @@ import random
 import uuid
 from pathlib import Path
 
-from quest import task, create_filesystem_manager
+from history import task, create_filesystem_historian
 
 
 @task
@@ -30,12 +30,12 @@ async def do_stuff():
 async def main():
     wid = 'input-' + str(uuid.uuid1())
 
-    async with create_filesystem_manager(
+    async with create_filesystem_historian(
             Path('state'),
             'guess_game_demo',
             lambda wid: do_stuff
     ) as manager:
-        manager.start_workflow(
+        manager.start_soon(
             '',
             wid
         )

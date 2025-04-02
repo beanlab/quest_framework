@@ -47,7 +47,7 @@ jobs:
       env:
         PYTHONPATH: ${{ github.workspace }}/src
       run: |
-        pytest quest_test -o log_cli=true
+        pytest history_test -o log_cli=true
 
     - name: Configure AWS Credentials
       uses: aws-actions/configure-aws-credentials@v3
@@ -62,4 +62,4 @@ jobs:
       env:
         PYTHONPATH: ${{ github.workspace }}/src
       run: |
-        pytest quest_test -m "integration" -o log_cli=true
+        pytest history_test -m "integration" -o log_cli=true
