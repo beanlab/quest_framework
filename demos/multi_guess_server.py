@@ -6,19 +6,21 @@ from typing import Any
 from quest import (step, queue, state, identity_queue,
                    create_filesystem_manager, these)
 from scratch.websocket_scratch.server import serve
+from quest.external import Queue
 
 
 class MultiQueue:
-    def __init__(self, queues: dict[str, Any]):
+    def __init__(self, queues: dict[str, Queue]):
         self.queues = queues
-        self.gets = {}  # asyncio tasks -> identity
-        self._active = set(queues.keys())  # Track identities that didn't get removed
+        self.gets: dict[asyncio.Task, str] = {}
+        self.reverse: dict[str, asyncio.Task] = {}
 
     async def __aenter__(self):
         # Listen on all queues -> create a task for each queue.get()
-        self.gets = {
-            asyncio.create_task(q.get()): ident for ident, q in self.queues.items()
-        }
+        for ident, q in self.queues.items():
+            task = asyncio.create_task(q.get())
+            self.gets[task] = ident
+            self.reverse[ident] = task
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -27,24 +29,47 @@ class MultiQueue:
             task.cancel()
 
     def remove(self, ident: str):
-        # Done waiting for this identity -> remove
-        self._active.discard(ident)
+        # Stop listening to this identity queue
+        if ident not in self.reverse:
+            raise KeyError(f"Identity '{ident}' does not exist in MultiQueue.")
 
-    async def __anext__(self):
-        # All identities removed -> done
-        if not self._active:
-            raise StopAsyncIteration
+        task = self.reverse.pop(ident)
+        self.gets.pop(task)
+        task.cancel()
 
-        # Wait until any of the current task is done
-        done, _ = await asyncio.wait(self.gets.keys(), return_when=asyncio.FIRST_COMPLETED)
+    async def __aiter__(self):
+        while self.gets:
+            # Wait until any of the current task is done
+            done, _ = await asyncio.wait(self.gets.keys(), return_when=asyncio.FIRST_COMPLETED)
 
-        for task in done:
-            ident = self.gets.pop(task)
-            if ident not in self._active:
-                continue # Skip - already removed
+            for task in done:
+                ident = self.gets.pop(task)
+                # Stop listening to this identity
+                self.reverse.pop(ident, None)
 
-            result = await task
-            return ident, result
+                try:
+                    result = await task
+                    yield ident, result
+
+                except asyncio.CancelledError:
+                    continue
+
+
+class SingleResponseMultiQueue:
+    def __init__(self, queues: dict[str, Queue]):
+        self._mq = MultiQueue(queues)
+
+    async def __aenter__(self):
+        return await self._mq.__aenter__()
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        return await self._mq.__aexit__(exc_type, exc_val, exc_tb)
+
+    async def __aiter__(self):
+        async for ident, item in self._mq:
+            self._mq.remove(ident)  # Remove after one response from the identity
+            yield ident, item
+
 
 # TODO - write a websocket server that wraps
 # an existing workflow manager
@@ -79,6 +104,8 @@ async def get_guesses(players: dict[str, str], message) -> dict[str, int]:
     guesses = {}
     status_message = []
 
+    queues: dict[str, Queue] = {ident: Queue() for ident in players}
+
     # TODO - the following code sequence is a little verbose
     # We need to:
     # - create a queue for each player
@@ -88,10 +115,7 @@ async def get_guesses(players: dict[str, str], message) -> dict[str, int]:
     # This pattern should be common enough we should make
     # it easy and clear
 
-    async with (
-        these({ident: queue('guess', ident) for ident in players}) as guess_queues,
-        MultiQueue(guess_queues) as mq
-    ):
+    async with SingleResponseMultiQueue(queues) as mq:
         # Iterate guesses one at a time
         async for ident, guess in mq:
             guesses[ident] = guess
@@ -100,9 +124,6 @@ async def get_guesses(players: dict[str, str], message) -> dict[str, int]:
             name = players[ident]
             status_message.append(f'{name} guessed {guess}')
             message.set('\n'.join(status_message))
-
-            # Stop listening from this identity
-            mq.remove(ident)
 
     return guesses
 
