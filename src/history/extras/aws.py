@@ -20,7 +20,7 @@ class S3Bucket:
             region_name=self._region
         )
 
-        self._bucket_name = 'history-records'
+        self._bucket_name = 'history-records-testing-that-this-is-the-issue'
         self._s3_client = self.session.client('s3', region_name=self._region)
 
         self._prepare_bucket()
