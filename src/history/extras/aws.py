@@ -12,7 +12,7 @@ except ImportError:
 
 class S3Bucket:
     def __init__(self):
-        self._region = os.environ['AWS_REGION']
+        self._region = os.environ.get('AWS_REGION', 'us-east-1')
         self.session = boto3.session.Session(
             aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
             aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'],
@@ -21,7 +21,7 @@ class S3Bucket:
         )
 
         self._bucket_name = 'history-records'
-        self._s3_client = self.session.client('s3')
+        self._s3_client = self.session.client('s3', region_name=self._region)
 
         self._prepare_bucket()
 
@@ -35,14 +35,13 @@ class S3Bucket:
         try:
             self._s3_client.head_bucket(Bucket=self._bucket_name)
         except ClientError:
-            if self._region:
+            if self._region == 'us-east-1':
+                self._s3_client.create_bucket(Bucket=self._bucket_name)
+            else:
                 self._s3_client.create_bucket(
                     Bucket=self._bucket_name,
                     CreateBucketConfiguration={'LocationConstraint': self._region}
                 )
-            else:
-                self._s3_client.create_bucket(Bucket=self._bucket_name)
-
 
 class S3BlobStorage(BlobStorage):
     def __init__(self, name, s3_client, bucket_name):
