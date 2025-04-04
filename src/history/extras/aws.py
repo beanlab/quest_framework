@@ -2,6 +2,7 @@ import os
 import json
 
 from .. import BlobStorage, Blob, Historian, WorkflowFactory, PersistentList, Book
+from history.utils import history_logger
 
 try:
     import boto3
@@ -11,7 +12,7 @@ except ImportError:
 
 
 class S3Bucket:
-    def __init__(self):
+    def __init__(self, bucket_name):
         self._region = os.environ.get('AWS_REGION', 'us-east-1')
         self.session = boto3.session.Session(
             aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
@@ -20,7 +21,7 @@ class S3Bucket:
             region_name=self._region
         )
 
-        self._bucket_name = 'history-records-testing-that-this-is-the-issue'
+        self._bucket_name = bucket_name # TODO: What should we do here? Also, fix this
         self._s3_client = self.session.client('s3', region_name=self._region)
 
         self._prepare_bucket()
@@ -31,17 +32,45 @@ class S3Bucket:
     def get_bucket_name(self):
         return self._bucket_name
 
+    # def _prepare_bucket(self):
+    #     try:
+    #         self._s3_client.head_bucket(Bucket=self._bucket_name)
+    #     except ClientError:
+    #         if self._region == 'us-east-1':
+    #             self._s3_client.create_bucket(Bucket=self._bucket_name)
+    #         else:
+    #             self._s3_client.create_bucket(
+    #                 Bucket=self._bucket_name,
+    #                 CreateBucketConfiguration={'LocationConstraint': self._region}
+    #             )
+
     def _prepare_bucket(self):
         try:
             self._s3_client.head_bucket(Bucket=self._bucket_name)
-        except ClientError:
-            if self._region == 'us-east-1':
-                self._s3_client.create_bucket(Bucket=self._bucket_name)
+            history_logger.debug(f"Bucket '{self._bucket_name}' exists and is accessible.")
+        except self._s3_client.exceptions.NoSuchBucket:
+            history_logger.debug(f"Bucket '{self._bucket_name}' does not exist. Creating it...")
+            self._create_bucket()
+        except self._s3_client.exceptions.ClientError as e:
+            error_code = e.response["Error"]["Code"]
+            if error_code == "403":
+                raise PermissionError(f"Access denied to bucket '{self._bucket_name}'. Check IAM policies.")
+            elif error_code == "404":
+                history_logger.debug(f"Bucket '{self._bucket_name}' does not exist. Creating it...")
+                self._create_bucket()
             else:
-                self._s3_client.create_bucket(
-                    Bucket=self._bucket_name,
-                    CreateBucketConfiguration={'LocationConstraint': self._region}
-                )
+                raise RuntimeError(f"Unexpected error checking bucket: {e}")
+
+    def _create_bucket(self):
+        """ Creates the S3 bucket with proper region handling """
+        if self._region == "us-east-1":
+            self._s3_client.create_bucket(Bucket=self._bucket_name)
+        else:
+            self._s3_client.create_bucket(
+                Bucket=self._bucket_name,
+                CreateBucketConfiguration={"LocationConstraint": self._region}
+            )
+        history_logger.debug(f"Bucket '{self._bucket_name}' successfully created in {self._region}.")
 
 class S3BlobStorage(BlobStorage):
     def __init__(self, name, s3_client, bucket_name):
@@ -86,8 +115,9 @@ class S3BlobStorage(BlobStorage):
 def create_s3_manager(
         namespace: str,
         factory: WorkflowFactory,
+        bucket_name
 ) -> Historian:
-    s3 = S3Bucket()
+    s3 = S3Bucket(bucket_name=bucket_name)
 
     storage = S3BlobStorage(namespace, s3.get_s3_client(), s3.get_bucket_name())
 
