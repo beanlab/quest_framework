@@ -1,6 +1,6 @@
 """import pytest
 
-from src.history import these
+from history import these
 
 
 class Context:

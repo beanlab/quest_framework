@@ -26,15 +26,15 @@ async def workflow(name):
 @pytest.mark.asyncio
 @timeout(3)
 async def test_basic_workflow():
-    history = []
-    historian = History(
+    in_memory_list = []
+    history = History(
         'test',
         workflow,
-        history,
+        in_memory_list,
         serializer=NoopSerializer()
     )
 
-    result = await historian.run('world')
+    result = await history.run('world')
 
     assert result == 'Hello world'
 
