@@ -38,7 +38,7 @@ class S3Bucket:
             if self._region:
                 self._s3_client.create_bucket(
                     Bucket=self._bucket_name,
-                    CreateBucketConfiguration={'LocationConstraint': self._region}
+                    # CreateBucketConfiguration={'LocationConstraint': self._region}
                 )
             else:
                 self._s3_client.create_bucket(Bucket=self._bucket_name)
@@ -107,7 +107,7 @@ class DynamoDB:
             os.environ['AWS_REGION']
         )
 
-        self._table_name = 'quest_records'
+        self._table_name = 'history_records'
         self._dynamodb = self.session.resource('dynamodb')
         self._table = self._prepare_table()
 
