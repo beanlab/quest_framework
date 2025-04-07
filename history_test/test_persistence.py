@@ -79,7 +79,7 @@ async def test_persistence_aws():
 
     class S3StorageContext:
         def __enter__(self):
-            s3 = S3Bucket(bucket_name='history-records')
+            s3 = S3Bucket(bucket_name='quest-records')
             storage = S3BlobStorage('test', s3.get_s3_client(), s3.get_bucket_name())
             return storage
 
