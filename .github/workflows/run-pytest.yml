@@ -62,6 +62,4 @@ jobs:
       env:
         PYTHONPATH: ${{ github.workspace }}/src
       run: |
-        echo "############################ Full AWS environment variables:"
-        env | grep AWS
         pytest history_test -m "integration" -o log_cli=true
