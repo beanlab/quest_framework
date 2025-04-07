@@ -52,14 +52,9 @@ class S3Bucket:
             history_logger.debug(f"Bucket '{self._bucket_name}' does not exist. Creating it...")
             self._create_bucket()
         except self._s3_client.exceptions.ClientError as e:
-            error_code = e.response["Error"]["Code"]
-            if error_code == "403":
-                raise PermissionError(f"Access denied to bucket '{self._bucket_name}'. Check IAM policies.")
-            elif error_code == "404":
-                history_logger.debug(f"Bucket '{self._bucket_name}' does not exist. Creating it...")
-                self._create_bucket()
-            else:
-                raise RuntimeError(f"Unexpected error checking bucket: {e}")
+            raise PermissionError(f"Access denied to bucket or bucket does not exist '{self._bucket_name}'. Check IAM policies or region.")
+        except Exception as e:
+            raise RuntimeError(f"An error occurred while accessing the bucket '{self._bucket_name}': {e}")
 
     def _create_bucket(self):
         """ Creates the S3 bucket with proper region handling """
