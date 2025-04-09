@@ -84,7 +84,7 @@ class Client:
     async def get_resources(self, workflow_id: str, identity):
         ...
 
-    async def stream_resources(self, workflow_id: str, identity: str):
+    async def stream_resources(self, workflow_id: str, identity: str | None):
         async with connect(self._url + '/stream', additional_headers=self._headers) as ws:
             first_message = {
                 'wid': workflow_id,
