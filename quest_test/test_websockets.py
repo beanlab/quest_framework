@@ -61,9 +61,6 @@ async def test_websockets():
     manager.start_workflow('workflow', wid)
     await asyncio.gather(serve(manager, 8000, authorize), connect(wid))
 
-# TODO: This test brings up an interesting question. If an exception occurs within execution of the workflow,
-#  it is not reported to listeners of resources. Should they know? They only receive an exception if it occurs
-#  during the sending of an external event or getting of a resource stream.
 @pytest.mark.asyncio
 async def test_websockets_exception():
     wid = 'test_exception'

@@ -126,8 +126,6 @@ class Server:
             ident = params['identity']
 
             # Stream resource updates via ws messages
-            # TODO: We are assuming that wid exists in manager... should we do a check or
-            #  allow the key error to propagate from manager? Or handle that differently in manager?
             with self._manager.get_resource_stream(wid, ident) as stream:
                 async for resources in stream:
                     # Serialize tuple keys into strings joined by '||'
