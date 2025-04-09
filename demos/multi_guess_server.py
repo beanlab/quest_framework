@@ -1,10 +1,10 @@
 import asyncio
 import random
 from pathlib import Path
-from typing import Any
 
 from quest import (step, queue, state, identity_queue,
                    create_filesystem_manager, these)
+from scratch.websocket_scratch.server import serve
 from quest.external import Queue
 from quest.historian import find_historian
 
