@@ -34,7 +34,8 @@ async def serialize_resources(resources):
 
 
 class Server:
-    def __init__(self, manager: WorkflowManager, host: str, port: int, authorizer: Callable[[Headers], bool]):
+    def __init__(self, manager: WorkflowManager, host: str, port: int,
+                 authorizer: Callable[[Headers], bool] = lambda headers: True):
         """
         Initialize the server.
 
