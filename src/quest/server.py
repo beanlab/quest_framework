@@ -1,16 +1,26 @@
 #!/usr/bin/env python
 import asyncio
 import json
-import traceback
 from typing import Callable
-from quest.utils import quest_logger
-# TODO: Update websockets to use latest version
-import websockets
-from websockets import WebSocketServerProtocol
+
+from websockets import WebSocketException, Headers
+from websockets.asyncio.server import serve, ServerConnection
+from websockets.exceptions import ConnectionClosedOK
+from websockets.http11 import Request
+
 from quest import WorkflowManager
+from quest.utils import quest_logger, serialize_exception
 
 
 class MethodNotFoundException(Exception):
+    pass
+
+
+class InvalidParametersException(Exception):
+    pass
+
+
+class InvalidPathException(Exception):
     pass
 
 
@@ -20,29 +30,31 @@ async def serialize_resources(resources):
         assert isinstance(key, tuple)
         new_key = '||'.join(k if k is not None else '' for k in key)
         serialized_resources[new_key] = value
-    return serialized_resources
+    return {'resources': serialized_resources}
 
 
 class Server:
-    def __init__(self, manager: WorkflowManager, host: str, port: int, authorizer: Callable[[dict[str, str]], bool]):
+    def __init__(self, manager: WorkflowManager, host: str, port: int, authorizer: Callable[[Headers], bool]):
         """
         Initialize the server.
 
         :param manager: Workflow manager whose methods will be called remotely.
         :param host: Host address for the server.
         :param port: Port for the server.
+        :param authorizer: Used to authenticate incoming connections.
         """
+        self._server = None
         self._manager: WorkflowManager = manager
         self._host = host
         self._port = port
         self._authorizer = authorizer
-        self._server = None
 
     async def __aenter__(self):
         """
         Start the server in an async with context.
         """
-        self._server = await websockets.serve(self.handler, self._host, self._port)
+        self._server = serve(self.handler, self._host, self._port)
+        await self._server.__aenter__()
         quest_logger.info(f'Server started at ws://{self._host}:{self._port}')
         return self
 
@@ -50,82 +62,78 @@ class Server:
         """
         Stop the server when exiting the context.
         """
-        self._server.close()
-        await self._server.wait_closed()
+        await self._server.__aexit__(exc_type, exc_val, exc_tb)
         quest_logger.info(f'Server at ws://{self._host}:{self._port} stopped')
 
-    async def handler(self, ws: WebSocketServerProtocol, path: str):
+    async def handler(self, ws: ServerConnection):
         """
         Handle incoming WebSocket connections and messages.
 
-        :param ws: The WebSocket connection.
-        :param path: The requested path.
+        :param ws: The WebSocket server connection.
         """
-        if not (self._authorizer(ws.request_headers)):
+        if not (self._authorizer(ws.request.headers)):
             await ws.close(reason="Unauthorized")
+            quest_logger.info(f'Unauthorized attempt to connect from {ws.remote_address[0]}')
             return
 
-        quest_logger.info(f'New connection: {path}')
-        if path == '/call':
-            await self.handle_call(ws)
-        elif path == '/stream':
-            await self.handle_stream(ws)
-        else:
-            response = {'error': 'Invalid path'}
-            await ws.send(json.dumps(response))
+        quest_logger.info(f'New connection from: {ws.remote_address[0]}')
+        match ws.request.path:
+            case "/call":
+                await self.handle_call(ws)
+            case "/stream":
+                await self.handle_stream(ws)
+            case _:
+                response = {'exception': serialize_exception(InvalidPathException(f'Invalid path: {ws.request.path}'))}
+                await ws.send(json.dumps(response))
+        quest_logger.info(f'Connection closed from: {ws.remote_address[0]}')
 
-    async def handle_call(self, ws: WebSocketServerProtocol):
+    async def handle_call(self, ws: ServerConnection):
         async for message in ws:
             try:
                 data = json.loads(message)
 
+                if 'method' not in data or 'args' not in data or 'kwargs' not in data:
+                    raise InvalidParametersException()
                 method_name = data['method']
                 args = data['args']
                 kwargs = data['kwargs']
 
                 if not hasattr(self._manager, method_name):
                     raise MethodNotFoundException(f'{method_name} is not a valid method')
-                else:
-                    method = getattr(self._manager, method_name)
-                    if callable(method):
-                        result = method(*args, **kwargs)
-                        if asyncio.iscoroutine(result):
-                            result = await result
-                        response = {'result': result}
-                    else:
-                        raise MethodNotFoundException(f'{method_name} is not callable')
+                method = getattr(self._manager, method_name)
+                if not callable(method):
+                    raise MethodNotFoundException(f'{method_name} is not callable')
 
+                result = method(*args, **kwargs)
+                if asyncio.iscoroutine(result):
+                    result = await result
+                response = {'result': result}
+            except WebSocketException as e:
+                raise e
             except Exception as e:
-                # TODO: Serialize e
-                response = {
-                    'error': 'Error occurred during execution',
-                    'details': str(e),
-                    'traceback': traceback.format_exc()
-                }
-
+                response = {'exception': serialize_exception(e)}
             await ws.send(json.dumps(response))
 
-    async def handle_stream(self, ws: WebSocketServerProtocol):
+    async def handle_stream(self, ws: ServerConnection):
         try:
             # Receive initial parameters
             message = await ws.recv()
             params = json.loads(message)
-            # TODO: Assert or test that these are there instead of catching broad KeyError exception.
+            if 'wid' not in params or 'identity' not in params:
+                raise InvalidParametersException()
             wid = params['wid']
             ident = params['identity']
-        except (TypeError, ValueError, KeyError) as e:
-            # TODO: Serialize e
-            response = {'error': 'Invalid parameters format'}
-            await ws.send(json.dumps(response))
-            return
 
-        try:
+            # Stream resource updates via ws messages
+            # TODO: We are assuming that wid exists in manager... should we do a check or
+            #  allow the key error to propagate from manager? Or handle that differently in manager?
             with self._manager.get_resource_stream(wid, ident) as stream:
                 async for resources in stream:
                     # Serialize tuple keys into strings joined by '||'
                     resources = await serialize_resources(resources)
                     await ws.send(json.dumps(resources))
+        except WebSocketException as e:
+            raise e
         except Exception as e:
-            # TODO: Serialize e
-            response = {'error': 'Error occurred during execution'}
+            response = {'exception': serialize_exception(e)}
             await ws.send(json.dumps(response))
