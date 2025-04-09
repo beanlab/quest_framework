@@ -16,8 +16,8 @@ def authorize(headers: dict[str, str]) -> bool:
     return False
 
 
-async def serve(manager):
-    async with Server(manager, 'localhost', 8000, authorizer=authorize):
+async def serve(historian):
+    async with Server(historian, 'localhost', 8000, authorizer=authorize):
         await asyncio.sleep(1)
 
 
@@ -43,6 +43,6 @@ async def test_websockets():
                 messages = await messages.get()
                 await phrase.set(messages)
 
-    manager = create_in_memory_historian({'workflow': workflow})
-    manager.start_soon('workflow', 'workflow1')
-    await asyncio.gather(serve(manager), connect())
+    historian = create_in_memory_historian({'workflow': workflow})
+    historian.start_soon('workflow', 'workflow1')
+    await asyncio.gather(serve(historian), connect())

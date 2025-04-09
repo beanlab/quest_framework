@@ -15,8 +15,8 @@ async def test_step_class():
         async def __call__(self):
             await asyncio.sleep(0.01)
 
-    historian = History('test', CallMe(), [], serializer=NoopSerializer())
-    await historian.run()
+    history = History('test', CallMe(), [], serializer=NoopSerializer())
+    await history.run()
 
 
 @pytest.mark.asyncio
@@ -42,24 +42,24 @@ async def test_wrap_steps():
         await useful.foo()
         await useful.bar()
 
-    historian = History('test', workflow, [], serializer=NoopSerializer())
-    historian.run()
+    history = History('test', workflow, [], serializer=NoopSerializer())
+    history.run()
 
-    with historian.get_resource_stream(None) as resource_stream:
+    with history.get_resource_stream(None) as resource_stream:
         updates = aiter(resource_stream)
         await anext(updates)  # First update should be empty
         resources = await anext(updates)  # second event should now show the 'gate' Event
         assert ('gate', None) in resources
 
-        await historian.suspend()
+        await history.suspend()
 
-    wtask = historian.run()
+    wtask = history.run()
 
-    with historian.get_resource_stream(None) as resource_stream:
+    with history.get_resource_stream(None) as resource_stream:
         updates = aiter(resource_stream)
         resources = await anext(updates)  # should include 'gate' already because that is where the first run left off
         assert ('gate', None) in resources
-        gate = wrap_as_event('gate', None, historian)
+        gate = wrap_as_event('gate', None, history)
         await gate.set()
 
     await wtask  # good hygiene

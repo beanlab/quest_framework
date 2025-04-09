@@ -30,14 +30,14 @@ async def fooflow(text1, text2):
 
 @pytest.mark.asyncio
 async def test_step_concurrency():
-    historian = History(
+    history = History(
         'test',
         fooflow,
         [],
         serializer=NoopSerializer()
     )
 
-    assert await historian.run('abc', 'xyz') == ('abcfoofoofoo', 'xyzfoofoofoo')
+    assert await history.run('abc', 'xyz') == ('abcfoofoofoo', 'xyzfoofoofoo')
 
 
 @task
@@ -55,14 +55,14 @@ async def doubleflow(text):
 @pytest.mark.asyncio
 @timeout(3)
 async def test_step_tasks():
-    historian = History(
+    history = History(
         'test',
         doubleflow,
         [],
         serializer=NoopSerializer()
     )
 
-    assert await historian.run('abcxyz') == 'abcxyzabcxyzabcabc'
+    assert await history.run('abcxyz') == 'abcxyzabcxyzabcabc'
 
 
 # Two tasks running concurrently

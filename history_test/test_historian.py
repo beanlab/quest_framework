@@ -9,14 +9,14 @@ from history.serializer import NoopSerializer
 
 
 @pytest.mark.asyncio
-async def test_manager():
+async def test_historian():
     storage = InMemoryBlobStorage()
-    histories = {}
+    books = {}
 
-    def create_history(wid: str):
-        if wid not in histories:
-            histories[wid] = PersistentList(wid, InMemoryBlobStorage())
-        return histories[wid]
+    def create_book(wid: str):
+        if wid not in books:
+            books[wid] = PersistentList(wid, InMemoryBlobStorage())
+        return books[wid]
 
     pause = asyncio.Event()
     counter_a = 0
@@ -34,22 +34,22 @@ async def test_manager():
 
         return 7 + arg
 
-    async with Historian('test-manager', storage, create_history, lambda w_type: workflow,
-                         serializer=NoopSerializer()) as manager:
-        manager.start_soon('workflow', 'wid1', 4, delete_on_finish=False)
+    async with Historian('test-manager', storage, create_book, lambda w_type: workflow,
+                         serializer=NoopSerializer()) as historian:
+        historian.start_soon('workflow', 'wid1', 4, delete_on_finish=False)
         await asyncio.sleep(0.1)
-        # Now pause the manager and all workflows
+        # Now pause the historian and all workflows
 
-    assert 'wid1' in histories
+    assert 'wid1' in books
     assert counter_a == 1
     assert counter_b == 0
 
-    async with Historian('test-manager', storage, create_history, lambda w_type: workflow,
-                         serializer=NoopSerializer()) as manager:
+    async with Historian('test-manager', storage, create_book, lambda w_type: workflow,
+                         serializer=NoopSerializer()) as historian:
         # At this point, all workflows should be resumed
         pause.set()
         await asyncio.sleep(0.1)
-        result = await manager.get_result('wid1')
+        result = await historian.get_result('wid1')
         assert result == 11
 
     assert counter_a == 2
@@ -57,14 +57,14 @@ async def test_manager():
 
 
 @pytest.mark.asyncio
-async def test_manager_events():
+async def test_historian_events():
     storage = InMemoryBlobStorage()
-    histories = {}
+    books = {}
 
-    def create_history(wid: str):
-        if wid not in histories:
-            histories[wid] = PersistentList(wid, InMemoryBlobStorage())
-        return histories[wid]
+    def create_book(wid: str):
+        if wid not in books:
+            books[wid] = PersistentList(wid, InMemoryBlobStorage())
+        return books[wid]
 
     counter_a = 0
     counter_b = 0
@@ -87,25 +87,25 @@ async def test_manager_events():
 
                 total += message
 
-    async with Historian('test-manager', storage, create_history, lambda w_type: workflow,
-                         serializer=NoopSerializer()) as manager:
-        manager.start_soon('workflow', 'wid1', 1, delete_on_finish=False)
+    async with Historian('test-manager', storage, create_book, lambda w_type: workflow,
+                         serializer=NoopSerializer()) as historian:
+        historian.start_soon('workflow', 'wid1', 1, delete_on_finish=False)
         await asyncio.sleep(0.1)
-        await manager.send_event('wid1', 'messages', None, 'put', 2)
+        await historian.send_event('wid1', 'messages', None, 'put', 2)
         await asyncio.sleep(0.1)
         # Now pause the manager and all workflows
 
-    assert 'wid1' in histories
+    assert 'wid1' in books
     assert counter_a == 1
     assert counter_b == 1
 
-    async with Historian('test-manager', storage, create_history, lambda w_type: workflow,
-                         serializer=NoopSerializer()) as manager:
+    async with Historian('test-manager', storage, create_book, lambda w_type: workflow,
+                         serializer=NoopSerializer()) as historian:
         # At this point, all workflows should be resumed
         await asyncio.sleep(0.1)
-        await manager.send_event('wid1', 'messages', None, 'put', 3)
-        await manager.send_event('wid1', 'messages', None, 'put', 0)  # i.e. end the workflow
-        result = await manager.get_result('wid1')
+        await historian.send_event('wid1', 'messages', None, 'put', 3)
+        await historian.send_event('wid1', 'messages', None, 'put', 0)  # i.e. end the workflow
+        result = await historian.get_result('wid1')
         assert result == 6
 
     assert counter_a == 2
@@ -113,14 +113,14 @@ async def test_manager_events():
 
 
 @pytest.mark.asyncio
-async def test_manager_background():
+async def test_historian_background():
     storage = InMemoryBlobStorage()
-    histories = {}
+    books = {}
 
-    def create_history(wid: str):
-        if wid not in histories:
-            histories[wid] = PersistentList(wid, InMemoryBlobStorage())
-        return histories[wid]
+    def create_book(wid: str):
+        if wid not in books:
+            books[wid] = PersistentList(wid, InMemoryBlobStorage())
+        return books[wid]
 
     counter_a = 0
     counter_b = 0
@@ -144,26 +144,26 @@ async def test_manager_background():
 
                 total += message
 
-    async with Historian('test-manager', storage, create_history, lambda w_type: workflow,
-                         serializer=NoopSerializer()) as manager:
-        manager.start_soon('workflow', 'wid1', 1)
+    async with Historian('test-manager', storage, create_book, lambda w_type: workflow,
+                         serializer=NoopSerializer()) as historian:
+        historian.start_soon('workflow', 'wid1', 1)
         await asyncio.sleep(0.1)
-        await manager.send_event('wid1', 'messages', None, 'put', 2)
+        await historian.send_event('wid1', 'messages', None, 'put', 2)
         await asyncio.sleep(0.1)
-        # Now pause the manager and all workflows
+        # Now pause the historian and all workflows
 
-    assert 'wid1' in histories
+    assert 'wid1' in books
     assert counter_a == 1
     assert counter_b == 1
 
-    async with Historian('test-manager', storage, create_history, lambda w_type: workflow,
-                         serializer=NoopSerializer()) as manager:
+    async with Historian('test-manager', storage, create_book, lambda w_type: workflow,
+                         serializer=NoopSerializer()) as historian:
         # At this point, all workflows should be resumed
         await asyncio.sleep(0.1)
-        await manager.send_event('wid1', 'messages', None, 'put', 3)
-        await manager.send_event('wid1', 'messages', None, 'put', 0)  # i.e. end the workflow
+        await historian.send_event('wid1', 'messages', None, 'put', 3)
+        await historian.send_event('wid1', 'messages', None, 'put', 0)  # i.e. end the workflow
         await asyncio.sleep(0.1)  # workflow now finishes and removes itself
-        assert not manager.has('wid1')
+        assert not historian.has('wid1')
         assert total == 6
 
     assert counter_a == 2
@@ -183,16 +183,16 @@ async def test_get_queue():
 
     storage = InMemoryBlobStorage()
 
-    def create_history(wid: str):
+    def create_book(wid: str):
         return PersistentList(wid, InMemoryBlobStorage())
 
-    async with Historian('test', storage, create_history, lambda wid: workflow,
-                         serializer=NoopSerializer()) as wm:
-        wm.start_soon('workflow', 'wid', delete_on_finish=False)
+    async with Historian('test', storage, create_book, lambda wid: workflow,
+                         serializer=NoopSerializer()) as historian:
+        historian.start_soon('workflow', 'wid', delete_on_finish=False)
         await asyncio.sleep(0.1)
-        q = await wm.get_queue('wid', 'messages', None)
-        result = await wm.get_state('wid', 'result', None)
-        finish = await wm.get_event('wid', 'finish', None)
+        q = await historian.get_queue('wid', 'messages', None)
+        result = await historian.get_state('wid', 'result', None)
+        finish = await historian.get_event('wid', 'finish', None)
 
         assert await result.get() is None
         await q.put(3)

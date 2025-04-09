@@ -16,10 +16,10 @@ async def simple_workflow(phrase1_ident, phrase2_ident):
 
 
 # A general-use listener that asserts that both resources are seen while streaming
-async def simple_listener(historian, stream_ident=None, phrase1_ident=None, phrase2_ident=None):
+async def simple_listener(history, stream_ident=None, phrase1_ident=None, phrase2_ident=None):
     saw_phrase1 = False
     saw_phrase2 = False
-    with historian.get_resource_stream(stream_ident) as resource_stream:
+    with history.get_resource_stream(stream_ident) as resource_stream:
         async for resources in resource_stream:
             if ('phrase1', phrase1_ident) in resources:
                 saw_phrase1 = True
@@ -33,9 +33,9 @@ class StreamListenerError(Exception):
     pass
 
 # A listener that fails streaming before the workflow completes
-async def failing_listener(historian: History, identity):
+async def failing_listener(history: History, identity):
     try:
-        with historian.get_resource_stream(identity) as resource_stream:
+        with history.get_resource_stream(identity) as resource_stream:
             i = 0
             async for resources in resource_stream:
                 if i == 5:
@@ -62,18 +62,18 @@ async def test_default():
         async with event('gate', None) as gate:
             await gate.wait()
 
-    historian = create_test_history(
+    history = create_test_history(
         'default',
         default_workflow
     )
 
-    w_task = historian.run()
+    w_task = history.run()
 
-    with historian.get_resource_stream(None) as resource_stream:
-        phrase = wrap_as_state('phrase', None, historian)
-        messages = wrap_as_queue('messages', None, historian)
-        ident_messages = wrap_as_identity_queue('ident_messages', None, historian)
-        gate = wrap_as_event('gate', None, historian)
+    with history.get_resource_stream(None) as resource_stream:
+        phrase = wrap_as_state('phrase', None, history)
+        messages = wrap_as_queue('messages', None, history)
+        ident_messages = wrap_as_identity_queue('ident_messages', None, history)
+        gate = wrap_as_event('gate', None, history)
 
         updates = aiter(resource_stream)
         resources = await anext(updates)
@@ -138,20 +138,20 @@ async def test_default():
 @pytest.mark.asyncio
 @timeout(3)
 async def test_typical():
-    historian = create_test_history(
+    history = create_test_history(
         'typical',
         lambda: simple_workflow(None, None)
     )
 
     async def run_workflow():
-        w_task = historian.run()
+        w_task = history.run()
         await w_task
 
     # Demonstrates what a typical listener would look like
     async def typical_listener():
         reported_resources = []
 
-        with historian.get_resource_stream(None) as resource_stream:
+        with history.get_resource_stream(None) as resource_stream:
             async for resources in resource_stream:
                 reported_resources.append(resources)
 
@@ -169,13 +169,13 @@ async def test_typical():
 @pytest.mark.asyncio
 @timeout(3)
 async def test_private_identity_streaming_public_resources():
-    historian = create_test_history(
+    history = create_test_history(
         'private_identity_streaming_public_resources',
         lambda: simple_workflow(None, None)
     )
 
-    w_task = historian.run()
-    await simple_listener(historian, None, None, None)
+    w_task = history.run()
+    await simple_listener(history, None, None, None)
     await w_task
 
 
@@ -183,13 +183,13 @@ async def test_private_identity_streaming_public_resources():
 @pytest.mark.asyncio
 @timeout(3)
 async def test_public_streaming_private_resources():
-    historian = create_test_history(
+    history = create_test_history(
         'public_streaming_private_resources',
         lambda: simple_workflow('private_identity', 'private_identity')
     )
 
-    w_task = historian.run()
-    with historian.get_resource_stream(None) as resource_stream:
+    w_task = history.run()
+    with history.get_resource_stream(None) as resource_stream:
         async for resources in resource_stream:
             assert not resources
     await w_task
@@ -199,16 +199,16 @@ async def test_public_streaming_private_resources():
 @pytest.mark.asyncio
 @timeout(3)
 async def test_exception():
-    historian = create_test_history(
+    history = create_test_history(
         'exception',
         lambda: simple_workflow(None, None)
     )
 
-    wtask = historian.run()
+    wtask = history.run()
 
-    await failing_listener(historian, None)
+    await failing_listener(history, None)
 
-    assert historian._resource_stream_manager._resource_streams == {}
+    assert history._resource_stream_manager._resource_streams == {}
     await wtask
 
 
@@ -217,17 +217,17 @@ async def test_exception():
 @pytest.mark.asyncio
 @timeout(3)
 async def test_concurrent_none_streams():
-    historian = create_test_history(
+    history = create_test_history(
         'concurrent_none_streams',
         lambda: simple_workflow(None, None)
     )
 
-    wtask = historian.run()
+    wtask = history.run()
 
     # Run multiple streams concurrently
-    await asyncio.gather(simple_listener(historian, None, None, None),
-                         simple_listener(historian, None, None, None),
-                         simple_listener(historian, None, None, None))
+    await asyncio.gather(simple_listener(history, None, None, None),
+                         simple_listener(history, None, None, None),
+                         simple_listener(history, None, None, None))
 
     await wtask
 
@@ -239,7 +239,7 @@ async def test_concurrent_none_streams():
 @timeout(3)
 async def test_mult_identity_workflow():
     async def public_listener():
-        with historian.get_resource_stream(None) as resource_stream:
+        with history.get_resource_stream(None) as resource_stream:
             phrase1_fail = True
             async for resources in resource_stream:
                 if ('phrase1', None) in resources:
@@ -249,14 +249,14 @@ async def test_mult_identity_workflow():
         if phrase1_fail:
             assert False
 
-    historian = create_test_history(
+    history = create_test_history(
         'mult_identity_workflow',
         lambda: simple_workflow(None, 'private_identity')
     )
 
-    w_task = historian.run()
+    w_task = history.run()
     await asyncio.gather(public_listener(), simple_listener(
-        historian,
+        history,
         'private_identity',
         None,
         'private_identity'
@@ -270,7 +270,7 @@ async def test_mult_identity_workflow():
 @timeout(3)
 async def test_multiple_private_identity_streams():
     async def ident1_listener():
-        with historian.get_resource_stream('ident1') as resource_stream:
+        with history.get_resource_stream('ident1') as resource_stream:
             ident1_fail = True
             ident2_fail = False
             async for resources in resource_stream:
@@ -282,7 +282,7 @@ async def test_multiple_private_identity_streams():
                 assert False
 
     async def ident2_listener():
-        with historian.get_resource_stream('ident2') as resource_stream:
+        with history.get_resource_stream('ident2') as resource_stream:
             ident1_fail = False
             ident2_fail = True
             async for resources in resource_stream:
@@ -293,12 +293,12 @@ async def test_multiple_private_identity_streams():
             if ident1_fail or ident2_fail:
                 assert False
 
-    historian = create_test_history(
+    history = create_test_history(
         'different_identity_streams',
         lambda: simple_workflow('ident1', 'ident2')
     )
 
-    wtask = historian.run()
+    wtask = history.run()
     await asyncio.gather(ident1_listener(), ident2_listener())
     await wtask
 
@@ -309,15 +309,15 @@ async def test_multiple_private_identity_streams():
 @pytest.mark.asyncio
 @timeout(3)
 async def test_closing_different_identity_streams():
-    historian = create_test_history(
+    history = create_test_history(
         'different_identity_streams',
         lambda: simple_workflow(None, 'private_identity')
     )
 
-    w_task = historian.run()
+    w_task = history.run()
     await asyncio.gather(
-        failing_listener(historian, None),
-        simple_listener(historian, 'private_identity', None, 'private_identity')
+        failing_listener(history, None),
+        simple_listener(history, 'private_identity', None, 'private_identity')
     )
     await w_task
 
@@ -327,19 +327,19 @@ async def test_closing_different_identity_streams():
 @pytest.mark.asyncio
 @timeout(4)
 async def test_suspend_workflow():
-    historian = create_test_history(
+    history = create_test_history(
         'test_suspend_workflow',
         lambda: simple_workflow(None, None)
     )
 
-    historian.run()
+    history.run()
 
-    with historian.get_resource_stream(None) as resource_stream:
+    with history.get_resource_stream(None) as resource_stream:
         updates = aiter(resource_stream)
         for i in range(4):
             await anext(updates)
 
-        await historian.suspend()
+        await history.suspend()
 
         try:
             await anext(updates)
@@ -355,22 +355,22 @@ async def test_suspend_workflow():
 @pytest.mark.asyncio
 @timeout(4)
 async def test_suspend_resume_workflow():
-    historian = create_test_history(
+    history = create_test_history(
         'test_suspend_resume_workflow',
         lambda: simple_workflow(None, None)
     )
 
-    historian.run()
-    with historian.get_resource_stream(None) as resource_stream:
+    history.run()
+    with history.get_resource_stream(None) as resource_stream:
         updates = aiter(resource_stream)
         for i in range(3):  # Call anext up to just before creation of phrase2
             await anext(updates)
 
-    await historian.suspend()
-    w_task = historian.run()
+    await history.suspend()
+    w_task = history.run()
 
-    with historian.get_resource_stream(None) as resource_stream:
-        phrase2 = wrap_as_state('phrase2', None, historian)
+    with history.get_resource_stream(None) as resource_stream:
+        phrase2 = wrap_as_state('phrase2', None, history)
 
         updates = aiter(resource_stream)
         await anext(updates)  # Get initial snapshot of resources

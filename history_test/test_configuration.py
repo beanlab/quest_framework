@@ -50,19 +50,19 @@ async def test_configuration():
         'foos': ['a', 'b']
     }
 
-    history = []
-    historian = History('test', application, history, serializer=NoopSerializer())
-    historian.configure(configure_state, config1)
-    historian.run()
+    book = []
+    history = History('test', application, book, serializer=NoopSerializer())
+    history.configure(configure_state, config1)
+    history.run()
     await asyncio.sleep(0.1)
 
-    await historian.record_external_event('foobar', None, 'put', 'a')
-    await historian.record_external_event('foobar', None, 'put', 'b')
-    await historian.record_external_event('foobar', None, 'put', 'c')
+    await history.record_external_event('foobar', None, 'put', 'a')
+    await history.record_external_event('foobar', None, 'put', 'b')
+    await history.record_external_event('foobar', None, 'put', 'c')
 
     await asyncio.sleep(0.1)
 
-    await historian.suspend()
+    await history.suspend()
 
     # Application reboots with new config
     # 'b' is no longer a foo, and should be moved to bar
@@ -70,19 +70,19 @@ async def test_configuration():
         'foos': ['a']
     }
 
-    historian = History('test', application, history, serializer=NoopSerializer())
-    historian.configure(configure_state, config1)
-    historian.configure(configure_state, config2)
-    historian.run()
+    history = History('test', application, book, serializer=NoopSerializer())
+    history.configure(configure_state, config1)
+    history.configure(configure_state, config2)
+    history.run()
     await asyncio.sleep(0.1)
 
-    await historian.record_external_event('foobar', None, 'put', 'a')
-    await historian.record_external_event('foobar', None, 'put', 'b')
-    await historian.record_external_event('foobar', None, 'put', 'c')
+    await history.record_external_event('foobar', None, 'put', 'a')
+    await history.record_external_event('foobar', None, 'put', 'b')
+    await history.record_external_event('foobar', None, 'put', 'c')
 
     await asyncio.sleep(0.1)
 
-    await historian.suspend()
+    await history.suspend()
 
     assert messages == [
         'a is foo',

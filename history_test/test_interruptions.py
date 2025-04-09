@@ -33,23 +33,23 @@ async def test_sigint_handling():
         'workflow_1': workflow_1,
         'workflow_2': workflow_2,
     }
-    manager = create_in_memory_historian(workflows)
+    historian = create_in_memory_historian(workflows)
 
     counter_1 = [0]
     counter_2 = [0]
 
-    async with manager:
-        manager.start_soon('workflow_1', 'w1', counter_1, delete_on_finish=False)
-        manager.start_soon('workflow_2', 'w2', counter_2, delete_on_finish=False)
+    async with historian:
+        historian.start_soon('workflow_1', 'w1', counter_1, delete_on_finish=False)
+        historian.start_soon('workflow_2', 'w2', counter_2, delete_on_finish=False)
 
         gate_1.set()
 
         await asyncio.sleep(0.1)
         with pytest.raises(CancelledError):
-            await manager.get_result("w1")
+            await historian.get_result("w1")
 
         with pytest.raises(CancelledError):
-            await manager.get_result("w2")
+            await historian.get_result("w2")
 
     assert counter_1[0] == 3
     assert counter_2[0] == 3

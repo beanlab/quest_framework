@@ -20,16 +20,16 @@ async def workflow_will_stop():
 @pytest.mark.asyncio
 @timeout(3)
 async def test_cancel():
-    historian = History(
+    history = History(
         'test',
         workflow_will_stop,
         [],
         serializer=NoopSerializer()
     )
 
-    workflow = historian.run()
+    workflow = history.run()
     await asyncio.sleep(0.1)
-    await historian.suspend()
+    await history.suspend()
     stop.set()
     await asyncio.sleep(0.1)
 
@@ -62,16 +62,16 @@ async def workflow_with_tasks():
 @pytest.mark.asyncio
 @timeout(3)
 async def test_task_cancel():
-    historian = History(
+    history = History(
         'test',
         workflow_with_tasks,
         [],
         serializer=NoopSerializer()
     )
 
-    workflow = historian.run()
+    workflow = history.run()
     await asyncio.sleep(0.1)
-    await historian.suspend()
+    await history.suspend()
     block.set()
     await asyncio.sleep(0.1)
 

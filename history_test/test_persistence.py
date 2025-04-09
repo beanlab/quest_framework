@@ -95,29 +95,29 @@ async def test_persistence_aws():
 
 async def persistence_basic(storage_ctx):
     with storage_ctx as storage:
-        history = PersistentList('test', storage)
-        historian = History(
+        book = PersistentList('test', storage)
+        history = History(
             'test',
             simple_workflow,
-            history,
+            book,
             serializer=NoopSerializer()
         )
 
-        workflow = historian.run()
+        workflow = history.run()
         await asyncio.sleep(0.01)
-        await historian.suspend()
+        await history.suspend()
 
         pause.set()
 
     with storage_ctx as storage:
-        history = PersistentList('test', storage)
-        historian = History(
+        book = PersistentList('test', storage)
+        history = History(
             'test',
             simple_workflow,
-            history,
+            book,
             serializer=NoopSerializer()
         )
-        result = await historian.run()
+        result = await history.run()
         assert result == 14
 
 
@@ -165,30 +165,30 @@ async def resume_step_persistence(storage_ctx):
 @pytest.mark.asyncio
 async def test_workflow_cleanup_suspend(tmp_path):
     storage = LocalFileSystemBlobStorage(tmp_path)
-    history = PersistentList('test', storage)
-    historian = History(
+    book = PersistentList('test', storage)
+    history = History(
         'test',
         resume_this_workflow,
-        history,
+        book,
         serializer=NoopSerializer()
     )
 
-    workflow = historian.run()
+    workflow = history.run()
     await asyncio.sleep(0.01)
-    await historian.suspend()
+    await history.suspend()
 
     event.set()
 
     storage = LocalFileSystemBlobStorage(tmp_path)
-    history = PersistentList('test', storage)
-    historian = History(
+    book = PersistentList('test', storage)
+    history = History(
         'test',
         resume_this_workflow,
-        history,
+        book,
         serializer=NoopSerializer()
     )
 
-    await historian.run()
+    await history.run()
 
     assert not any(tmp_path.iterdir())
 
@@ -196,15 +196,15 @@ async def test_workflow_cleanup_suspend(tmp_path):
 @pytest.mark.asyncio
 async def test_workflow_cleanup_basic(tmp_path):
     storage = LocalFileSystemBlobStorage(tmp_path)
-    history = PersistentList('test', storage)
-    historian = History(
+    book = PersistentList('test', storage)
+    history = History(
         'test',
         simple_workflow,
-        history,
+        book,
         serializer=NoopSerializer()
     )
 
     pause.set()
-    await historian.run()
+    await history.run()
 
     assert not os.listdir(tmp_path)

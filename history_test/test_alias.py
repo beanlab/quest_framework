@@ -27,22 +27,22 @@ async def test_alias():
         'workflow': workflow
     }
 
-    async with create_in_memory_historian(workflows) as manager:
-        manager.start_soon('workflow', 'wid')
+    async with create_in_memory_historian(workflows) as historian:
+        historian.start_soon('workflow', 'wid')
         await asyncio.sleep(0.1)
 
-        await manager.send_event('wid', 'data', None, 'put', '1')
+        await historian.send_event('wid', 'data', None, 'put', '1')
         await asyncio.sleep(0.1)
 
         assert '1' in data
 
-        await manager.send_event('the_foo', 'data', None, 'put', 'foo')
+        await historian.send_event('the_foo', 'data', None, 'put', 'foo')
         first_pause.set()
         await asyncio.sleep(0.1)
 
         assert 'foo' in data
 
-        await manager.send_event('wid', 'data', None, 'put', '2')
+        await historian.send_event('wid', 'data', None, 'put', '2')
         second_pause.set()
         await asyncio.sleep(0.1)
 
@@ -83,21 +83,21 @@ async def test_alias_trade():
         'workflow_b': workflow_b,
     }
 
-    async with create_in_memory_historian(workflows) as manager:
+    async with create_in_memory_historian(workflows) as historian:
         # Gather resources
-        manager.start_soon('workflow_a', 'wid_a')
+        historian.start_soon('workflow_a', 'wid_a')
         await asyncio.sleep(0.1)
-        manager.start_soon('workflow_b', 'wid_b')
+        historian.start_soon('workflow_b', 'wid_b')
         await asyncio.sleep(0.1)
 
         first_pause.set()
-        await manager.send_event('wid_a', 'data', None, 'put', 'data a 1')
-        await manager.send_event('wid_b', 'data', None, 'put', 'data b 1')
-        await manager.send_event('the_foo', 'data', None, 'put', 'data foo 1')
+        await historian.send_event('wid_a', 'data', None, 'put', 'data a 1')
+        await historian.send_event('wid_b', 'data', None, 'put', 'data b 1')
+        await historian.send_event('the_foo', 'data', None, 'put', 'data foo 1')
         await asyncio.sleep(0.1)  # yield to the workflows
 
         # now both should be waiting on second gate and no one should be the foo
-        assert not manager.has('the_foo')
+        assert not historian.has('the_foo')
         assert 'data a 1' in data_a
         assert 'data foo 1' in data_a
         assert 'data b 1' in data_b
@@ -106,9 +106,9 @@ async def test_alias_trade():
         await asyncio.sleep(0.1)  # yield
 
         # now workflow b should be the foo
-        await manager.send_event('wid_a', 'data', None, 'put', 'data a 2')
-        await manager.send_event('wid_b', 'data', None, 'put', 'data b 2')
-        await manager.send_event('the_foo', 'data', None, 'put', 'data foo 2')
+        await historian.send_event('wid_a', 'data', None, 'put', 'data a 2')
+        await historian.send_event('wid_b', 'data', None, 'put', 'data b 2')
+        await historian.send_event('the_foo', 'data', None, 'put', 'data foo 2')
 
         third_pause.set()
         await asyncio.sleep(0.1)  # yield to the workflows
@@ -138,13 +138,13 @@ async def test_alias_exception():
         'workflow_a': workflow_a,
         'workflow_b': workflow_b,
     }
-    async with create_in_memory_historian(workflows) as manager:
-        manager.start_soon('workflow_a', 'wid1', delete_on_finish=False)
-        manager.start_soon('workflow_b', 'wid2', delete_on_finish=False)
+    async with create_in_memory_historian(workflows) as historian:
+        historian.start_soon('workflow_a', 'wid1', delete_on_finish=False)
+        historian.start_soon('workflow_b', 'wid2', delete_on_finish=False)
 
         await asyncio.sleep(0.1)
         pause.set()
         await asyncio.sleep(0.1)  # Allow workflows to finish
 
-        result_wid1 = await manager.get_result('wid1', delete=True)
-        result_wid2 = await manager.get_result('wid2', delete=True)
+        result_wid1 = await historian.get_result('wid1', delete=True)
+        result_wid2 = await historian.get_result('wid2', delete=True)

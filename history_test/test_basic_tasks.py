@@ -43,18 +43,18 @@ async def test_basic_tasks():
     counters['basic_tasks'] = 0
     pauses['basic_tasks'] = asyncio.Event()
 
-    history = []
-    historian = History(
+    book = []
+    history = History(
         'test',
         sub_task_workflow,
-        history,
+        book,
         serializer=NoopSerializer()
     )
 
     # Don't pause
     pauses['basic_tasks'].set()
 
-    result = await historian.run('abc', 'xyz', 'basic_tasks')
+    result = await history.run('abc', 'xyz', 'basic_tasks')
 
     assert counters['basic_tasks'] == 4
     assert result == 'foofooabcbarbarfoofooxyzbarbar'
@@ -67,25 +67,25 @@ async def test_basic_tasks_resume():
     counters['tasks_resume'] = 0
     pauses['tasks_resume'] = asyncio.Event()
 
-    history = []
-    historian = History(
+    book = []
+    history = History(
         'test',
         sub_task_workflow,
-        history,
+        book,
         serializer=NoopSerializer()
     )
 
     # Will run and block on the event
-    workflow = historian.run('abc', 'xyz', 'tasks_resume')
+    workflow = history.run('abc', 'xyz', 'tasks_resume')
     await asyncio.sleep(0.1)
-    await historian.suspend()
+    await history.suspend()
 
     # Both subtasks should have run the first foobar
     assert counters['tasks_resume'] == 2
 
     # Don't pause this time
     pauses['tasks_resume'].set()
-    result = await historian.run()
+    result = await history.run()
 
     assert counters['tasks_resume'] == 4
     assert result == 'foofooabcbarbarfoofooxyzbarbar'

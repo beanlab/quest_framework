@@ -43,25 +43,25 @@ async def longer_workflow(text):
 @pytest.mark.asyncio
 @timeout(10)
 async def test_custom_exception():
-    history = []
-    historian = History(
+    book = []
+    history = History(
         'test',
         longer_workflow,
-        history,
+        book,
         NoopSerializer()
     )
 
-    workflow = historian.run('abc')
+    workflow = history.run('abc')
     await asyncio.sleep(0.01)
-    await historian.suspend()
+    await history.suspend()
 
-    assert history  # should not be empty
+    assert book  # should not be empty
 
     # Allow workflow to proceed
     block_workflow.set()
 
     # Start the workflow again
-    result = await historian.run('abc')
+    result = await history.run('abc')
 
     assert result == 'abcabcfooabcabcfoo'
     assert double_calls == 2
@@ -105,25 +105,25 @@ async def longer_workflow2(text):
 @pytest.mark.asyncio
 @timeout(10)
 async def test_builtin():
-    history = []
-    historian = History(
+    book = []
+    history = History(
         'test2',
         longer_workflow2,
-        history,
+        book,
         NoopSerializer()
     )
 
-    workflow2 = historian.run('abc')
+    workflow2 = history.run('abc')
     await asyncio.sleep(0.01)
-    await historian.suspend()
+    await history.suspend()
 
-    assert history  # should not be empty
+    assert book  # should not be empty
 
     # Allow workflow to proceed
     block_workflow2.set()
 
     # Start the workflow again
-    result2 = await historian.run('abc')
+    result2 = await history.run('abc')
 
     assert result2 == 'abcabcabcabc'
     assert double_calls2 == 2

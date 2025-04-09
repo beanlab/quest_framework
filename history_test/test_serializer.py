@@ -51,17 +51,17 @@ async def workflow():
 
 @pytest.mark.asyncio
 async def test_master_serializer():
-    history = []
+    book = []
     # Create historian with custom serializer
-    historian = History('test_workflow', workflow, history, serializer=serializer)
+    history = History('test_workflow', workflow, book, serializer=serializer)
 
-    workflow_task = historian.run()
+    workflow_task = history.run()
 
     await asyncio.sleep(0.1)
 
-    await historian.suspend()
+    await history.suspend()
     pause_event.set()
-    workflow_task = historian.run()
+    workflow_task = history.run()
 
     result = await workflow_task
 

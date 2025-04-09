@@ -49,23 +49,23 @@ async def test_external_state():
             assert await name.get() == 'Barbaz'
 
     identity = 'foo_ident'
-    historian = History('test', state_workflow, [], serializer=NoopSerializer())
-    workflow = historian.run(identity)
-    await wait_for(historian)
+    history = History('test', state_workflow, [], serializer=NoopSerializer())
+    workflow = history.run(identity)
+    await wait_for(history)
 
     # Observe state
-    resources = await historian.get_resources(None)  # i.e. public resources
+    resources = await history.get_resources(None)  # i.e. public resources
     assert not resources  # should be empty
 
-    resources = await historian.get_resources(identity)
+    resources = await history.get_resources(identity)
     assert ('name', 'foo_ident') in resources
-    name = wrap_as_state('name', 'foo_ident', historian)
+    name = wrap_as_state('name', 'foo_ident', history)
     assert await name.value() == 'Foobar'
 
     # Set state
     await name.set('Barbaz')
 
-    resources = await historian.get_resources(identity)
+    resources = await history.get_resources(identity)
     assert ('name', 'foo_ident') in resources
     assert await name.value() == 'Barbaz'
 
@@ -88,20 +88,20 @@ async def workflow_with_queue(identity):
 @timeout(3)
 async def test_external_queue():
     identity = 'foo_ident'
-    historian = History(
+    history = History(
         'test',
         workflow_with_queue,
         [],
         serializer=NoopSerializer()
     )
-    workflow = historian.run(identity)
-    await wait_for(historian)
+    workflow = history.run(identity)
+    await wait_for(history)
 
-    resources = await historian.get_resources(None)
-    items = wrap_as_queue('items', 'foo_ident', historian)
+    resources = await history.get_resources(None)
+    items = wrap_as_queue('items', 'foo_ident', history)
     assert not resources
 
-    resources = await historian.get_resources(identity)
+    resources = await history.get_resources(identity)
     assert ('items', 'foo_ident') in resources
 
     await items.put(7)
@@ -139,31 +139,31 @@ async def queue_task_workflow(id1, id2):
 async def test_queue_tasks():
     id_foo = 'FOO'
     id_bar = 'BAR'
-    historian = History(
+    history = History(
         'test',
         queue_task_workflow,
         [],
         serializer=NoopSerializer()
     )
 
-    workflow = historian.run(id_foo, id_bar)
-    await wait_for(historian)
+    workflow = history.run(id_foo, id_bar)
+    await wait_for(history)
 
-    resources = await historian.get_resources(id_foo)
+    resources = await history.get_resources(id_foo)
     assert ('foo', 'FOO') in resources
     assert ('foo_done', 'FOO') in resources
 
-    resources = await historian.get_resources(id_bar)
+    resources = await history.get_resources(id_bar)
     assert ('foo', 'BAR') in resources
     assert ('foo_done', 'BAR') in resources
 
-    await historian.record_external_event('foo', id_bar, 'put', 4)
-    await historian.record_external_event('foo', id_foo, 'put', 1)
-    await historian.record_external_event('foo', id_foo, 'put', 2)
-    await historian.record_external_event('foo', id_bar, 'put', 5)
-    await historian.record_external_event('foo_done', id_bar, 'set')
-    await historian.record_external_event('foo', id_foo, 'put', 3)
-    await historian.record_external_event('foo_done', id_foo, 'set')
+    await history.record_external_event('foo', id_bar, 'put', 4)
+    await history.record_external_event('foo', id_foo, 'put', 1)
+    await history.record_external_event('foo', id_foo, 'put', 2)
+    await history.record_external_event('foo', id_bar, 'put', 5)
+    await history.record_external_event('foo_done', id_bar, 'set')
+    await history.record_external_event('foo', id_foo, 'put', 3)
+    await history.record_external_event('foo_done', id_foo, 'set')
 
     assert await workflow == [1, 2, 3, 4, 5]
 
@@ -190,22 +190,22 @@ async def workflow_nested_tasks():
 @pytest.mark.asyncio
 @timeout(3)
 async def test_nested_tasks():
-    historian = History(
+    history = History(
         'test',
         workflow_nested_tasks,
         [],
         serializer=NoopSerializer()
     )
 
-    workflow = historian.run()
-    await wait_for(historian)
+    workflow = history.run()
+    await wait_for(history)
 
-    await historian.record_external_event('the_queue', None, 'put', 1)
-    await historian.suspend()
+    await history.record_external_event('the_queue', None, 'put', 1)
+    await history.suspend()
 
-    new_workflow = historian.run()
+    new_workflow = history.run()
     await asyncio.sleep(1)
-    await historian.record_external_event('the_queue', None, 'put', 2)
+    await history.record_external_event('the_queue', None, 'put', 2)
 
     assert await new_workflow == 3
 
@@ -219,48 +219,48 @@ async def test_nested_tasks():
 async def test_queue_tasks_resume():
     id_foo = 'FOO'
     id_bar = 'BAR'
-    history = []
-    historian = History(
+    book = []
+    history = History(
         'test',
         queue_task_workflow,
-        history,
+        book,
         serializer=NoopSerializer()
     )
 
-    workflow = historian.run(id_foo, id_bar)
-    await wait_for(historian)
+    workflow = history.run(id_foo, id_bar)
+    await wait_for(history)
 
-    resources = await historian.get_resources(id_foo)
+    resources = await history.get_resources(id_foo)
     assert ('foo', 'FOO') in resources
     assert ('foo_done', 'FOO') in resources
 
-    resources = await historian.get_resources(id_bar)
+    resources = await history.get_resources(id_bar)
     assert ('foo', 'BAR') in resources
     assert ('foo_done', 'BAR') in resources
 
-    await historian.record_external_event('foo', id_bar, 'put', 4)
-    await historian.record_external_event('foo', id_foo, 'put', 1)
-    await historian.record_external_event('foo', id_foo, 'put', 2)
+    await history.record_external_event('foo', id_bar, 'put', 4)
+    await history.record_external_event('foo', id_foo, 'put', 1)
+    await history.record_external_event('foo', id_foo, 'put', 2)
 
-    await historian.suspend()
+    await history.suspend()
 
     # Start it over
-    workflow = historian.run(id_foo, id_bar)
-    await wait_for(historian)
+    workflow = history.run(id_foo, id_bar)
+    await wait_for(history)
     await asyncio.sleep(1)
 
-    resources = await historian.get_resources(id_foo)
+    resources = await history.get_resources(id_foo)
     assert ('foo', 'FOO') in resources
     assert ('foo_done', 'FOO') in resources
 
-    resources = await historian.get_resources(id_bar)
+    resources = await history.get_resources(id_bar)
     assert ('foo', 'BAR') in resources
     assert ('foo_done', 'BAR') in resources
 
-    await historian.record_external_event('foo', id_bar, 'put', 5)
-    await historian.record_external_event('foo_done', id_bar, 'set')
-    await historian.record_external_event('foo', id_foo, 'put', 3)
-    await historian.record_external_event('foo_done', id_foo, 'set')
+    await history.record_external_event('foo', id_bar, 'put', 5)
+    await history.record_external_event('foo_done', id_bar, 'set')
+    await history.record_external_event('foo', id_foo, 'put', 3)
+    await history.record_external_event('foo_done', id_foo, 'set')
 
     assert await workflow == [1, 2, 3, 4, 5]
 
@@ -283,24 +283,24 @@ async def interactive_process_with_steps():
 async def test_step_specific_external():
     """
     When an external event occurs on a resources that is specific to the step,
-    and the step history is pruned after the step completes,
+    and the step book is pruned after the step completes,
     then the external event on the now-obsolete resource must also be pruned.
     """
-    history = []
-    historian = History('test', interactive_process_with_steps, history, serializer=NoopSerializer())
-    historian.run()
+    book = []
+    history = History('test', interactive_process_with_steps, book, serializer=NoopSerializer())
+    history.run()
     await asyncio.sleep(0.1)
-    resources = await historian.get_resources(None)
+    resources = await history.get_resources(None)
     assert ('the-queue', None) in resources
-    await historian.record_external_event('the-queue', None, 'put', 1)
+    await history.record_external_event('the-queue', None, 'put', 1)
     await asyncio.sleep(0.1)
-    await historian.suspend()
+    await history.suspend()
 
-    workflow = historian.run()
+    workflow = history.run()
     await asyncio.sleep(0.1)
-    resources = await historian.get_resources(None)
+    resources = await history.get_resources(None)
     assert ('the-queue', None) in resources
-    await historian.record_external_event('the-queue', None, 'put', 2)
+    await history.record_external_event('the-queue', None, 'put', 2)
 
     assert (await workflow) == 3
 

@@ -75,25 +75,25 @@ async def longer_workflow(text):
 @pytest.mark.asyncio
 @timeout(3)
 async def test_resume():
-    history = []
-    historian = History(
+    book = []
+    history = History(
         'test',
         longer_workflow,
-        history,
+        book,
         serializer=NoopSerializer()
     )
 
-    workflow = historian.run('abc')
+    workflow = history.run('abc')
     await asyncio.sleep(0.01)
-    await historian.suspend()
+    await history.suspend()
 
-    assert history  # should not be empty
+    assert book  # should not be empty
 
     # Allow workflow to proceed
     block_workflow.set()
 
     # Start the workflow again
-    result = await historian.run('abc')
+    result = await history.run('abc')
 
     assert result == 'abcabcfooabcabcfoo'
     assert double_calls == 2
@@ -134,20 +134,20 @@ async def nested_workflow(text1, text2):
 @pytest.mark.asyncio
 @timeout(3)
 async def test_nested_steps_resume():
-    history = []
-    historian = History(
+    book = []
+    history = History(
         'test',
         nested_workflow,
-        history,
+        book,
         serializer=NoopSerializer()
     )
 
-    workflow = historian.run('abc', 'xyz')
+    workflow = history.run('abc', 'xyz')
     await asyncio.sleep(0.1)
-    await historian.suspend()
+    await history.suspend()
 
     pause.set()
-    result = await historian.run()
+    result = await history.run()
 
     assert result == 'foofooabcbarfooxyzbar'
 
@@ -170,19 +170,19 @@ async def dance(start):
 @pytest.mark.asyncio
 @timeout(3)
 async def test_resume_mid_step():
-    historian = History(
+    history = History(
         'test',
         dance,
         [],
         serializer=NoopSerializer()
     )
 
-    wtask = historian.run(1)
+    wtask = history.run(1)
     await asyncio.sleep(0.1)
-    await historian.suspend()
+    await history.suspend()
     stop.set()
 
-    wtask = historian.run(1)
+    wtask = history.run(1)
     await asyncio.sleep(0.1)
 
     assert await wtask == 3

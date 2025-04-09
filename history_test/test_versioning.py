@@ -161,20 +161,20 @@ async def test_named_versions():
         t3 = get_numbers(name3)
         return (await t1) + (await t2) + (await t3)
 
-    history = []
+    book = []
 
     name1 = 'foo'
     name2 = 'bar'
     name3 = 'baz'
 
-    historian = History('test', application, history, serializer=NoopSerializer())
-    result = historian.run(name1, name2, name3)
+    history = History('test', application, book, serializer=NoopSerializer())
+    result = history.run(name1, name2, name3)
     await asyncio.sleep(0.1)
 
-    await historian.record_external_event('numbers', name1, 'put', 1)
+    await history.record_external_event('numbers', name1, 'put', 1)
     await asyncio.sleep(0.1)
 
-    await historian.suspend()
+    await history.suspend()
 
     # New version!
     @task
@@ -194,14 +194,14 @@ async def test_named_versions():
             return result
 
     # historian = Historian('test', application, history)
-    result = historian.run(name1, name2, name3)
+    result = history.run(name1, name2, name3)
     await asyncio.sleep(0.1)
 
-    await historian.record_external_event('numbers', name1, 'put', 1)  # 2nd number
-    await historian.record_external_event('numbers', name2, 'put', 1)  # 1st number
+    await history.record_external_event('numbers', name1, 'put', 1)  # 2nd number
+    await history.record_external_event('numbers', name2, 'put', 1)  # 1st number
     await asyncio.sleep(0.1)
 
-    await historian.suspend()
+    await history.suspend()
 
     # New Version!
     @task
@@ -224,15 +224,15 @@ async def test_named_versions():
 
             return result
 
-    result = historian.run(name1, name2, name3)
+    result = history.run(name1, name2, name3)
     await asyncio.sleep(0.1)
 
-    await historian.record_external_event('numbers', name1, 'put', 1)  # 3rd number
-    await historian.record_external_event('numbers', name2, 'put', 1)  # 2nd number
-    await historian.record_external_event('numbers', name3, 'put', 1)  # 1st number
+    await history.record_external_event('numbers', name1, 'put', 1)  # 3rd number
+    await history.record_external_event('numbers', name2, 'put', 1)  # 2nd number
+    await history.record_external_event('numbers', name3, 'put', 1)  # 1st number
     await asyncio.sleep(0.1)
 
-    await historian.suspend()
+    await history.suspend()
 
     # And another version!
     @task
@@ -257,12 +257,12 @@ async def test_named_versions():
 
             return result
 
-    result = historian.run(name1, name2, name3)
+    result = history.run(name1, name2, name3)
     await asyncio.sleep(0.1)
 
-    await historian.record_external_event('numbers', name2, 'put', 1)  # 3rd number
-    await historian.record_external_event('numbers', name3, 'put', 1)  # 2nd number
-    await historian.record_external_event('numbers', name3, 'put', 1)  # 3rd number
+    await history.record_external_event('numbers', name2, 'put', 1)  # 3rd number
+    await history.record_external_event('numbers', name3, 'put', 1)  # 2nd number
+    await history.record_external_event('numbers', name3, 'put', 1)  # 3rd number
     await asyncio.sleep(0.1)
 
     assert (await result) == [

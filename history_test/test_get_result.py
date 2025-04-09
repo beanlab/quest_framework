@@ -16,14 +16,14 @@ async def test_basic_store_result():
     async def workflow1():
         return "done"
 
-    async with create_in_memory_historian({'w1': workflow1}) as manager:
-        manager.start_soon('w1', 'wid1', delete_on_finish=False)
+    async with create_in_memory_historian({'w1': workflow1}) as historian:
+        historian.start_soon('w1', 'wid1', delete_on_finish=False)
         await asyncio.sleep(0.1)
 
-        assert await manager.get_result('wid1') == 'done'
-        assert manager.has('wid1')
-        assert await manager.get_result('wid1', delete=True) == 'done'
-        assert not manager.has('wid1')
+        assert await historian.get_result('wid1') == 'done'
+        assert historian.has('wid1')
+        assert await historian.get_result('wid1', delete=True) == 'done'
+        assert not historian.has('wid1')
 
 
 @pytest.mark.asyncio
@@ -32,10 +32,10 @@ async def test_workflows_not_saved_have_no_results():
     async def workflow1():
         return "done"
 
-    async with create_in_memory_historian({'w1': workflow1}) as manager:
-        manager.start_soon('w1', 'wid1')
+    async with create_in_memory_historian({'w1': workflow1}) as historian:
+        historian.start_soon('w1', 'wid1')
         await asyncio.sleep(0.1)
-        assert not manager.has('wid1')
+        assert not historian.has('wid1')
 
 
 @pytest.mark.asyncio
@@ -44,13 +44,13 @@ async def test_get_result_on_missing_workflow_raises():
     async def workflow1():
         return "done"
 
-    async with create_in_memory_historian({'w1': workflow1}) as manager:
-        manager.start_soon('w1', 'wid1')
+    async with create_in_memory_historian({'w1': workflow1}) as historian:
+        historian.start_soon('w1', 'wid1')
         await asyncio.sleep(0.1)
-        assert not manager.has('wid1')
+        assert not historian.has('wid1')
 
         with pytest.raises(WorkflowNotFound):
-            await manager.get_result('wid1')
+            await historian.get_result('wid1')
 
 
 @pytest.mark.asyncio
@@ -65,13 +65,13 @@ async def test_get_result_on_running_workflow():
     workflows = {
         "sample_workflow": sample_workflow
     }
-    manager = create_in_memory_historian(workflows=workflows)
+    historian = create_in_memory_historian(workflows=workflows)
 
-    async with manager:
-        manager.start_soon('sample_workflow', 'wid1')
+    async with historian:
+        historian.start_soon('sample_workflow', 'wid1')
         await asyncio.sleep(0.1)
 
-        get_result_task = asyncio.create_task(manager.get_result('wid1'))
+        get_result_task = asyncio.create_task(historian.get_result('wid1'))
 
         gate.set()
         result = await get_result_task
@@ -83,18 +83,18 @@ async def test_exception_store_result():
     async def workflow1():
         raise OurException('died')
 
-    async with create_in_memory_historian({'w1': workflow1}) as manager:
-        manager.start_soon('w1', 'wid1', delete_on_finish=False)
+    async with create_in_memory_historian({'w1': workflow1}) as historian:
+        historian.start_soon('w1', 'wid1', delete_on_finish=False)
         await asyncio.sleep(0.1)
 
-        assert manager.has('wid1')
+        assert historian.has('wid1')
 
         with pytest.raises(OurException):
-            await manager.get_result('wid1')
+            await historian.get_result('wid1')
 
-        assert manager.has('wid1')
+        assert historian.has('wid1')
 
         with pytest.raises(OurException):
-            await manager.get_result('wid1', delete=True)
+            await historian.get_result('wid1', delete=True)
 
-        assert not manager.has('wid1')
+        assert not historian.has('wid1')
