@@ -9,7 +9,7 @@ from quest.external import Queue
 from quest.historian import find_historian
 
 
-# single response for now
+# Multiple response per user
 class MultiQueue:
     def __init__(self, queues: dict[str, Queue], single_response: bool = False):
         self.queues = queues
