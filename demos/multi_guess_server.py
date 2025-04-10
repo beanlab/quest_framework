@@ -7,8 +7,6 @@ from quest import (step, queue, state, identity_queue,
 from quest.server import Server
 from quest.external import MultiQueue
 
-# TODO - write a websocket server that wraps
-# an existing workflow manager
 
 @step
 async def get_players():
