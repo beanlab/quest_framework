@@ -3,7 +3,7 @@ import asyncio
 import pytest
 
 from quest import Historian
-from quest.external import event
+from quest.external import event, wrap_as_event
 from quest.wrappers import wrap_steps
 from quest.serializer import NoopSerializer
 from .utils import timeout
@@ -58,7 +58,9 @@ async def test_wrap_steps():
     with historian.get_resource_stream(None) as resource_stream:
         updates = aiter(resource_stream)
         resources = await anext(updates)  # should include 'gate' already because that is where the first run left off
-        await resources[('gate', None)].set()
+        assert ('gate', None) in resources
+        gate = wrap_as_event('gate', None, historian)
+        await gate.set()
 
     await wtask  # good hygiene
 

@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from quest.external import state, queue, event
+from quest.external import state, queue, event, wrap_as_state, wrap_as_queue
 from quest.historian import Historian
 from quest.wrappers import task, step
 from quest.serializer import NoopSerializer
@@ -59,14 +59,15 @@ async def test_external_state():
 
     resources = await historian.get_resources(identity)
     assert ('name', 'foo_ident') in resources
-    assert await resources[('name', 'foo_ident')].value() == 'Foobar'
+    name = wrap_as_state('name', 'foo_ident', historian)
+    assert await name.value() == 'Foobar'
 
     # Set state
-    await resources[('name', 'foo_ident')].set('Barbaz')
+    await name.set('Barbaz')
 
     resources = await historian.get_resources(identity)
     assert ('name', 'foo_ident') in resources
-    assert await resources[('name', 'foo_ident')].value() == 'Barbaz'
+    assert await name.value() == 'Barbaz'
 
     # Resume
     name_event.set()
@@ -97,14 +98,15 @@ async def test_external_queue():
     await wait_for(historian)
 
     resources = await historian.get_resources(None)
+    items = wrap_as_queue('items', 'foo_ident', historian)
     assert not resources
 
     resources = await historian.get_resources(identity)
     assert ('items', 'foo_ident') in resources
 
-    await resources[('items', 'foo_ident')].put(7)
-    await resources[('items', 'foo_ident')].put(8)
-    await resources[('items', 'foo_ident')].put(9)
+    await items.put(7)
+    await items.put(8)
+    await items.put(9)
 
     assert await workflow == [7, 8, 9]
 

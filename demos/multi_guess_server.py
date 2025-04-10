@@ -4,7 +4,7 @@ from pathlib import Path
 
 from quest import (step, queue, state, identity_queue,
                    create_filesystem_manager, these)
-from scratch.websocket_scratch.server import serve
+from quest.server import Server
 from quest.external import MultiQueue
 
 # TODO - write a websocket server that wraps
@@ -86,7 +86,6 @@ async def multi_guess():
     await play_game(players)
 
 
-# TODO: Rewrite this function to import and use serve from server.py
 async def main():
     async with (
         create_filesystem_manager(
@@ -94,7 +93,7 @@ async def main():
             'multi_guess',
             lambda wid: multi_guess
         ) as manager,
-        serve(
+        Server.serve(
             manager,
             'localhost',
             8765
