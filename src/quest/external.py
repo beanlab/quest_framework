@@ -63,6 +63,7 @@ class State:
 
 class IdentityQueue:
     """Put and Get return and identity + the value"""
+
     def __init__(self, *args, **kwargs):
         self._queue = asyncio.Queue(*args, **kwargs)
 
@@ -93,6 +94,65 @@ class InternalResource(Generic[T]):
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         suspending = (exc_type == asyncio.CancelledError and exc_val.args and exc_val.args[0] == SUSPENDED)
         await self._historian.delete_resource(self._name, self._identity, suspending=suspending)
+
+
+class MultiQueue:
+    def __init__(self, name: str, players: dict[str, str], single_response: bool = False):
+        self.queues: dict[str, Queue] = {ident: queue(name, ident) for ident in players}
+        self.single_response = single_response
+        self.task_to_ident: dict[asyncio.Task, str] = {}
+        self.ident_to_task: dict[str, asyncio.Task] = {}
+
+    def _add_task(self, ident: str, q: Queue):
+        historian = find_historian()
+        task = historian.start_task(
+            q.get,
+            name=f"mq-get-{ident}"
+        )
+
+        self.task_to_ident[task] = ident
+        self.ident_to_task[ident] = task
+
+    async def __aenter__(self):
+        # Listen on all queues -> create a task for each queue.get()
+        for ident, q in self.queues.items():
+            self._add_task(ident, q)
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        # Cancel all pending tasks - context exits
+        for task in self.task_to_ident:
+            task.cancel()
+
+    def remove(self, ident: str):
+        # Stop listening to this identity queue
+        if ident not in self.ident_to_task:
+            raise KeyError(f"Identity '{ident}' does not exist in MultiQueue.")
+
+        task = self.ident_to_task.pop(ident)
+        self.task_to_ident.pop(task)
+        task.cancel()
+
+    async def __aiter__(self):
+        while self.task_to_ident:
+            # Wait until any of the current task is done
+            done, _ = await asyncio.wait(self.task_to_ident.keys(), return_when=asyncio.FIRST_COMPLETED)
+
+            for task in done:
+                ident = self.task_to_ident.pop(task)
+                # Stop listening to this identity
+                del self.ident_to_task[ident]
+
+                try:
+                    result = await task
+                    yield ident, result
+
+                    # Start listening again
+                    if not self.single_response:
+                        self._add_task(ident, self.queues[ident])
+
+                except asyncio.CancelledError:
+                    continue
 
 
 def queue(name, identity):

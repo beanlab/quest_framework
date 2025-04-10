@@ -5,94 +5,7 @@ from pathlib import Path
 from quest import (step, queue, state, identity_queue,
                    create_filesystem_manager, these)
 from scratch.websocket_scratch.server import serve
-from quest.external import Queue
-from quest.historian import find_historian
-
-
-# Multiple response per user
-class MultiQueue:
-    def __init__(self, queues: dict[str, Queue], single_response: bool = False):
-        self.queues = queues
-        self.single_response = single_response
-        self.task_to_ident: dict[asyncio.Task, str] = {}
-        self.ident_to_task: dict[str, asyncio.Task] = {}
-
-    def _add_task(self, ident: str, q: Queue):
-        historian = find_historian()
-        task = historian.start_task(
-            q.get,
-            name=f"mq-get-{ident}"
-        )
-
-        self.task_to_ident[task] = ident
-        self.ident_to_task[ident] = task
-
-    async def __aenter__(self):
-        # Listen on all queues -> create a task for each queue.get()
-        for ident, q in self.queues.items():
-            self._add_task(ident, q)
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        # Cancel all pending tasks - context exits
-        for task in self.task_to_ident:
-            task.cancel()
-
-    def remove(self, ident: str):
-        # Stop listening to this identity queue
-        if ident not in self.ident_to_task:
-            raise KeyError(f"Identity '{ident}' does not exist in MultiQueue.")
-
-        task = self.ident_to_task.pop(ident)
-        self.task_to_ident.pop(task)
-        task.cancel()
-
-    async def __aiter__(self):
-        while self.task_to_ident:
-            # Wait until any of the current task is done
-            done, _ = await asyncio.wait(self.task_to_ident.keys(), return_when=asyncio.FIRST_COMPLETED)
-
-            for task in done:
-                ident = self.task_to_ident.pop(task)
-                # Stop listening to this identity
-                del self.ident_to_task[ident]
-
-                try:
-                    result = await task
-                    yield ident, result
-
-                    # Start listening again
-                    if not self.single_response:
-                        self._add_task(ident, self.queues[ident])
-
-                except asyncio.CancelledError:
-                    continue
-
-
-class SingleResponseMultiQueue:
-    def __init__(self, queues: dict[str, Queue]):
-        self._mq = MultiQueue(queues, single_response=True)
-        self._received: set[str] = set()
-        self._total = len(queues)
-
-    async def __aenter__(self):
-        await self._mq.__aenter__()
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        return await self._mq.__aexit__(exc_type, exc_val, exc_tb)
-
-    async def __aiter__(self):
-        async for ident, item in self._mq:
-            # Skip identities that already gave one response
-            if ident in self._received:
-                continue
-            self._received.add(ident)
-            yield ident, item
-
-            if len(self._received) == self._total:
-                return
-
+from quest.external import MultiQueue
 
 # TODO - write a websocket server that wraps
 # an existing workflow manager
@@ -127,8 +40,6 @@ async def get_guesses(players: dict[str, str], message) -> dict[str, int]:
     guesses = {}
     status_message = []
 
-    queues: dict[str, Queue] = {ident: queue('guess', ident) for ident in players}
-
     # TODO - the following code sequence is a little verbose
     # We need to:
     # - create a queue for each player
@@ -139,7 +50,7 @@ async def get_guesses(players: dict[str, str], message) -> dict[str, int]:
     # it easy and clear
 
     # Iterate guesses one at a time
-    async with SingleResponseMultiQueue(queues) as mq:
+    async with MultiQueue('guess', players, single_response=True) as mq:
         async for ident, guess in mq:
             guesses[ident] = guess
 
