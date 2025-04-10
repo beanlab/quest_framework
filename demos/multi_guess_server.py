@@ -54,7 +54,7 @@ async def get_guesses(players: dict[str, str], message) -> dict[str, int]:
         async for ident, guess in mq:
             guesses[ident] = guess
 
-            # Status message
+            # Update the status
             name = players[ident]
             status_message.append(f'{name} guessed {guess}')
             message.set('\n'.join(status_message))
