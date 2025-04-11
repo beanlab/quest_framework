@@ -7,7 +7,7 @@ on:
       - main
 
 jobs:
-  quest_test:
+  history_test:
     runs-on: ubuntu-latest
 
     permissions:

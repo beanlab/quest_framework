@@ -59,11 +59,11 @@ async def sleep_workflow():
             Path('ainput_state'),
             'sleep',
             lambda wid: the_workflow
-    ) as manager:
-        if not manager.has('sleep_workflow'):
-            manager.start_soon('sleep_workflow', 'sleep_workflow')
+    ) as historian:
+        if not historian.has('sleep_workflow'):
+            historian.start_soon('sleep_workflow', 'sleep_workflow')
 
-        await manager.get_workflow('sleep_workflow')
+        await historian.get_workflow('sleep_workflow')
 
 # Run the test
 if __name__ == '__main__':

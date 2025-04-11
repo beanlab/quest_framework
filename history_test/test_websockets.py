@@ -58,14 +58,14 @@ async def workflow():
 async def test_websockets():
     wid = 'test'
     historian = create_in_memory_historian({'workflow': workflow})
-    historian.start_workflow('workflow', wid)
+    historian.start_soon('workflow', wid)
     await asyncio.gather(serve(historian, 8000, authorize), connect(wid))
 
 @pytest.mark.asyncio
 async def test_websockets_exception():
     wid = 'test_exception'
     historian = create_in_memory_historian({'workflow': workflow})
-    historian.start_workflow('workflow', wid)
+    historian.start_soon('workflow', wid)
     await asyncio.gather(serve(historian, 8000, lambda h: True), connect_exception('fail'))
     await asyncio.sleep(0.1)
     await historian.delete_workflow(wid)

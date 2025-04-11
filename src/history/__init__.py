@@ -6,7 +6,7 @@ from .external import state, queue, identity_queue, event
 from .history import History
 from .book import Book
 from .historian import Historian, WorkflowFactory
-from .manager_wrappers import alias
+from .historian_wrappers import alias
 from .persistence import LocalFileSystemBlobStorage, PersistentList, BlobStorage, Blob
 from .serializer import StepSerializer, MasterSerializer, NoopSerializer
 from .utils import ainput

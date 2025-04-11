@@ -3,7 +3,7 @@ import functools
 import json
 from websockets.asyncio.client import connect
 
-from quest.utils import deserialize_exception
+from history.utils import deserialize_exception
 
 
 def deserialize_response(response):

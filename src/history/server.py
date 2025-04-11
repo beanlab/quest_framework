@@ -33,18 +33,18 @@ async def serialize_resources(resources):
 
 
 class Server:
-    def __init__(self, manager: Historian, host: str, port: int,
+    def __init__(self, historian: Historian, host: str, port: int,
                  authorizer: Callable[[Headers], bool] = lambda headers: True):
         """
         Initialize the server.
 
-        :param manager: Workflow manager whose methods will be called remotely.
+        :param historian: Workflow manager whose methods will be called remotely.
         :param host: Host address for the server.
         :param port: Port for the server.
         :param authorizer: Used to authenticate incoming connections.
         """
         self._server = None
-        self._manager: Historian = manager
+        self._historian: Historian = historian
         self._host = host
         self._port = port
         self._authorizer = authorizer
@@ -73,7 +73,7 @@ class Server:
         """
         if not (self._authorizer(ws.request.headers)):
             await ws.close(reason="Unauthorized")
-            quest_logger.info(f'Unauthorized attempt to connect from {ws.remote_address[0]}')
+            history_logger.info(f'Unauthorized attempt to connect from {ws.remote_address[0]}')
             return
 
         history_logger.info(f'New connection from: {ws.remote_address[0]}')
@@ -85,7 +85,7 @@ class Server:
             case _:
                 response = {'exception': serialize_exception(InvalidPathException(f'Invalid path: {ws.request.path}'))}
                 await ws.send(json.dumps(response))
-        quest_logger.info(f'Connection closed from: {ws.remote_address[0]}')
+        history_logger.info(f'Connection closed from: {ws.remote_address[0]}')
 
     async def handle_call(self, ws: ServerConnection):
         async for message in ws:
@@ -98,9 +98,9 @@ class Server:
                 args = data['args']
                 kwargs = data['kwargs']
 
-                if not hasattr(self._manager, method_name):
+                if not hasattr(self._historian, method_name):
                     raise MethodNotFoundException(f'{method_name} is not a valid method')
-                method = getattr(self._manager, method_name)
+                method = getattr(self._historian, method_name)
                 if not callable(method):
                     raise MethodNotFoundException(f'{method_name} is not callable')
 
@@ -125,7 +125,7 @@ class Server:
             ident = params['identity']
 
             # Stream resource updates via ws messages
-            with self._manager.get_resource_stream(wid, ident) as stream:
+            with self._historian.get_resource_stream(wid, ident) as stream:
                 async for resources in stream:
                     # Serialize tuple keys into strings joined by '||'
                     resources = await serialize_resources(resources)
