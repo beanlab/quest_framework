@@ -10,7 +10,7 @@ async def workflow():
     async with state('message', None, 'Test') as message:
         while True:
             print('Setting message')
-            await message.set('Enter a number: ')
+            await message.set('Say something: ')
             print('State set')
 
             async with queue('response', None) as response:
