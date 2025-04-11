@@ -115,6 +115,7 @@ class Historian:
         for wid, history in self._workflows.items():
             history.signal_suspend()
 
+    # TODO: Do a key check to see if workflow_id exists. If not return a WorkflowDoesNotExistException
     def _get_workflow(self, workflow_id: str):
         workflow_id = self._alias_dictionary.get(workflow_id, workflow_id)
         return self._workflows[workflow_id]
