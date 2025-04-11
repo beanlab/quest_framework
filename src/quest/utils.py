@@ -6,7 +6,6 @@ import asyncio
 task_name_getter = ContextVar("task_name_getter", default=lambda: "-")
 
 
-
 async def ainput(*args):
     return await asyncio.to_thread(input, *args)
 
@@ -51,10 +50,12 @@ def serialize_exception(ex: BaseException) -> dict:
     return {
         "type": get_type_name(ex),
         "args": ex.args,
-        "details": traceback.format_exc()
+        "traceback": traceback.format_exc()
     }
 
 
 def deserialize_exception(data: dict) -> Exception:
     exc_cls = get_exception_class(data["type"])
-    return exc_cls(*data.get("args", ()))
+    exc_instance: Exception = exc_cls(*data.get("args", ()))
+    exc_instance._original_traceback = data["traceback"]  # Include original tracebook info
+    return exc_instance
