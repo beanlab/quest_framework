@@ -4,7 +4,7 @@ import selectors
 import sys
 from pathlib import Path
 
-from quest import step, create_filesystem_manager, ainput
+from history import step, create_filesystem_historian, ainput
 
 @step
 async def pick_number(lower, upper):
@@ -38,13 +38,13 @@ async def guessing_game():
 async def main():
     state = Path('state')
     # state.rmdir()
-    async with create_filesystem_manager(
+    async with create_filesystem_historian(
             state,
             'guess_game_demo',
             lambda wid: guessing_game
     ) as manager:
-        if not manager.has_workflow('demo'):
-            manager.start_workflow(
+        if not manager.has('demo'):
+            manager.start_soon(
                 '',
                 f'demo'
             )

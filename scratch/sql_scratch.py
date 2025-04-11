@@ -2,7 +2,7 @@ import asyncio
 import random
 from pathlib import Path
 
-from quest import step, create_filesystem_manager, create_sql_manager, ainput
+from history import step, create_filesystem_historian, create_sql_manager, ainput
 
 
 @step
@@ -40,7 +40,7 @@ async def main():
             'guess_game_demo',
             lambda wid: guessing_game
     ) as manager:
-        manager.start_workflow(
+        manager.start_soon(
             '',
             'demo'
         )

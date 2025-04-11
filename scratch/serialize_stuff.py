@@ -2,7 +2,7 @@ import asyncio
 from dataclasses import dataclass
 from typing import Callable, Protocol, TypeVar, Any, TypedDict
 
-from quest import step, Historian
+from history import step, History
 
 
 T = TypeVar('T')
@@ -75,7 +75,7 @@ async def workflow():
 
 
 async def main():
-    historian = Historian('demo', workflow, [])
+    historian = History('demo', workflow, [])
     wtask = historian.run()
     await asyncio.sleep(0.1)
     await historian.suspend()
@@ -93,7 +93,7 @@ def create_historian(wid: str, func: Callable, type_serializers: dict=None):
     else:
         step_serializer = MasterSerializer(type_serializers)
 
-    return Historian(
+    return History(
         wid,
         func,
         history,

@@ -2,9 +2,9 @@ import asyncio
 import random
 from pathlib import Path
 
-from quest import (step, queue, state, identity_queue,
-                   create_filesystem_manager, these)
-from quest.server import Server
+from history import (step, queue, state, identity_queue,
+                     create_filesystem_historian, these)
+from history.server import Server
 
 
 @step
@@ -100,7 +100,7 @@ async def multi_guess():
 
 async def main():
     async with (
-        create_filesystem_manager(
+        create_filesystem_historian(
             Path('state'),
             'multi_guess',
             lambda wid: multi_guess
@@ -113,7 +113,7 @@ async def main():
     ):
         # TODO: Add ability to start workflows to server.py
         # Start the game
-        manager.start_workflow('', 'demo')
+        manager.start_soon('', 'demo')
 
         # Wait for it to finish
         await manager.get_workflow('demo')
