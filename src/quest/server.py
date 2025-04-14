@@ -83,6 +83,7 @@ class Server:
                 await self.handle_call(ws)
             case "/stream":
                 await self.handle_stream(ws)
+                print('Stream closed')
             case _:
                 response = {'exception': serialize_exception(InvalidPathException(f'Invalid path: {ws.request.path}'))}
                 await ws.send(json.dumps(response))
