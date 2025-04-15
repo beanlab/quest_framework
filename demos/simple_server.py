@@ -2,11 +2,8 @@ import asyncio
 import shutil
 from pathlib import Path
 
-
 from quest import Server, create_filesystem_manager, state, queue
 
-def authorizer(headers: dict[str, str]) -> bool:
-    return True
 
 async def workflow():
     async with state('message', None, 'Test') as message:
@@ -23,12 +20,15 @@ async def workflow():
         print("State set")
     print('Workflow finished')
 
+
 async def main():
     state_folder = Path('state')
     shutil.rmtree(state_folder, ignore_errors=True)
-    async with create_filesystem_manager(state_folder, 'simple', lambda wid: workflow) as manager, Server(manager, 'localhost', 8800, authorizer):
+    async with (create_filesystem_manager(state_folder, 'simple', lambda wid: workflow) as manager,
+                Server(manager, 'localhost', 8800)):
         print("Server started at ws://localhost:8800")
         await asyncio.Future()
+
 
 if __name__ == '__main__':
     asyncio.run(main())

@@ -13,6 +13,7 @@ async def main():
         print('Client starting workflow')
         await client.start_workflow('workflow', wid)
         print('Client started workflow')
+
         async for resources in client.stream_resources(wid, None):
             print('Client received resource event', resources)
             if ('message', None) in resources:
@@ -21,6 +22,7 @@ async def main():
             if ('response', None) in resources:
                 user_response = await ainput()
                 await client.send_event(wid, 'response', None, 'put', user_response)
+                break
         print('Stream finished')
 
 

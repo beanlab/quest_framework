@@ -2,11 +2,9 @@
 import asyncio
 import json
 from typing import Callable
-
 from websockets import WebSocketException, Headers
 from websockets.asyncio.server import serve, ServerConnection
 from websockets.exceptions import ConnectionClosedOK
-from websockets.http11 import Request
 
 from quest import WorkflowManager
 from quest.utils import quest_logger, serialize_exception
@@ -77,17 +75,23 @@ class Server:
             quest_logger.info(f'Unauthorized attempt to connect from {ws.remote_address[0]}')
             return
 
-        quest_logger.info(f'New connection from: {ws.remote_address[0]}')
-        match ws.request.path:
-            case "/call":
-                await self.handle_call(ws)
-            case "/stream":
-                await self.handle_stream(ws)
-                print('Stream closed')
-            case _:
-                response = {'exception': serialize_exception(InvalidPathException(f'Invalid path: {ws.request.path}'))}
-                await ws.send(json.dumps(response))
-        quest_logger.info(f'Connection closed from: {ws.remote_address[0]}')
+        try:
+            quest_logger.info(f'New connection from: {ws.remote_address[0]}')
+            match ws.request.path:
+                case "/call":
+                    await self.handle_call(ws)
+                case "/stream":
+                    await self.handle_stream(ws)
+                    print('Stream closed')
+                case _:
+                    response = {
+                        'exception': serialize_exception(InvalidPathException(f'Invalid path: {ws.request.path}'))}
+                    await ws.send(json.dumps(response))
+            quest_logger.info(f'Connection closed from: {ws.remote_address[0]}')
+        except ConnectionClosedOK:
+            pass
+        finally:
+            quest_logger.info(f'Connection closed from: {ws.remote_address[0]}')
 
     async def handle_call(self, ws: ServerConnection):
         async for message in ws:
