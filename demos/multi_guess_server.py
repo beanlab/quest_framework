@@ -1,29 +1,38 @@
 import asyncio
+import logging
 import random
+import shutil
 from pathlib import Path
 
-from quest import (step, queue, state, identity_queue,
-                   create_filesystem_manager, these)
+from quest import (step, queue, state, create_filesystem_manager, these, event, identity_queue)
 from quest.server import Server
+from quest.utils import quest_logger
 
 
 @step
-async def get_players():
-    players = {}
+async def initialize_game(host_ident, host_name) -> dict[str, str]:
+    players = {host_ident: host_name}
 
-    # The identity_queue is visible to everyone (None identity)
-    #  until it is taken down (i.e. we have 3 players)
-    # When someone puts data in an identity queue,
-    #  that action is fingerprinted with an identity
-    #  (i.e. the identity of the user that put the data is established)
-    # The `put` command returns that identity
-    # The `get` command returns the identity and the `put` value
-    # In essence, users are identified by the data they provided
-    #  (i.e. when I say ID 12345, I mean "whoever gave me 'John' in the queue")
-    async with identity_queue('register') as register:
-        while len(players) < 3:
-            ident, name = await register.get()
+    async with (event('start_game', host_ident) as start_game,
+                identity_queue('registration') as register):
+        while True:
+            register_task = asyncio.create_task(register.get())
+            start_game_task = asyncio.create_task(start_game.wait())
+
+            done, pending = await asyncio.wait(
+                [register_task, start_game_task],
+                return_when=asyncio.FIRST_COMPLETED
+            )
+
+            if start_game_task in done:
+                break
+
+            ident, name = done.pop().result()
             players[ident] = name
+
+            for task in pending:
+                task.cancel()
+
     return players
 
 
@@ -33,9 +42,8 @@ async def get_secret():
 
 
 @step
-async def get_guesses(players: dict[str, str], message) -> dict[str, int]:
+async def get_guesses(players: [str], message) -> dict[str, int]:
     guesses = {}
-
     status_message = []
 
     # TODO - the following code sequence is a little verbose
@@ -59,12 +67,12 @@ async def get_guesses(players: dict[str, str], message) -> dict[str, int]:
         guess_gets = {q.get(): ident for ident, q in guess_queues.items()}
         for guess_get in asyncio.as_completed(guess_gets):
             guess = await guess_get
+            # TODO: This is a problem.
             ident = guess_gets[guess]
             guesses[ident] = guess
 
             # Update the status
-            name = players[ident]
-            status_message.append(f'{name} guessed {guess}')
+            status_message.append(f'{ident} guessed {guess}')
             message.set('\n'.join(status_message))
 
             # Remove the queue
@@ -84,36 +92,30 @@ async def play_game(players: dict[str, str]):
             closest_ident, guess = min(guesses.items(), key=lambda x: abs(x[1] - secret))
             if guess == secret:
                 break
-            closest = players[closest_ident]
-            message.set(f'{closest} was closest: {guess}')
+            message.set(f'{closest_ident} was closest: {guess}')
 
     return secret
     # TODO - have the return value of the workflow appear
-    # as the final resource in the resource stream
-    # Some design needed (raw value? special resource?)
+    #  as the final resource in the resource stream
+    #  Some design needed (raw value? special resource?)
 
 
-async def multi_guess():
-    players = await get_players()
+async def multi_guess(host_ident, host_name):
+    quest_logger.debug('Multi-Guess started.')
+    players = await initialize_game(host_ident, host_name)
     await play_game(players)
 
 
 async def main():
+    f_path = Path('state')
+    shutil.rmtree(f_path, ignore_errors=True)
     async with (
-        create_filesystem_manager(
-            Path('state'),
-            'multi_guess',
-            lambda wid: multi_guess
-        ) as manager,
-        Server.serve(
-            manager,
-            'localhost',
-            8765
-        ) as server
+        create_filesystem_manager(f_path, 'multi_guess', lambda wtype: multi_guess) as manager,
+        Server(manager, 'localhost', 8765)
     ):
-        # TODO: Add ability to start workflows to server.py
-        # Start the game
-        manager.start_workflow('', 'demo')
+        await asyncio.Future()
 
-        # Wait for it to finish
-        await manager.get_workflow('demo')
+
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.DEBUG)
+    asyncio.run(main())

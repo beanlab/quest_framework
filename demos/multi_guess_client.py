@@ -1,68 +1,85 @@
 import asyncio
+import logging
 
-from quest import client, step
+from quest import ainput
+from quest.client import Client
+from quest.utils import quest_logger
 
-
-# TODO - write a websocket client
-# this is essentially the interface of WorkflowManager
-
-@step
-async def get_input(*args, **kwargs):
-    # TODO - replace this with non-blocking input
-    return input(*args, **kwargs)
+WORKFLOW_ID = 'demo'
 
 
-@step
+async def get_input(*args):
+    return await ainput(*args)
+
+
 async def display(*args, **kwargs):
     print(*args, **kwargs)
 
 
-@step
+async def initialize(client: Client):
+    while True:
+        choice = await get_input('Enter \"c\" to create game or \"j\" to join existing: ')
+        match choice:
+            case 'c':
+                name = await get_input('Enter your name: ')
+                ident = await get_input('Enter your ident: ')
+                await client.start_workflow('', WORKFLOW_ID, ident, name)
+                quest_logger.debug('started workflow')
+                await get_input('Press enter when everyone has joined.')
+                async for resources in client.stream_resources(WORKFLOW_ID, ident):
+                    if ('start_game', ident) in resources:
+                        await client.send_event(WORKFLOW_ID, 'start_game', ident, 'set')
+                        break
+                return ident
+            case 'j':
+                name = await get_input('Enter your name: ')
+                await display('Waiting for game to start...')
+                ident = None
+                async for resources in client.stream_resources(WORKFLOW_ID, None):
+                    if ('register', None) in resources:
+                        ident, _ = await client.send_event(WORKFLOW_ID, 'registration', None, 'put', name)
+                        break
+                return ident
+            case _:
+                await display('Incorrect input.')
+
+
 async def register(registration_queue):
     name = await get_input('Name: ')
     ident, _ = await registration_queue.put(name)
     return ident
 
 
-@step
-async def respond(resources):
+async def respond(resources, ident, client: Client):
     await display('\n\n')
 
     # If the 'message' state is present, display it
-    if 'message' in resources:
-        await display(resources['status'].get())
+    if ('message', None) in resources:
+        message = await client.send_event(WORKFLOW_ID, 'message', None, 'get')
+        await display(message)
 
     # If the 'guess' queue is present, provide a guess
-    if 'guess' in resources:
-        guess = await get_input('Guess: ')
-        await resources['guess'].put(guess)
+    if ('guess', ident) in resources:
+        while True:
+            guess = await get_input('Guess: ')
+            try:
+                guess = int(guess)  # Convert string to integer
+                await client.send_event(WORKFLOW_ID, 'guess', ident, 'put', guess)
+                break
+            except ValueError:
+                await display('Please enter a valid integer.')
 
 
 async def main():
-    async with client('localhost', '12345') as client:
-
-        # TODO - make sure multiple users can listen on the
-        # same identity (e.g. None) and still get all the events
-
-        # TODO - make resource_streams a context
-        # so you can close the stream
-        # right now, if you stop iterating the stream,
-        # the whole system blocks.
-        # We need a way for the user to listen to a stream
-        # until they are no longer interested.
-
-        async with client.get_resource_stream('demo', None) as resource_stream:
-            async for resources in resource_stream:
-                # We're expecting an identity queue named "registration"
-                if 'registration' in resources:
-                    ident = await register(resources['registration'])
-                    break  # See TODO above about leaving resource streams
+    async with Client('ws://localhost:8765', {}) as client:
+        ident = await initialize(client)
 
         # Now that we have an established identity
         # we will listen for those resources events
-        async for resources in client.get_resource_stream(ident):
-            await respond(resources)
+        async for resources in client.stream_resources(WORKFLOW_ID, ident):
+            await respond(resources, ident, client)
 
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.DEBUG)
     asyncio.run(main())
