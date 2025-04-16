@@ -96,12 +96,31 @@ class InternalResource(Generic[T]):
         await self._historian.delete_resource(self._name, self._identity, suspending=suspending)
 
 
+def queue(name, identity):
+    return InternalResource(name, identity, Queue())
+
+
+def event(name, identity):
+    return InternalResource(name, identity, Event())
+
+
+def state(name, identity, value):
+    return InternalResource(name, identity, State(value))
+
+
+def identity_queue(name):
+    return InternalResource(name, None, IdentityQueue())
+
+
 class MultiQueue:
     def __init__(self, name: str, players: dict[str, str], single_response: bool = False):
-        self.queues: dict[str, Queue] = {ident: queue(name, ident) for ident in players}
+        self.queues: dict[str, InternalResource[Queue]] = {ident: queue(name, ident) for ident in players}
         self.single_response = single_response
         self.task_to_ident: dict[asyncio.Task, str] = {}
         self.ident_to_task: dict[str, asyncio.Task] = {}
+
+        # Hold unwrapped Queue objects after __aenter__
+        self.active_queues: dict[str, Queue] = {}
 
     def _add_task(self, ident: str, q: Queue):
         historian = find_historian()
@@ -115,23 +134,35 @@ class MultiQueue:
 
     async def __aenter__(self):
         # Listen on all queues -> create a task for each queue.get()
-        for ident, q in self.queues.items():
-            self._add_task(ident, q)
+        for ident, wrapper in self.queues.items():
+            # Unwrap queue object
+            queue_obj = await wrapper.__aenter__()
+            self.active_queues[ident] = queue_obj
+            self._add_task(ident, queue_obj)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         # Cancel all pending tasks - context exits
         for task in self.task_to_ident:
             task.cancel()
+        # Exit all queues properly
+        for ident, wrapper in self.queues.items():
+            await wrapper.__aexit__(exc_type, exc_val, exc_tb)
 
-    def remove(self, ident: str):
+    async def remove(self, ident: str):
         # Stop listening to this identity queue
-        if ident not in self.ident_to_task:
-            raise KeyError(f"Identity '{ident}' does not exist in MultiQueue.")
+        task = self.ident_to_task.pop(ident, None)
 
-        task = self.ident_to_task.pop(ident)
-        self.task_to_ident.pop(task)
-        task.cancel()
+        if task is not None:
+            self.task_to_ident.pop(task)
+            task.cancel()
+
+        # Call __aexit__ on the corresponding queue wrapper
+        wrapper = self.queues.pop(ident, None)
+        if wrapper:
+            await wrapper.__aexit__(None, None, None)
+
+        self.active_queues.pop(ident, None)
 
     async def __aiter__(self):
         while self.task_to_ident:
@@ -149,26 +180,13 @@ class MultiQueue:
 
                     # Start listening again
                     if not self.single_response:
-                        self._add_task(ident, self.queues[ident])
+                        q = self.active_queues.get(ident)
+                        if q:
+                            self._add_task(ident, q)
 
                 except asyncio.CancelledError:
                     continue
 
-
-def queue(name, identity):
-    return InternalResource(name, identity, Queue())
-
-
-def event(name, identity):
-    return InternalResource(name, identity, Event())
-
-
-def state(name, identity, value):
-    return InternalResource(name, identity, State(value))
-
-
-def identity_queue(name):
-    return InternalResource(name, None, IdentityQueue())
 
 class _ResourceWrapper:
     def __init__(self, name: str, identity: str | None, historian: 'Historian', resource_class):
@@ -189,14 +207,18 @@ class _ResourceWrapper:
 
         return wrapper
 
+
 def wrap_as_queue(name: str, identity: str | None, historian: Historian) -> Queue:
     return _ResourceWrapper(name, identity, historian, Queue)
+
 
 def wrap_as_event(name: str, identity: str | None, historian: Historian) -> Event:
     return _ResourceWrapper(name, identity, historian, Event)
 
+
 def wrap_as_state(name: str, identity: str | None, historian: Historian) -> State:
     return _ResourceWrapper(name, identity, historian, State)
+
 
 def wrap_as_identity_queue(name: str, identity: str | None, historian: Historian) -> IdentityQueue:
     return _ResourceWrapper(name, identity, historian, IdentityQueue)

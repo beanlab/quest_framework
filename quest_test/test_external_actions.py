@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from quest.external import state, queue, event, wrap_as_state, wrap_as_queue
+from quest.external import state, queue, event, wrap_as_state, wrap_as_queue, MultiQueue
 from quest.historian import Historian
 from quest.wrappers import task, step
 from quest.serializer import NoopSerializer
@@ -303,6 +303,68 @@ async def test_step_specific_external():
     await historian.record_external_event('the-queue', None, 'put', 2)
 
     assert (await workflow) == 3
+
+
+@pytest.mark.asyncio
+@timeout(3)
+async def test_multiqueue_default():
+    received = []
+
+    async def player_workflow():
+        players = {'p1': 'user1', 'p2': 'user2'}
+
+        async with MultiQueue('chat', players) as mq:
+            async for ident, msg in mq:
+                received.append((ident, msg))
+                # If player sends 'bye', remove their queue after their message is recorded
+                if msg == 'bye':
+                    await mq.remove(ident)
+                # Exit the Multiqueue when 3 messages are recorded
+                if len(received) == 3:
+                    break
+        return received
+
+    historian = Historian('test', player_workflow, [], serializer=NoopSerializer())
+    workflow = historian.run()
+
+    await asyncio.sleep(0.1)
+
+    await historian.record_external_event('chat', 'p1', 'put', 'hello')
+    await historian.record_external_event('chat', 'p2', 'put', 'hi')
+    await historian.record_external_event('chat', 'p1', 'put', 'bye')
+
+    result = await workflow
+    assert result == [('p1', 'hello'), ('p2', 'hi'), ('p1', 'bye')]
+
+    # After removing p1 -> when p1 tries to send message, it should raise KeyError
+    # with pytest.raises(KeyError):
+    #     await historian.record_external_event('chat', 'p1', 'put', 'should not be received')
+
+
+@pytest.mark.asyncio
+@timeout(3)
+async def test_multiqueue_single_response():
+    received = {}
+
+    async def player_workflow():
+        players = {'p1': 'user1', 'p2': 'user2'}
+        async with MultiQueue('chat', players, single_response=True) as mq:
+            async for ident, msg in mq:
+                received[ident] = msg
+        return received
+
+    historian = Historian('test', player_workflow, [], serializer=NoopSerializer())
+    workflow = historian.run()
+
+    await asyncio.sleep(0.1)
+
+    await historian.record_external_event('chat', 'p1', 'put', 'hello')
+    await historian.record_external_event('chat', 'p2', 'put', 'hi')
+    # Second message from p1 - should be ignored due to single_response = True
+    await historian.record_external_event('chat', 'p1', 'put', 'should not be received')
+
+    result = await workflow
+    assert result == {'p1': 'hello', 'p2': 'hi'}
 
 
 """
