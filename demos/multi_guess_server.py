@@ -6,6 +6,7 @@ from pathlib import Path
 
 from quest import (step, queue, state, create_filesystem_manager, these, event, identity_queue)
 from quest.server import Server
+from quest.external import MultiQueue
 from quest.utils import quest_logger
 
 
@@ -42,7 +43,7 @@ async def get_secret():
 
 
 @step
-async def get_guesses(players: [str], message) -> dict[str, int]:
+async def get_guesses(players: dict[str, str], message) -> dict[str, int]:
     guesses = {}
     status_message = []
 
@@ -55,29 +56,15 @@ async def get_guesses(players: [str], message) -> dict[str, int]:
     # This pattern should be common enough we should make
     # it easy and clear
 
-    async with (
-        # Create a guess queue for each player
-        these({
-            ident: queue('guess', ident)
-            for ident in players
-        }) as guess_queues
-    ):
-        # Wait for guesses to come in.
-        # As they do, remove their queue so they can't guess again.
-        guess_gets = {q.get(): ident for ident, q in guess_queues.items()}
-        for guess_get in asyncio.as_completed(guess_gets):
-            guess = await guess_get
-            # TODO: This is a problem.
-            ident = guess_gets[guess]
+    # Iterate guesses one at a time
+    async with MultiQueue('guess', players, single_response=True) as mq:
+        async for ident, guess in mq:
             guesses[ident] = guess
 
             # Update the status
-            status_message.append(f'{ident} guessed {guess}')
+            name = players[ident]
+            status_message.append(f'{name} guessed {guess}')
             message.set('\n'.join(status_message))
-
-            # Remove the queue
-            # The user will no longer see it
-            guess_queues.remove(ident)
 
     return guesses
 
@@ -92,7 +79,8 @@ async def play_game(players: dict[str, str]):
             closest_ident, guess = min(guesses.items(), key=lambda x: abs(x[1] - secret))
             if guess == secret:
                 break
-            message.set(f'{closest_ident} was closest: {guess}')
+            closest = players[closest_ident]
+            message.set(f'{closest} was closest: {guess}')
 
     return secret
     # TODO - have the return value of the workflow appear
