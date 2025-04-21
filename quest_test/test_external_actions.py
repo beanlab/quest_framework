@@ -3,7 +3,7 @@ import asyncio
 import pytest
 
 from quest.external import state, queue, event, wrap_as_state, wrap_as_queue, MultiQueue
-from quest.historian import Historian
+from quest.historian import Historian, find_historian
 from quest.wrappers import task, step
 from quest.serializer import NoopSerializer
 from .utils import timeout
@@ -314,14 +314,23 @@ async def test_multiqueue_default():
         players = {'p1': 'user1', 'p2': 'user2'}
 
         async with MultiQueue('chat', players) as mq:
+            # Both p1 and p2 have a chat
+            assert ('chat', 'p1') in await find_historian().get_resources('p1')
+            assert ('chat', 'p2') in await find_historian().get_resources('p2')
+
             async for ident, msg in mq:
                 received.append((ident, msg))
-                # If player sends 'bye', remove their queue after their message is recorded
+
                 if msg == 'bye':
                     await mq.remove(ident)
-                # Exit the Multiqueue when 3 messages are recorded
+                    # After p1 says bye, p1 is removed from chat
+                    assert ('chat', ident) not in await find_historian().get_resources(ident)
+
                 if len(received) == 3:
+                    # Check if p2 is still in the chat before chat is getting closed
+                    assert ('chat', 'p2') in await find_historian().get_resources('p2')
                     break
+
         return received
 
     historian = Historian('test', player_workflow, [], serializer=NoopSerializer())
@@ -334,11 +343,7 @@ async def test_multiqueue_default():
     await historian.record_external_event('chat', 'p1', 'put', 'bye')
 
     result = await workflow
-    assert result == [('p1', 'hello'), ('p2', 'hi'), ('p1', 'bye')]
-
-    # After removing p1 -> when p1 tries to send message, it should raise KeyError
-    # with pytest.raises(KeyError):
-    #     await historian.record_external_event('chat', 'p1', 'put', 'should not be received')
+    assert set(result) == {('p1', 'hello'), ('p2', 'hi'), ('p1', 'bye')}
 
 
 @pytest.mark.asyncio
@@ -360,8 +365,11 @@ async def test_multiqueue_single_response():
 
     await historian.record_external_event('chat', 'p1', 'put', 'hello')
     await historian.record_external_event('chat', 'p2', 'put', 'hi')
+
+    await asyncio.sleep(0.1)
     # Second message from p1 - should be ignored due to single_response = True
-    await historian.record_external_event('chat', 'p1', 'put', 'should not be received')
+    with pytest.raises(KeyError):
+        await historian.record_external_event('chat', 'p1', 'put', 'should not be received')
 
     result = await workflow
     assert result == {'p1': 'hello', 'p2': 'hi'}
