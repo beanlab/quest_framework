@@ -4,9 +4,9 @@ import random
 import shutil
 from pathlib import Path
 
-from quest import (step, queue, state, create_filesystem_manager, these, event, identity_queue)
-from quest.server import Server
+from quest import (step, state, create_filesystem_manager, event, identity_queue)
 from quest.external import MultiQueue
+from quest.server import Server
 from quest.utils import quest_logger
 
 
@@ -64,7 +64,7 @@ async def get_guesses(players: dict[str, str], message) -> dict[str, int]:
             # Update the status
             name = players[ident]
             status_message.append(f'{name} guessed {guess}')
-            message.set('\n'.join(status_message))
+            await message.set('\n'.join(status_message))
 
     return guesses
 
@@ -80,7 +80,7 @@ async def play_game(players: dict[str, str]):
             if guess == secret:
                 break
             closest = players[closest_ident]
-            message.set(f'{closest} was closest: {guess}')
+            await message.set(f'{closest} was closest: {guess}')
 
     return secret
     # TODO - have the return value of the workflow appear

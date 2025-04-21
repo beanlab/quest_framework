@@ -49,25 +49,25 @@ async def register(registration_queue):
     ident, _ = await registration_queue.put(name)
     return ident
 
+async def display_messages(client, ident):
+    async for resources in client.stream_resources(WORKFLOW_ID, ident):
+        if ('message', None) in resources:
+            message = await client.send_event(WORKFLOW_ID, 'message', None, 'get')
+            await display(message)
 
-async def respond(resources, ident, client: Client):
-    await display('\n\n')
 
-    # If the 'message' state is present, display it
-    if ('message', None) in resources:
-        message = await client.send_event(WORKFLOW_ID, 'message', None, 'get')
-        await display(message)
-
-    # If the 'guess' queue is present, provide a guess
-    if ('guess', ident) in resources:
-        while True:
-            guess = await get_input('Guess: ')
-            try:
-                guess = int(guess)  # Convert string to integer
-                await client.send_event(WORKFLOW_ID, 'guess', ident, 'put', guess)
-                break
-            except ValueError:
-                await display('Please enter a valid integer.')
+async def respond(client: Client, ident):
+    async for resources in client.stream_resources(WORKFLOW_ID, ident):
+        # If the 'guess' queue is present, provide a guess
+        if ('guess', ident) in resources:
+            while True:
+                guess = await get_input('Guess: ')
+                try:
+                    guess = int(guess)  # Convert string to integer
+                    await client.send_event(WORKFLOW_ID, 'guess', ident, 'put', guess)
+                    break
+                except ValueError:
+                    await display('Please enter a valid integer.')
 
 
 async def main():
@@ -76,8 +76,7 @@ async def main():
 
         # Now that we have an established identity
         # we will listen for those resources events
-        async for resources in client.stream_resources(WORKFLOW_ID, ident):
-            await respond(resources, ident, client)
+        await asyncio.gather(display_messages(client, ident), respond(client, ident))
 
 
 if __name__ == '__main__':
