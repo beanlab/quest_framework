@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import shutil
 from pathlib import Path
 
@@ -31,4 +32,5 @@ async def main():
 
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.DEBUG)
     asyncio.run(main())
