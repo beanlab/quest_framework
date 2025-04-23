@@ -145,24 +145,22 @@ class MultiQueue:
         # Cancel all pending tasks - context exits
         for task in self.task_to_ident:
             task.cancel()
-        # Exit all queues properly
-        for ident, wrapper in self.queues.items():
+        # Exit all queues properly - suspended
+        for ident, wrapper in list(self.queues.items()):
             await wrapper.__aexit__(exc_type, exc_val, exc_tb)
 
     async def remove(self, ident: str):
-        # Stop listening to this identity queue
-        task = self.ident_to_task.pop(ident, None)
-
-        if task is not None:
-            self.task_to_ident.pop(task)
+        # If identity is still active, cancel and clean up
+        if ident in self.ident_to_task:
+            task = self.ident_to_task[ident]
+            del self.ident_to_task[ident]
+            del self.task_to_ident[task]
             task.cancel()
 
-        # Call __aexit__ on the corresponding queue wrapper
-        wrapper = self.queues.pop(ident, None)
-        if wrapper:
-            await wrapper.__aexit__(None, None, None)
+        wrapper = self.queues.pop(ident)
+        await wrapper.__aexit__(None, None, None)
 
-        self.active_queues.pop(ident, None)
+        self.active_queues.pop(ident)
 
     async def __aiter__(self):
         while self.task_to_ident:
