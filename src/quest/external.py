@@ -147,7 +147,7 @@ class MultiQueue:
             task.cancel()
         # Exit all queues properly - suspended
         for ident, wrapper in list(self.queues.items()):
-            await wrapper.__aexit__(asyncio.CancelledError, asyncio.CancelledError(SUSPENDED), None)
+            await wrapper.__aexit__(exc_type, exc_val, exc_tb)
 
     async def remove(self, ident: str):
         # If identity is still active, cancel and clean up
@@ -158,7 +158,7 @@ class MultiQueue:
             task.cancel()
 
         wrapper = self.queues.pop(ident)
-        await wrapper.__aexit__(asyncio.CancelledError, asyncio.CancelledError(SUSPENDED), None)
+        await wrapper.__aexit__(None, None, None)
 
         self.active_queues.pop(ident)
 

@@ -310,25 +310,24 @@ async def test_step_specific_external():
 async def test_multiqueue_default():
     received = []
 
+    p1_p2_ready = asyncio.Event()
+    before_exit = asyncio.Event()
+
     async def player_workflow():
         players = {'p1': 'user1', 'p2': 'user2'}
 
         async with MultiQueue('chat', players) as mq:
-            # Both p1 and p2 have a chat
-            assert ('chat', 'p1') in await find_historian().get_resources('p1')
-            assert ('chat', 'p2') in await find_historian().get_resources('p2')
+            p1_p2_ready.set()
 
             async for ident, msg in mq:
                 received.append((ident, msg))
 
                 if msg == 'bye':
                     await mq.remove(ident)
-                    # After p1 says bye, p1 is removed from chat
-                    assert ('chat', ident) not in await find_historian().get_resources(ident)
 
                 if len(received) == 3:
-                    # Check if p2 is still in the chat before chat is getting closed
-                    assert ('chat', 'p2') in await find_historian().get_resources('p2')
+                    before_exit.set()
+                    await asyncio.sleep(0.1)
                     break
 
         return received
@@ -336,11 +335,21 @@ async def test_multiqueue_default():
     historian = Historian('test', player_workflow, [], serializer=NoopSerializer())
     workflow = historian.run()
 
-    await asyncio.sleep(0.1)
+    await p1_p2_ready.wait()
+
+    # Check both p1 and p2 are in the chat
+    assert ('chat', 'p1') in await historian.get_resources('p1')
+    assert ('chat', 'p2') in await historian.get_resources('p2')
 
     await historian.record_external_event('chat', 'p1', 'put', 'hello')
     await historian.record_external_event('chat', 'p2', 'put', 'hi')
     await historian.record_external_event('chat', 'p1', 'put', 'bye')
+
+    await before_exit.wait()
+    # p1 should be removed after bye
+    assert ('chat', 'p1') not in await historian.get_resources('p1')
+    # p2 should still be in the chat
+    assert ('chat', 'p2') in await historian.get_resources('p2')
 
     result = await workflow
     assert set(result) == {('p1', 'hello'), ('p2', 'hi'), ('p1', 'bye')}
