@@ -5,6 +5,7 @@ from pathlib import Path
 from quest import (step, queue, state, identity_queue,
                    create_filesystem_manager, these)
 from quest.server import Server
+from quest.external import MultiQueue
 
 
 @step
@@ -35,7 +36,6 @@ async def get_secret():
 @step
 async def get_guesses(players: dict[str, str], message) -> dict[str, int]:
     guesses = {}
-
     status_message = []
 
     # TODO - the following code sequence is a little verbose
@@ -47,29 +47,15 @@ async def get_guesses(players: dict[str, str], message) -> dict[str, int]:
     # This pattern should be common enough we should make
     # it easy and clear
 
-    async with (
-        # Create a guess queue for each player
-        these({
-            ident: queue('guess', ident)
-            for ident in players
-        }) as guess_queues
-    ):
-        # Wait for guesses to come in.
-        # As they do, remove their queue so they can't guess again.
-        guess_gets = {q.get(): ident for ident, q in guess_queues.items()}
-        for guess_get in asyncio.as_completed(guess_gets):
-            guess = await guess_get
-            ident = guess_gets[guess]
+    # Iterate guesses one at a time
+    async with MultiQueue('guess', players, single_response=True) as mq:
+        async for ident, guess in mq:
             guesses[ident] = guess
 
             # Update the status
             name = players[ident]
             status_message.append(f'{name} guessed {guess}')
             message.set('\n'.join(status_message))
-
-            # Remove the queue
-            # The user will no longer see it
-            guess_queues.remove(ident)
 
     return guesses
 
