@@ -175,9 +175,9 @@ class WorkflowManager:
             )
 
         # Completed workflow
-        del self._workflows[workflow_id]
-        del self._workflow_tasks[workflow_id]
-        del self._workflow_data[workflow_id]
+        self._workflows.pop(workflow_id, None) # This will allow the code to fail more gracefully
+        self._workflow_tasks.pop(workflow_id, None)
+        self._workflow_data.pop(workflow_id, None)
 
     def start_workflow(self, workflow_type: str, workflow_id: str, *workflow_args, delete_on_finish: bool = True,
                        **workflow_kwargs):
