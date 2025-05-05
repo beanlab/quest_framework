@@ -155,6 +155,13 @@ class WorkflowManager:
 
     async def _store_result(self, workflow_id: str, task: asyncio.Task, delete_on_finish: bool):
         """Store the result or exception of a completed workflow"""
+        if (
+                (ex := task.exception()) is not None
+                and isinstance(ex, asyncio.CancelledError)
+                and ex.args and ex.args[0] == SUSPENDED
+        ):
+            return
+
         if not delete_on_finish:
             try:
                 # Retrieve the workflow result if it completed successfully

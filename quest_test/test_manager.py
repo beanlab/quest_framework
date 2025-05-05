@@ -1,11 +1,12 @@
 import asyncio
-from quest.utils import quest_logger
+
 import pytest
 
 from quest import PersistentHistory, queue, state, event
 from quest.manager import WorkflowManager
 from quest.persistence import InMemoryBlobStorage
 from quest.serializer import NoopSerializer
+from quest.utils import quest_logger
 
 
 @pytest.mark.asyncio
@@ -200,3 +201,5 @@ async def test_get_queue():
         await asyncio.sleep(0.1)
         assert await result.get() == 7
         await finish.set()
+
+
