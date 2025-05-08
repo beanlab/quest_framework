@@ -6,6 +6,17 @@ class ContextDict(dict):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+    def __enter__(self):
+        for key, value in self.items():
+            if hasattr(value, '__enter__'):
+                self[key] = value.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        for key, value in self.items():
+            if hasattr(value, '__exit__'):
+                value.__exit__(exc_type, exc_val, exc_tb)
+
     async def __aenter__(self):
         for key, value in self.items():
             if hasattr(value, '__aenter__'):
@@ -16,13 +27,6 @@ class ContextDict(dict):
         for key, value in self.items():
             if hasattr(value, '__aexit__'):
                 await value.__aexit__(exc_type, exc_val, exc_tb)
-
-    async def add(self, key, context):
-        self[key] = await context.__aenter__() if hasattr(context, '__aenter__') else context
-
-    async def remove(self, key):
-        await self[key].__aexit__()
-        del self[key]
 
 
 class ContextList(list):
