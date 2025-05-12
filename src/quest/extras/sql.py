@@ -27,16 +27,16 @@ class SQLDatabase:
         self._db_url = db_url
         self._engine = create_engine(db_url)
 
-        Base.metadata.create_all(self._engine)
-
     def get_session(self) -> Session:
         return sessionmaker(bind=self._engine)()
 
 
 class SqlBlobStorage(BlobStorage):
-    def __init__(self, name, session):
+    def __init__(self, name, session: Session):
         self._name = name
         self._session = session
+
+        Base.metadata.create_all(self._session.connection())
 
     def _get_session(self):
         return self._session
