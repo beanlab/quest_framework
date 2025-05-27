@@ -59,7 +59,7 @@ def wrap_steps(obj: T, methods: list[str] = None) -> T:
             continue
 
         method = getattr(obj, field)
-        if callable(method) and (methods is None or method in methods):
+        if callable(method) and (methods is None or field in methods):
             method = step(method)
         setattr(wrapped, field, method)
 
