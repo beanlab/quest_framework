@@ -9,11 +9,10 @@ from typing import Callable, TypeVar
 
 from .history import History
 from .quest_types import ConfigurationRecord, VersionRecord, StepStartRecord, StepEndRecord, \
-    ExceptionDetails, ResourceAccessEvent, ResourceEntry, ResourceLifecycleEvent, TaskEvent
+    ResourceAccessEvent, ResourceEntry, ResourceLifecycleEvent, TaskEvent
 from .resources import ResourceStreamManager
 from .serializer import StepSerializer
 from .utils import quest_logger, task_name_getter
-
 from .utils import (
     serialize_exception,
     deserialize_exception
@@ -79,6 +78,30 @@ GLOBAL_VERSION = "_global_version"
 # I need to look for resources that are open in each branch and match the relevant events
 
 SUSPENDED = '__WORKFLOW_SUSPENDED__'
+
+
+def suspendable(func):
+    """
+    Makes a __aexit__ or __exit__ method suspendable
+    With this decorator, the exit method will not be called
+      when the workflow is suspending.
+    It will only be called when the with context exits for other reasons.
+    """
+    if inspect.iscoroutinefunction(func):
+        @wraps(func)
+        async def new_func(self, exc_type, exc_val, exc_tb):
+            if exc_type is asyncio.CancelledError and exc_val.args[0] == SUSPENDED:
+                return
+            await func(self, exc_type, exc_val, exc_tb)
+    else:
+        @wraps(func)
+        def new_func(self, exc_type, exc_val, exc_tb):
+            if exc_type is asyncio.CancelledError and exc_val.args[0] == SUSPENDED:
+                return
+            func(self, exc_type, exc_val, exc_tb)
+
+    return new_func
+
 
 T = TypeVar('T')
 

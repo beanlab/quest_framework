@@ -3,7 +3,7 @@ from typing import Callable
 
 from .context import these
 from .external import state, queue, identity_queue, event
-from .historian import Historian
+from .historian import Historian, suspendable
 from .history import History
 from .manager import WorkflowManager, WorkflowFactory
 from .manager_wrappers import alias
