@@ -251,22 +251,25 @@ class WorkflowManager:
 
         return dummy
 
-    async def _check_resource(self, workflow_id: str, name: str, identity):
-        if (name, identity) not in await self.get_resources(workflow_id, identity):
-            raise Exception(f'{name} is not a valid resource for {workflow_id}')
+    async def _check_resource(self, workflow_id: str, rtype: str, name: str, identity):
+        if (rtype, name, identity) not in await self.get_resources(workflow_id, identity):
+            raise Exception(f'{rtype} named {name} is not a valid resource for {workflow_id}')
             # TODO - custom exception
 
+    # noinspection PyProtectedMember
     async def get_queue(self, workflow_id: str, name: str, identity) -> Queue:
-        await self._check_resource(workflow_id, name, identity)
-        return self._wrap(Queue(), workflow_id, 'queue', name, identity)
+        await self._check_resource(workflow_id, Queue._rtype, name, identity)
+        return self._wrap(Queue(), workflow_id, Queue._rtype, name, identity)
 
+    # noinspection PyProtectedMember
     async def get_state(self, workflow_id: str, name: str, identity: str | None) -> State:
-        await self._check_resource(workflow_id, name, identity)
-        return self._wrap(State(None), workflow_id, 'state', name, identity)
+        await self._check_resource(workflow_id, State._rtype, name, identity)
+        return self._wrap(State(None), workflow_id, State._rtype, name, identity)
 
+    # noinspection PyProtectedMember
     async def get_identity_queue(self, workflow_id: str, name: str, identity: str | None) -> IdentityQueue:
-        await self._check_resource(workflow_id, name, identity)
-        return self._wrap(IdentityQueue(), workflow_id, 'identityqueue', name, identity)
+        await self._check_resource(workflow_id, IdentityQueue._rtype, name, identity)
+        return self._wrap(IdentityQueue(), workflow_id, IdentityQueue._rtype, name, identity)
 
     async def _register_alias(self, alias: str, workflow_id: str):
         if alias not in self._alias_dictionary:

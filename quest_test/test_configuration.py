@@ -3,6 +3,7 @@ import asyncio
 import pytest
 
 from quest import Historian, queue, step
+from quest.resources import Queue
 from quest.serializer import NoopSerializer
 
 
@@ -55,9 +56,9 @@ async def test_configuration():
     historian.run()
     await asyncio.sleep(0.1)
 
-    await historian.record_external_event('queue', 'foobar', None, 'put', 'a')
-    await historian.record_external_event('queue', 'foobar', None, 'put', 'b')
-    await historian.record_external_event('queue', 'foobar', None, 'put', 'c')
+    await historian.record_external_event(Queue._rtype, 'foobar', None, 'put', 'a')
+    await historian.record_external_event(Queue._rtype, 'foobar', None, 'put', 'b')
+    await historian.record_external_event(Queue._rtype, 'foobar', None, 'put', 'c')
 
     await asyncio.sleep(0.1)
 
@@ -75,9 +76,9 @@ async def test_configuration():
     historian.run()
     await asyncio.sleep(0.1)
 
-    await historian.record_external_event('queue', 'foobar', None, 'put', 'a')
-    await historian.record_external_event('queue', 'foobar', None, 'put', 'b')
-    await historian.record_external_event('queue', 'foobar', None, 'put', 'c')
+    await historian.record_external_event(Queue._rtype, 'foobar', None, 'put', 'a')
+    await historian.record_external_event(Queue._rtype, 'foobar', None, 'put', 'b')
+    await historian.record_external_event(Queue._rtype, 'foobar', None, 'put', 'c')
 
     await asyncio.sleep(0.1)
 

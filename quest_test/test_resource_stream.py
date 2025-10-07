@@ -3,7 +3,7 @@ import asyncio
 import pytest
 
 from quest import Historian
-from quest.resources import state, queue, identity_queue
+from quest.resources import state, queue, identity_queue, Queue, State, IdentityQueue
 from .utils import timeout, create_test_historian
 
 
@@ -22,9 +22,9 @@ async def simple_listener(historian, stream_ident=None, phrase1_ident=None, phra
     saw_phrase2 = False
     with historian.get_resource_stream(stream_ident) as resource_stream:
         async for resources in resource_stream:
-            if ('state', 'phrase1', phrase1_ident) in resources:
+            if (State._rtype, 'phrase1', phrase1_ident) in resources:
                 saw_phrase1 = True
-            if ('state', 'phrase2', phrase2_ident) in resources:
+            if (State._rtype, 'phrase2', phrase2_ident) in resources:
                 saw_phrase2 = True
     if not saw_phrase1 or not saw_phrase2:
         assert False
@@ -76,31 +76,31 @@ async def test_default():
 
         # Phrase created
         resources = await anext(updates)
-        assert ('state', 'phrase', None) in resources
-        assert resources['state', 'phrase', None] == 'Hello'
+        assert (State._rtype, 'phrase', None) in resources
+        assert resources[State._rtype, 'phrase', None] == 'Hello'
 
         resources = await anext(updates)
-        assert ('state', 'phrase', None) in resources
-        assert resources['state', 'phrase', None] == 'World!'
+        assert (State._rtype, 'phrase', None) in resources
+        assert resources[State._rtype, 'phrase', None] == 'World!'
 
         resources = await anext(updates)  # Phrase deleted
-        assert ('state', 'phrase', None) not in resources
+        assert (State._rtype, 'phrase', None) not in resources
 
         # Messages created
         resources = await anext(updates)
-        assert ('queue', 'messages', None) in resources
-        await historian.record_external_event('queue', 'messages', None, 'put', 'Hello!')
+        assert (Queue._rtype, 'messages', None) in resources
+        await historian.record_external_event(Queue._rtype, 'messages', None, 'put', 'Hello!')
 
         resources = await anext(updates)  # Messages deleted
-        assert ('queue', 'messages', None) not in resources
+        assert (Queue._rtype, 'messages', None) not in resources
 
         # Identity messages created
         resources = await anext(updates)
-        assert ('identityqueue', 'ident_messages', None) in resources
-        await historian.record_external_event('identityqueue', 'ident_messages', None, 'put', 'Hello!')
+        assert (IdentityQueue._rtype, 'ident_messages', None) in resources
+        await historian.record_external_event(IdentityQueue._rtype, 'ident_messages', None, 'put', 'Hello!')
 
         resources = await anext(updates)  # Identity messages deleted
-        assert ('identityqueue', 'ident_messages', None) not in resources
+        assert (IdentityQueue._rtype, 'ident_messages', None) not in resources
 
         try:
             await anext(updates)
@@ -220,9 +220,9 @@ async def test_mult_identity_workflow():
         with historian.get_resource_stream(None) as resource_stream:
             phrase1_fail = True
             async for resources in resource_stream:
-                if ('state', 'phrase1', None) in resources:
+                if (State._rtype, 'phrase1', None) in resources:
                     phrase1_fail = False
-                if ('state', 'phrase2', 'private_identity') in resources:
+                if (State._rtype, 'phrase2', 'private_identity') in resources:
                     assert False
         if phrase1_fail:
             assert False
@@ -252,9 +252,9 @@ async def test_multiple_private_identity_streams():
             ident1_fail = True
             ident2_fail = False
             async for resources in resource_stream:
-                if ('state', 'phrase1', 'ident1') in resources:
+                if (State._rtype, 'phrase1', 'ident1') in resources:
                     ident1_fail = False
-                if ('state', 'phrase2', 'ident2') in resources:
+                if (State._rtype, 'phrase2', 'ident2') in resources:
                     ident2_fail = True
             if ident1_fail or ident2_fail:
                 assert False
@@ -264,9 +264,9 @@ async def test_multiple_private_identity_streams():
             ident1_fail = False
             ident2_fail = True
             async for resources in resource_stream:
-                if ('state', 'phrase1', 'ident1') in resources:
+                if (State._rtype, 'phrase1', 'ident1') in resources:
                     ident1_fail = True
-                if ('state', 'phrase2', 'ident2') in resources:
+                if (State._rtype, 'phrase2', 'ident2') in resources:
                     ident2_fail = False
             if ident1_fail or ident2_fail:
                 assert False
@@ -351,16 +351,16 @@ async def test_suspend_resume_workflow():
         updates = aiter(resource_stream)
         await anext(updates)  # Get initial snapshot of resources
         resources = await anext(updates)
-        assert ('state', 'phrase2', None) in resources
-        assert resources['state', 'phrase2', None] == 'Goodbye'
+        assert (State._rtype, 'phrase2', None) in resources
+        assert resources[State._rtype, 'phrase2', None] == 'Goodbye'
 
         resources = await anext(updates)
-        assert ('state', 'phrase2', None) in resources
-        assert resources['state', 'phrase2', None] == 'Everyone!'
+        assert (State._rtype, 'phrase2', None) in resources
+        assert resources[State._rtype, 'phrase2', None] == 'Everyone!'
 
         resources = await anext(updates)
-        assert ('state', 'phrase1', None) in resources
-        assert ('state', 'phrase2', None) not in resources
+        assert (State._rtype, 'phrase1', None) in resources
+        assert (State._rtype, 'phrase2', None) not in resources
 
         resources = await anext(updates)
         assert not resources

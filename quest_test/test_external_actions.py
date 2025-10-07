@@ -3,7 +3,7 @@ import asyncio
 import pytest
 
 from quest.historian import Historian
-from quest.resources import state, queue, MultiQueue
+from quest.resources import state, queue, MultiQueue, Queue
 from quest.serializer import NoopSerializer
 from quest.wrappers import task, step
 from .utils import timeout
@@ -89,11 +89,11 @@ async def test_external_queue():
     assert not resources
 
     resources = await historian.get_resources(identity)
-    assert ('queue', 'items', 'foo_ident') in resources
+    assert (Queue._rtype, 'items', 'foo_ident') in resources
 
-    await historian.record_external_event('queue', 'items', 'foo_ident', 'put', 7)
-    await historian.record_external_event('queue', 'items', 'foo_ident', 'put', 8)
-    await historian.record_external_event('queue', 'items', 'foo_ident', 'put', 9)
+    await historian.record_external_event(Queue._rtype, 'items', 'foo_ident', 'put', 7)
+    await historian.record_external_event(Queue._rtype, 'items', 'foo_ident', 'put', 8)
+    await historian.record_external_event(Queue._rtype, 'items', 'foo_ident', 'put', 9)
 
     assert await workflow == [7, 8, 9]
 
@@ -137,20 +137,20 @@ async def test_queue_tasks():
     await asyncio.sleep(0.001)
 
     resources = await historian.get_resources(id_foo)
-    assert ('queue', 'foo', 'FOO') in resources
-    assert ('queue', 'foo_done', 'FOO') in resources
+    assert (Queue._rtype, 'foo', 'FOO') in resources
+    assert (Queue._rtype, 'foo_done', 'FOO') in resources
 
     resources = await historian.get_resources(id_bar)
-    assert ('queue', 'foo', 'BAR') in resources
-    assert ('queue', 'foo_done', 'BAR') in resources
+    assert (Queue._rtype, 'foo', 'BAR') in resources
+    assert (Queue._rtype, 'foo_done', 'BAR') in resources
 
-    await historian.record_external_event('queue', 'foo', id_bar, 'put', 4)
-    await historian.record_external_event('queue', 'foo', id_foo, 'put', 1)
-    await historian.record_external_event('queue', 'foo', id_foo, 'put', 2)
-    await historian.record_external_event('queue', 'foo', id_bar, 'put', 5)
-    await historian.record_external_event('queue', 'foo_done', id_bar, 'put', None)
-    await historian.record_external_event('queue', 'foo', id_foo, 'put', 3)
-    await historian.record_external_event('queue', 'foo_done', id_foo, 'put', None)
+    await historian.record_external_event(Queue._rtype, 'foo', id_bar, 'put', 4)
+    await historian.record_external_event(Queue._rtype, 'foo', id_foo, 'put', 1)
+    await historian.record_external_event(Queue._rtype, 'foo', id_foo, 'put', 2)
+    await historian.record_external_event(Queue._rtype, 'foo', id_bar, 'put', 5)
+    await historian.record_external_event(Queue._rtype, 'foo_done', id_bar, 'put', None)
+    await historian.record_external_event(Queue._rtype, 'foo', id_foo, 'put', 3)
+    await historian.record_external_event(Queue._rtype, 'foo_done', id_foo, 'put', None)
 
     assert await workflow == [1, 2, 3, 4, 5]
 
@@ -187,12 +187,12 @@ async def test_nested_tasks():
     workflow = historian.run()
     await asyncio.sleep(0.001)
 
-    await historian.record_external_event('queue', 'the_queue', None, 'put', 1)
+    await historian.record_external_event(Queue._rtype, 'the_queue', None, 'put', 1)
     await historian.suspend()
 
     new_workflow = historian.run()
     await asyncio.sleep(1)
-    await historian.record_external_event('queue', 'the_queue', None, 'put', 2)
+    await historian.record_external_event(Queue._rtype, 'the_queue', None, 'put', 2)
 
     assert await new_workflow == 3
 
@@ -218,16 +218,16 @@ async def test_queue_tasks_resume():
     await asyncio.sleep(0.001)
 
     resources = await historian.get_resources(id_foo)
-    assert ('queue', 'foo', 'FOO') in resources
-    assert ('queue', 'foo_done', 'FOO') in resources
+    assert (Queue._rtype, 'foo', 'FOO') in resources
+    assert (Queue._rtype, 'foo_done', 'FOO') in resources
 
     resources = await historian.get_resources(id_bar)
-    assert ('queue', 'foo', 'BAR') in resources
-    assert ('queue', 'foo_done', 'BAR') in resources
+    assert (Queue._rtype, 'foo', 'BAR') in resources
+    assert (Queue._rtype, 'foo_done', 'BAR') in resources
 
-    await historian.record_external_event('queue', 'foo', id_bar, 'put', 4)
-    await historian.record_external_event('queue', 'foo', id_foo, 'put', 1)
-    await historian.record_external_event('queue', 'foo', id_foo, 'put', 2)
+    await historian.record_external_event(Queue._rtype, 'foo', id_bar, 'put', 4)
+    await historian.record_external_event(Queue._rtype, 'foo', id_foo, 'put', 1)
+    await historian.record_external_event(Queue._rtype, 'foo', id_foo, 'put', 2)
 
     await historian.suspend()
 
@@ -237,17 +237,17 @@ async def test_queue_tasks_resume():
     await asyncio.sleep(1)
 
     resources = await historian.get_resources(id_foo)
-    assert ('queue', 'foo', 'FOO') in resources
-    assert ('queue', 'foo_done', 'FOO') in resources
+    assert (Queue._rtype, 'foo', 'FOO') in resources
+    assert (Queue._rtype, 'foo_done', 'FOO') in resources
 
     resources = await historian.get_resources(id_bar)
-    assert ('queue', 'foo', 'BAR') in resources
-    assert ('queue', 'foo_done', 'BAR') in resources
+    assert (Queue._rtype, 'foo', 'BAR') in resources
+    assert (Queue._rtype, 'foo_done', 'BAR') in resources
 
-    await historian.record_external_event('queue', 'foo', id_bar, 'put', 5)
-    await historian.record_external_event('queue', 'foo_done', id_bar, 'put', None)
-    await historian.record_external_event('queue', 'foo', id_foo, 'put', 3)
-    await historian.record_external_event('queue', 'foo_done', id_foo, 'put', None)
+    await historian.record_external_event(Queue._rtype, 'foo', id_bar, 'put', 5)
+    await historian.record_external_event(Queue._rtype, 'foo_done', id_bar, 'put', None)
+    await historian.record_external_event(Queue._rtype, 'foo', id_foo, 'put', 3)
+    await historian.record_external_event(Queue._rtype, 'foo_done', id_foo, 'put', None)
 
     assert await workflow == [1, 2, 3, 4, 5]
 
@@ -278,16 +278,16 @@ async def test_step_specific_external():
     historian.run()
     await asyncio.sleep(0.1)
     resources = await historian.get_resources(None)
-    assert ('queue', 'the-queue', None) in resources
-    await historian.record_external_event('queue', 'the-queue', None, 'put', 1)
+    assert (Queue._rtype, 'the-queue', None) in resources
+    await historian.record_external_event(Queue._rtype, 'the-queue', None, 'put', 1)
     await asyncio.sleep(0.1)
     await historian.suspend()
 
     workflow = historian.run()
     await asyncio.sleep(0.1)
     resources = await historian.get_resources(None)
-    assert ('queue', 'the-queue', None) in resources
-    await historian.record_external_event('queue', 'the-queue', None, 'put', 2)
+    assert (Queue._rtype, 'the-queue', None) in resources
+    await historian.record_external_event(Queue._rtype, 'the-queue', None, 'put', 2)
 
     assert (await workflow) == 3
 
@@ -316,9 +316,9 @@ async def test_multiqueue_default():
 
     await asyncio.sleep(0.1)
 
-    await historian.record_external_event('queue', 'chat', 'p1', 'put', 'hello')
-    await historian.record_external_event('queue', 'chat', 'p2', 'put', 'hi')
-    await historian.record_external_event('queue', 'chat', 'p1', 'put', 'bye')
+    await historian.record_external_event(Queue._rtype, 'chat', 'p1', 'put', 'hello')
+    await historian.record_external_event(Queue._rtype, 'chat', 'p2', 'put', 'hi')
+    await historian.record_external_event(Queue._rtype, 'chat', 'p1', 'put', 'bye')
 
     result = await workflow
     assert result == [('p1', 'hello'), ('p2', 'hi'), ('p1', 'bye')]
@@ -345,10 +345,10 @@ async def test_multiqueue_single_response():
 
     await asyncio.sleep(0.1)
 
-    await historian.record_external_event('queue', 'chat', 'p1', 'put', 'hello')
-    await historian.record_external_event('queue', 'chat', 'p2', 'put', 'hi')
+    await historian.record_external_event(Queue._rtype, 'chat', 'p1', 'put', 'hello')
+    await historian.record_external_event(Queue._rtype, 'chat', 'p2', 'put', 'hi')
     # Second message from p1 - should be ignored due to single_response = True
-    await historian.record_external_event('queue', 'chat', 'p1', 'put', 'should not be received')
+    await historian.record_external_event(Queue._rtype, 'chat', 'p1', 'put', 'should not be received')
 
     result = await workflow
     assert result == {'p1': 'hello', 'p2': 'hi'}

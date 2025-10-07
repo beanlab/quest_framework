@@ -19,6 +19,8 @@ def external(func):
 
 
 class Queue:
+    _rtype = 'queue'
+
     def __init__(self):
         self._queue = asyncio.Queue()
 
@@ -39,6 +41,8 @@ class Queue:
 
 
 class State:
+    _rtype = 'state'
+
     def __init__(self, value):
         self._value = value
 
@@ -55,6 +59,8 @@ class State:
 
 class IdentityQueue:
     """Put and Get return and identity + the value"""
+
+    _rtype = 'idqueue'
 
     def __init__(self, *args, **kwargs):
         self._queue = asyncio.Queue(*args, **kwargs)
@@ -102,10 +108,11 @@ def _wrap_methods_as_historian_events(resource: T, rtype: str, name: str, identi
 class InternalResource(Generic[T]):
     """Internal resources are used inside the workflow context"""
 
+    # noinspection PyProtectedMember
     def __init__(self, name, identity, resource: T):
         self._name = name
         self._identity = identity
-        self._rtype = _get_type_name(resource)
+        self._rtype = resource._rtype
         self._resource: T = resource
         self._historian = find_historian()
 

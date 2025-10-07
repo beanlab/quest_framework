@@ -731,7 +731,8 @@ class Historian:
         return result
 
     async def register_resource(self, name, identity, resource):
-        rtype = _get_type_name(resource)
+        # noinspection PyProtectedMember
+        rtype = resource._rtype
         resource_id = _create_resource_id(rtype, name, identity)
         # TODO - support the ability to limit the exposed API on the resource
 

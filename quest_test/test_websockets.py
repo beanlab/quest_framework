@@ -1,4 +1,5 @@
 import asyncio
+
 import pytest
 from websockets import Headers
 
@@ -36,6 +37,7 @@ async def connect(wid):
         if not messages_seen:
             pytest.fail('Message not found in resources')
 
+
 async def connect_exception(wid):
     await asyncio.sleep(0.1)
     async with Client('ws://localhost:8000', {}) as client:
@@ -54,12 +56,14 @@ async def workflow():
             messages = await messages.get()
             await phrase.set(messages)
 
+
 @pytest.mark.asyncio
 async def test_websockets():
     wid = 'test'
     manager = create_in_memory_workflow_manager({'workflow': workflow})
     manager.start_workflow('workflow', wid)
     await asyncio.gather(serve(manager, 8000, authorize), connect(wid))
+
 
 @pytest.mark.asyncio
 async def test_websockets_exception():
