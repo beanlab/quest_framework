@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Callable
 
 from .context import these
-from .external import state, queue, identity_queue, event
+from .resources import state, queue, identity_queue
 from .historian import Historian, suspendable
 from .history import History
 from .manager import WorkflowManager, WorkflowFactory

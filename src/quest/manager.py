@@ -5,8 +5,8 @@ from datetime import datetime
 from functools import wraps
 from typing import Protocol, Callable, TypeVar, Any, TypedDict
 
-from .external import State, IdentityQueue, Queue, Event
-from .historian import Historian, _Wrapper, SUSPENDED
+from .resources import State, IdentityQueue, Queue, _Wrapper
+from .historian import Historian, SUSPENDED
 from .history import History
 from .persistence import BlobStorage
 from .serializer import StepSerializer
@@ -221,32 +221,32 @@ class WorkflowManager:
 
         return self._get_workflow(workflow_id).get_resource_stream(identity)
 
-    async def send_event(self, workflow_id: str, name: str, identity, action, *args, **kwargs):
-        return await self._get_workflow(workflow_id).record_external_event(name, identity, action, *args, **kwargs)
+    async def send_event(self, workflow_id: str, rtype: str, name: str, identity, action, *args, **kwargs):
+        return await self._get_workflow(workflow_id).record_external_event(rtype, name, identity, action, *args, **kwargs)
 
-    def _make_wrapper_func(self, workflow_id: str, name: str, identity, field, attr):
+    def _make_wrapper_func(self, workflow_id: str, rtype: str, name: str, identity, field, attr):
         # Why have _make_wrapper_func?
         # See https://stackoverflow.com/questions/3431676/creating-functions-or-lambdas-in-a-loop-or-comprehension
 
         @wraps(field)  # except that we need to make everything async now
         async def new_func(*args, **kwargs):
             # TODO - handle case where this wrapper is used in a workflow and should be stepped
-            return await self.send_event(workflow_id, name, identity, attr, *args, **kwargs)
+            return await self.send_event(workflow_id, rtype, name, identity, attr, *args, **kwargs)
 
         return new_func
 
-    def _wrap(self, resource: T, workflow_id: str, name: str, identity) -> T:
+    def _wrap(self, resource: T, workflow_id: str, rtype, name: str, identity) -> T:
         dummy = _Wrapper()
         for attr in dir(resource):
             if attr.startswith('_'):
                 continue
 
             field = getattr(resource, attr)
-            if not callable(field):
+            if not callable(field) or not hasattr(field, '_external'):  # see resources.py:external
                 continue
 
             # Replace with function that routes call to historian
-            new_func = self._make_wrapper_func(workflow_id, name, identity, field, attr)
+            new_func = self._make_wrapper_func(workflow_id, rtype, name, identity, field, attr)
             setattr(dummy, attr, new_func)
 
         return dummy
@@ -258,19 +258,15 @@ class WorkflowManager:
 
     async def get_queue(self, workflow_id: str, name: str, identity) -> Queue:
         await self._check_resource(workflow_id, name, identity)
-        return self._wrap(asyncio.Queue(), workflow_id, name, identity)
+        return self._wrap(Queue(), workflow_id, 'queue', name, identity)
 
     async def get_state(self, workflow_id: str, name: str, identity: str | None) -> State:
         await self._check_resource(workflow_id, name, identity)
-        return self._wrap(State(None), workflow_id, name, identity)
-
-    async def get_event(self, workflow_id: str, name: str, identity: str | None) -> Event:
-        await self._check_resource(workflow_id, name, identity)
-        return self._wrap(asyncio.Event(), workflow_id, name, identity)
+        return self._wrap(State(None), workflow_id, 'state', name, identity)
 
     async def get_identity_queue(self, workflow_id: str, name: str, identity: str | None) -> IdentityQueue:
         await self._check_resource(workflow_id, name, identity)
-        return self._wrap(IdentityQueue(), workflow_id, name, identity)
+        return self._wrap(IdentityQueue(), workflow_id, 'identityqueue', name, identity)
 
     async def _register_alias(self, alias: str, workflow_id: str):
         if alias not in self._alias_dictionary:

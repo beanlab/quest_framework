@@ -1,10 +1,11 @@
 import asyncio
+
 import pytest
 
 from quest import Historian
-from quest.external import state, queue, event, identity_queue, wrap_as_state, wrap_as_queue, wrap_as_identity_queue, \
-    wrap_as_event
+from quest.resources import state, queue, identity_queue
 from .utils import timeout, create_test_historian
+
 
 # A general-use workflow for these tests
 async def simple_workflow(phrase1_ident, phrase2_ident):
@@ -21,9 +22,9 @@ async def simple_listener(historian, stream_ident=None, phrase1_ident=None, phra
     saw_phrase2 = False
     with historian.get_resource_stream(stream_ident) as resource_stream:
         async for resources in resource_stream:
-            if ('phrase1', phrase1_ident) in resources:
+            if ('state', 'phrase1', phrase1_ident) in resources:
                 saw_phrase1 = True
-            if ('phrase2', phrase2_ident) in resources:
+            if ('state', 'phrase2', phrase2_ident) in resources:
                 saw_phrase2 = True
     if not saw_phrase1 or not saw_phrase2:
         assert False
@@ -31,6 +32,7 @@ async def simple_listener(historian, stream_ident=None, phrase1_ident=None, phra
 
 class StreamListenerError(Exception):
     pass
+
 
 # A listener that fails streaming before the workflow completes
 async def failing_listener(historian: Historian, identity):
@@ -44,7 +46,8 @@ async def failing_listener(historian: Historian, identity):
     except StreamListenerError:
         pass
 
-# Test stream resources on a workflow that utilizes each type of "resource" as defined in external.py.
+
+# Test stream resources on a workflow that utilizes each type of "resource" as defined in resources.py.
 # We should receive a resource update when each resource is created, has an action called on it, and deleted.
 @pytest.mark.asyncio
 @timeout(3)
@@ -59,9 +62,6 @@ async def test_default():
         async with identity_queue('ident_messages') as ident_messages:
             await ident_messages.get()
 
-        async with event('gate', None) as gate:
-            await gate.wait()
-
     historian = create_test_historian(
         'default',
         default_workflow
@@ -70,59 +70,37 @@ async def test_default():
     w_task = historian.run()
 
     with historian.get_resource_stream(None) as resource_stream:
-        phrase = wrap_as_state('phrase', None, historian)
-        messages = wrap_as_queue('messages', None, historian)
-        ident_messages = wrap_as_identity_queue('ident_messages', None, historian)
-        gate = wrap_as_event('gate', None, historian)
-
         updates = aiter(resource_stream)
         resources = await anext(updates)
         assert not resources
 
         # Phrase created
         resources = await anext(updates)
-        assert ('phrase', None) in resources
-        assert await phrase.value() == 'Hello'
+        assert ('state', 'phrase', None) in resources
+        assert resources['state', 'phrase', None] == 'Hello'
 
         resources = await anext(updates)
-        assert ('phrase', None) in resources
-        assert await phrase.value() == 'World!'
+        assert ('state', 'phrase', None) in resources
+        assert resources['state', 'phrase', None] == 'World!'
 
         resources = await anext(updates)  # Phrase deleted
-        assert ('phrase', None) not in resources
+        assert ('state', 'phrase', None) not in resources
 
         # Messages created
         resources = await anext(updates)
-        assert ('messages', None) in resources
-        await messages.put('Hello!')
-
-        resources = await anext(updates)  # messages.get()
-        assert ('messages', None) in resources
+        assert ('queue', 'messages', None) in resources
+        await historian.record_external_event('queue', 'messages', None, 'put', 'Hello!')
 
         resources = await anext(updates)  # Messages deleted
-        assert ('messages', None) not in resources
+        assert ('queue', 'messages', None) not in resources
 
         # Identity messages created
         resources = await anext(updates)
-        assert ('ident_messages', None) in resources
-        await ident_messages.put('Hello!')
-
-        resources = await anext(updates)  # ident_messages.get()
-        assert ('ident_messages', None) in resources
+        assert ('identityqueue', 'ident_messages', None) in resources
+        await historian.record_external_event('identityqueue', 'ident_messages', None, 'put', 'Hello!')
 
         resources = await anext(updates)  # Identity messages deleted
-        assert ('ident_messages', None) not in resources
-
-        # Gate created
-        resources = await anext(updates)
-        assert ('gate', None) in resources
-        await gate.set()
-
-        resources = await anext(updates)  # gate.wait()
-        assert ('gate', None) in resources
-
-        resources = await anext(updates)  # Gate deleted
-        assert ('gate', None) not in resources
+        assert ('identityqueue', 'ident_messages', None) not in resources
 
         try:
             await anext(updates)
@@ -242,9 +220,9 @@ async def test_mult_identity_workflow():
         with historian.get_resource_stream(None) as resource_stream:
             phrase1_fail = True
             async for resources in resource_stream:
-                if ('phrase1', None) in resources:
+                if ('state', 'phrase1', None) in resources:
                     phrase1_fail = False
-                if ('phrase2', 'private_identity') in resources:
+                if ('state', 'phrase2', 'private_identity') in resources:
                     assert False
         if phrase1_fail:
             assert False
@@ -274,9 +252,9 @@ async def test_multiple_private_identity_streams():
             ident1_fail = True
             ident2_fail = False
             async for resources in resource_stream:
-                if ('phrase1', 'ident1') in resources:
+                if ('state', 'phrase1', 'ident1') in resources:
                     ident1_fail = False
-                if ('phrase2', 'ident2') in resources:
+                if ('state', 'phrase2', 'ident2') in resources:
                     ident2_fail = True
             if ident1_fail or ident2_fail:
                 assert False
@@ -286,9 +264,9 @@ async def test_multiple_private_identity_streams():
             ident1_fail = False
             ident2_fail = True
             async for resources in resource_stream:
-                if ('phrase1', 'ident1') in resources:
+                if ('state', 'phrase1', 'ident1') in resources:
                     ident1_fail = True
-                if ('phrase2', 'ident2') in resources:
+                if ('state', 'phrase2', 'ident2') in resources:
                     ident2_fail = False
             if ident1_fail or ident2_fail:
                 assert False
@@ -370,21 +348,19 @@ async def test_suspend_resume_workflow():
     w_task = historian.run()
 
     with historian.get_resource_stream(None) as resource_stream:
-        phrase2 = wrap_as_state('phrase2', None, historian)
-
         updates = aiter(resource_stream)
         await anext(updates)  # Get initial snapshot of resources
         resources = await anext(updates)
-        assert ('phrase2', None) in resources
-        assert await phrase2.value() == 'Goodbye'
+        assert ('state', 'phrase2', None) in resources
+        assert resources['state', 'phrase2', None] == 'Goodbye'
 
         resources = await anext(updates)
-        assert ('phrase2', None) in resources
-        assert await phrase2.value() == 'Everyone!'
+        assert ('state', 'phrase2', None) in resources
+        assert resources['state', 'phrase2', None] == 'Everyone!'
 
         resources = await anext(updates)
-        assert ('phrase1', None) in resources
-        assert ('phrase2', None) not in resources
+        assert ('state', 'phrase1', None) in resources
+        assert ('state', 'phrase2', None) not in resources
 
         resources = await anext(updates)
         assert not resources

@@ -5,12 +5,12 @@ from asyncio import Task
 from contextvars import ContextVar
 from datetime import datetime
 from functools import wraps
-from typing import Callable, TypeVar
+from typing import Callable, Any
 
 from .history import History
 from .quest_types import ConfigurationRecord, VersionRecord, StepStartRecord, StepEndRecord, \
     ResourceAccessEvent, ResourceEntry, ResourceLifecycleEvent, TaskEvent
-from .resources import ResourceStreamManager
+from .resources_manager import ResourceStreamManager
 from .serializer import StepSerializer
 from .utils import quest_logger, task_name_getter
 from .utils import (
@@ -103,36 +103,8 @@ def suspendable(func):
     return new_func
 
 
-T = TypeVar('T')
-
-
-class _Wrapper:
-    pass
-
-
-def wrap_methods_as_historian_events(resource: T, name: str, identity: str | None, historian: 'Historian',
-                                     internal=True) -> T:
-    wrapper = _Wrapper()
-
-    historian_action = historian.handle_internal_event if internal else historian.record_external_event
-
-    for field in dir(resource):
-        if field.startswith('_'):
-            continue
-
-        if callable(method := getattr(resource, field)):
-            # Use default-value kwargs to force value binding instead of late binding
-            @wraps(method)
-            async def record(*args, _name=name, _identity=identity, _field=field, **kwargs):
-                return await historian_action(_name, _identity, _field, *args, **kwargs)
-
-            setattr(wrapper, field, record)
-
-    return wrapper
-
-
 def _get_type_name(obj):
-    return obj.__class__.__module__ + '.' + obj.__class__.__name__
+    return type(obj).__name__.split('.')[-1].lower()
 
 
 def _get_id(item):
@@ -200,8 +172,8 @@ def _get_qualified_version(module_name, function_name, version_name: str) -> str
 
 
 # Resource names should be unique to the workflow and identity
-def _create_resource_id(name: str, identity: str | None) -> str:
-    return f'{name}|{identity}' if identity is not None else name
+def _create_resource_id(rtype: str, name: str, identity: str | None) -> str:
+    return f'{rtype}|{name}|{identity}' if identity is not None else name
 
 
 historian_context = ContextVar('historian')
@@ -219,6 +191,10 @@ def _get_exception_class(exception_type: str):
     module = __import__(module_name, fromlist=[class_name])
     exception_class = getattr(module, class_name)
     return exception_class
+
+
+def _should_notify_resource_stream(rtype, action):
+    return rtype == 'state' and action == 'set'
 
 
 class Historian:
@@ -262,7 +238,7 @@ class Historian:
         # These are the resources available to the outside world.
         #  This could include values that can be accessed,
         #  queues to push to, etc.
-        # See also external.py
+        # See also resources.py
         self._resources: dict[str, ResourceEntry] = {}
 
         # This is the resource stream manager that handles calls to stream the historian's resources
@@ -640,14 +616,17 @@ class Historian:
                 _prune(step_id, self._history)
             self._prefix[self._get_task_name()].pop(-1)
 
-    async def record_external_event(self, name, identity, action, *args, **kwargs):
+    async def record_external_event(self, rtype, name, identity, action, *args, **kwargs):
         """
         When an external event occurs, this method is called.
         """
-        resource_id = _create_resource_id(name, identity)
+        resource_id = _create_resource_id(rtype, name, identity)
         step_id = self._get_unique_id(resource_id + '.' + action)
 
         quest_logger.debug(f'External event {step_id} with {args} and {kwargs}')
+
+        if resource_id not in self._resources:
+            raise ValueError(f'{rtype} named {name} for {identity} not found.')
 
         resource = self._resources[resource_id]['resource']
 
@@ -687,13 +666,13 @@ class Historian:
 
         assert result == record['result']
 
-    async def handle_internal_event(self, name, identity, action, *args, **kwargs):
+    async def handle_internal_event(self, rtype, name, identity, action, *args, **kwargs):
         """
         Internal events are always played
         If the event is replayed, the details are asserted
         If the event is new, it is recorded
         """
-        resource_id = _create_resource_id(name, identity)
+        resource_id = _create_resource_id(rtype, name, identity)
         step_id = self._get_unique_id(resource_id + '.' + action)
 
         resource = self._resources[resource_id]['resource']
@@ -737,7 +716,8 @@ class Historian:
                 kwargs=kwargs,
                 result=result
             ))
-            await self._update_resource_stream(identity)
+            if _should_notify_resource_stream(rtype, action):
+                await self._update_resource_stream(identity)
 
         else:
             with next_record as record:
@@ -751,11 +731,12 @@ class Historian:
         return result
 
     async def register_resource(self, name, identity, resource):
-        resource_id = _create_resource_id(name, identity)
+        rtype = _get_type_name(resource)
+        resource_id = _create_resource_id(rtype, name, identity)
         # TODO - support the ability to limit the exposed API on the resource
 
         if resource_id in self._resources:
-            raise Exception(f'A resource for {identity} named {name} already exists in this workflow')
+            raise Exception(f'A {rtype} resource for {identity} named {name} already exists in this workflow')
             # TODO - custom exception
 
         step_id = self._get_unique_id(resource_id + '.' + '__init__')
@@ -764,7 +745,7 @@ class Historian:
         self._resources[resource_id] = ResourceEntry(
             name=name,
             identity=identity,
-            type=_get_type_name(resource),
+            type=rtype,
             resource=resource
         )
 
@@ -775,7 +756,7 @@ class Historian:
                 step_id=step_id,
                 task_id=self._get_task_name(),
                 resource_id=resource_id,
-                resource_type=_get_type_name(resource)
+                resource_type=rtype
             ))
             await self._update_resource_stream(identity)
 
@@ -786,10 +767,10 @@ class Historian:
 
         return resource_id
 
-    async def delete_resource(self, name, identity, suspending=False):
-        resource_id = _create_resource_id(name, identity)
+    async def delete_resource(self, rtype, name, identity, suspending=False):
+        resource_id = _create_resource_id(rtype, name, identity)
         if resource_id not in self._resources:
-            raise Exception(f'No resource for {identity} named {name} found')
+            raise Exception(f'No {rtype} resource for {identity} named {name} found')
             # TODO - custom exception
 
         step_id = self._get_unique_id(resource_id + '.' + '__del__')
@@ -1001,11 +982,14 @@ class Historian:
         if self._fatal_exception.done():
             await self._fatal_exception
 
-        resources: dict[(str, str), str] = {}  # dict[(name, identity), type]
+        resources: dict[(str, str, str), Any] = {}  # dict[(type, name, identity), value]
         for entry in self._resources.values():
             # Always return public resources and private resources for the specified identity
             if entry['identity'] is None or entry['identity'] == identity:
-                resources[(entry['name'], entry['identity'])] = entry['type']
+                resource = entry['resource']
+                # noinspection PyProtectedMember
+                value = resource._get_value()  # see resources.py
+                resources[(entry['type'], entry['name'], entry['identity'])] = value
 
         return resources
 

@@ -1,121 +1,241 @@
 import asyncio
-from typing import Callable, Coroutine
-from .utils import quest_logger
+import uuid
+from functools import wraps
+from typing import TypeVar, Generic
+
+from .historian import Historian, find_historian, SUSPENDED, _get_type_name
+
+"""
+Methods on these resource classes are always async
+
+This is because they are all wrapped by the historian
+so that all interactions with them are recorded and can be replayed.
+"""
 
 
-# noinspection PyProtectedMember
-class ResourceStreamManager:
+def external(func):
+    func._external = True
+    return func
+
+
+class Queue:
     def __init__(self):
-        self._resource_streams: dict[str | None, set[ResourceStreamManager.ResourceStream]] = {}
+        self._queue = asyncio.Queue()
 
-    class ResourceStream:
-        def __init__(self,
-                     get_resources: Callable[[], Coroutine],
-                     on_open: Callable[['ResourceStreamManager.ResourceStream'], None],
-                     on_close: Callable[['ResourceStreamManager.ResourceStream'], None]
-                     ):
-            self._stream_gate = asyncio.Event()
-            self._update_event = asyncio.Event()
-            self._is_entered = False
-            self._workflow_stopped = False
+    @external
+    async def put(self, item):
+        # This is often an external event that needs to be recorded
+        return await self._queue.put(item)
 
-            self._get_resources = get_resources
-            self._on_open = on_open
-            self._on_close = on_close
+    async def get(self):
+        # This is always an internal event
+        return await self._queue.get()
 
-        def __enter__(self):
-            self._is_entered = True
-            self._on_open(self)
-            quest_logger.debug(f'Resource stream opened for {id(self)}')
-            return self
+    async def empty(self):
+        return self._queue.empty()
 
-        def __exit__(self, exc_type, exc_value, traceback):
-            self._is_entered = False
-            self._on_close(self)
-            quest_logger.debug(f'Resource stream closed for {id(self)}')
+    def _get_value(self):
+        return None
 
-        async def __aiter__(self):
-            """
-            Provide a stream of resource snapshots for this workflow.
-            Everytime the workflow resource state changes, an update will be published.
 
-            NOTE: Once you start the resource stream,
-            the workflow will not progress unless you iterate this stream or exit the `with` context.
-            """
+class State:
+    def __init__(self, value):
+        self._value = value
 
-            if not self._is_entered:
-                raise ResourceStreamNotEnteredError('ResourceStream must be used in a `with` context')
+    @external
+    async def get(self):
+        return self._value
 
-            if self._workflow_stopped:
-                raise ResourceStreamExpiredException('ResourceStream is expired because workflow was stopped')
+    async def set(self, value):
+        self._value = value
 
-            yield await self._get_resources()  # Yield the current resources immediately
+    def _get_value(self):
+        return self._value
 
-            # Yield new resources updates as they become available
-            while True:
-                await self._update_event.wait()
-                if self._workflow_stopped:
-                    return
-                self._update_event.clear()
-                yield await self._get_resources()
-                self._stream_gate.set()
 
-    def _on_open(self, identity, res_stream: ResourceStream):
-        if identity not in self._resource_streams:
-            self._resource_streams[identity] = set()
+class IdentityQueue:
+    """Put and Get return and identity + the value"""
 
-        self._resource_streams[identity].add(res_stream)
+    def __init__(self, *args, **kwargs):
+        self._queue = asyncio.Queue(*args, **kwargs)
 
-    def _on_close(self, identity, res_stream: ResourceStream):
-        res_stream._stream_gate.set()
-        self._resource_streams[identity].remove(res_stream)
+    @external
+    async def put(self, value):
+        identity = str(uuid.uuid4())
+        return identity, await self._queue.put((identity, value))
 
-        if not self._resource_streams[identity]:  # Clean up dictionary values if needed
-            self._resource_streams.pop(identity)
+    async def get(self):
+        return await self._queue.get()
 
-    def get_resource_stream(self,
-                            identity,
-                            get_resources: Callable[[], Coroutine],
-                            ):
-        rs = ResourceStreamManager.ResourceStream(
-            get_resources,
-            lambda res_stream: self._on_open(identity, res_stream),
-            lambda res_stream: self._on_close(identity, res_stream)
+    def _get_value(self):
+        return None
+
+
+T = TypeVar('T')
+
+
+class _Wrapper:
+    pass
+
+
+def _wrap_methods_as_historian_events(resource: T, rtype: str, name: str, identity: str | None, historian: 'Historian',
+                                      internal=True) -> T:
+    wrapper = _Wrapper()
+
+    historian_action = historian.handle_internal_event if internal else historian.record_external_event
+
+    for field in dir(resource):
+        if field.startswith('_'):
+            continue
+
+        if callable(method := getattr(resource, field)):
+            # Use default-value kwargs to force value binding instead of late binding
+            @wraps(method)
+            async def record(*args, _rtype=rtype, _name=name, _identity=identity, _field=field, **kwargs):
+                return await historian_action(_rtype, _name, _identity, _field, *args, **kwargs)
+
+            setattr(wrapper, field, record)
+
+    return wrapper
+
+
+class InternalResource(Generic[T]):
+    """Internal resources are used inside the workflow context"""
+
+    def __init__(self, name, identity, resource: T):
+        self._name = name
+        self._identity = identity
+        self._rtype = _get_type_name(resource)
+        self._resource: T = resource
+        self._historian = find_historian()
+
+    async def __aenter__(self) -> T:
+        await self._historian.register_resource(self._name, self._identity, self._resource)
+        return _wrap_methods_as_historian_events(
+            self._resource, self._rtype, self._name, self._identity, self._historian)
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        suspending = (exc_type == asyncio.CancelledError and exc_val.args and exc_val.args[0] == SUSPENDED)
+        await self._historian.delete_resource(self._rtype, self._name, self._identity, suspending=suspending)
+
+
+def queue(name, identity):
+    return InternalResource(name, identity, Queue())
+
+
+def state(name, identity, value):
+    return InternalResource(name, identity, State(value))
+
+
+def identity_queue(name):
+    return InternalResource(name, None, IdentityQueue())
+
+
+class MultiQueue:
+    def __init__(self, name: str, players: dict[str, str], single_response: bool = False):
+        self.queues: dict[str, InternalResource[Queue]] = {ident: queue(name, ident) for ident in players}
+        self.single_response = single_response
+        self.task_to_ident: dict[asyncio.Task, str] = {}
+        self.ident_to_task: dict[str, asyncio.Task] = {}
+
+        # Hold unwrapped Queue objects after __aenter__
+        self.active_queues: dict[str, Queue] = {}
+
+    def _add_task(self, ident: str, q: Queue):
+        historian = find_historian()
+        task = historian.start_task(
+            q.get,
+            name=f"mq-get-{ident}"
         )
-        return rs
 
-    async def update(self, identity):
-        # If the updates is public, we notify everyone.
-        # If there is no resource stream associated with `identity`, no update needed.
-        if identity is not None and identity not in self._resource_streams:
-            return
+        self.task_to_ident[task] = ident
+        self.ident_to_task[ident] = task
 
-        # As we iterate through the streams, some of them may close and be removed.
-        # To avoid set size changed exception, we use a copy of the streams.
-        if identity is None:
-            streams = {key: value.copy() for key, value in self._resource_streams.items()}
-        else:
-            streams = {identity: self._resource_streams[identity].copy()}
+    async def __aenter__(self):
+        # Listen on all queues -> create a task for each queue.get()
+        for ident, wrapper in self.queues.items():
+            # Unwrap queue object
+            queue_obj = await wrapper.__aenter__()
+            self.active_queues[ident] = queue_obj
+            self._add_task(ident, queue_obj)
+        return self
 
-        for stream_identity, stream_set in streams.items():
-            for stream in stream_set:
-                if stream not in self._resource_streams[stream_identity]:  # Continue if the stream has closed
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        # Cancel all pending tasks - context exits
+        for task in self.task_to_ident:
+            task.cancel()
+        # Exit all queues properly
+        for ident, wrapper in self.queues.items():
+            await wrapper.__aexit__(exc_type, exc_val, exc_tb)
+
+    async def remove(self, ident: str):
+        # Stop listening to this identity queue
+        task = self.ident_to_task.pop(ident, None)
+
+        if task is not None:
+            self.task_to_ident.pop(task)
+            task.cancel()
+
+        # Call __aexit__ on the corresponding queue wrapper
+        wrapper = self.queues.pop(ident, None)
+        if wrapper:
+            await wrapper.__aexit__(None, None, None)
+
+        self.active_queues.pop(ident, None)
+
+    async def __aiter__(self):
+        while self.task_to_ident:
+            # Wait until any of the current task is done
+            done, _ = await asyncio.wait(self.task_to_ident.keys(), return_when=asyncio.FIRST_COMPLETED)
+
+            for task in done:
+                ident = self.task_to_ident.pop(task)
+                # Stop listening to this identity
+                del self.ident_to_task[ident]
+
+                try:
+                    result = await task
+                    yield ident, result
+
+                    # Start listening again
+                    if not self.single_response:
+                        q = self.active_queues.get(ident)
+                        if q:
+                            self._add_task(ident, q)
+
+                except asyncio.CancelledError:
                     continue
-                stream._update_event.set()
-                await stream._stream_gate.wait()
-                stream._stream_gate.clear()
 
-    # This function is called by historian to notify when the workflow is suspended or completed
-    def notify_of_workflow_stop(self):
-        for stream_identity, stream_set in self._resource_streams.items():
-            for stream in stream_set:
-                stream._workflow_stopped = True
-                stream._update_event.set()
-
-class ResourceStreamNotEnteredError(Exception):
-    """Exception raised when ResourceStream is not used in a `with` context."""
-    pass
-
-class ResourceStreamExpiredException(Exception):
-    """Exception raised when ResourceStream is expired because workflow was stopped."""
-    pass
+# class _ResourceWrapper:
+#     def __init__(self, name: str, identity: str | None, historian: 'Historian', resource_class):
+#         self._name = name
+#         self._identity = identity
+#         self._historian = historian
+#         self._resource_class = resource_class
+#
+#     # TODO: Is it fine that we essentially don't do anything if `field` is an attribute or private?
+#     def __getattr__(self, field):
+#         if field.startswith('_'):
+#             return
+#         if not callable(getattr(self._resource_class, field)):
+#             return
+#
+#         async def wrapper(*args, _name=self._name, _identity=self._identity, **kwargs):
+#             return await self._historian.record_external_event(_name, _identity, field, *args, **kwargs)
+#
+#         return wrapper
+#
+#
+# # noinspection PyTypeChecker
+# def wrap_as_queue(name: str, identity: str | None, historian: Historian) -> Queue:
+#     return _ResourceWrapper(name, identity, historian, Queue)
+#
+#
+# # noinspection PyTypeChecker
+# def wrap_as_state(name: str, identity: str | None, historian: Historian) -> State:
+#     return _ResourceWrapper(name, identity, historian, State)
+#
+#
+# # noinspection PyTypeChecker
+# def wrap_as_identity_queue(name: str, identity: str | None, historian: Historian) -> IdentityQueue:
+#     return _ResourceWrapper(name, identity, historian, IdentityQueue)

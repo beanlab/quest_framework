@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from quest import PersistentHistory, queue, state, event
+from quest import PersistentHistory, queue, state
 from quest.manager import WorkflowManager
 from quest.persistence import InMemoryBlobStorage
 from quest.serializer import NoopSerializer
@@ -92,7 +92,7 @@ async def test_manager_events():
                                serializer=NoopSerializer()) as manager:
         manager.start_workflow('workflow', 'wid1', 1, delete_on_finish=False)
         await asyncio.sleep(0.1)
-        await manager.send_event('wid1', 'messages', None, 'put', 2)
+        await manager.send_event('wid1', 'queue', 'messages', None, 'put', 2)
         await asyncio.sleep(0.1)
         # Now pause the manager and all workflows
 
@@ -104,8 +104,8 @@ async def test_manager_events():
                                serializer=NoopSerializer()) as manager:
         # At this point, all workflows should be resumed
         await asyncio.sleep(0.1)
-        await manager.send_event('wid1', 'messages', None, 'put', 3)
-        await manager.send_event('wid1', 'messages', None, 'put', 0)  # i.e. end the workflow
+        await manager.send_event('wid1', 'queue', 'messages', None, 'put', 3)
+        await manager.send_event('wid1', 'queue', 'messages', None, 'put', 0)  # i.e. end the workflow
         result = await manager.get_workflow_result('wid1')
         assert result == 6
 
@@ -149,7 +149,7 @@ async def test_manager_background():
                                serializer=NoopSerializer()) as manager:
         manager.start_workflow('workflow', 'wid1', 1)
         await asyncio.sleep(0.1)
-        await manager.send_event('wid1', 'messages', None, 'put', 2)
+        await manager.send_event('wid1', 'queue', 'messages', None, 'put', 2)
         await asyncio.sleep(0.1)
         # Now pause the manager and all workflows
 
@@ -161,8 +161,8 @@ async def test_manager_background():
                                serializer=NoopSerializer()) as manager:
         # At this point, all workflows should be resumed
         await asyncio.sleep(0.1)
-        await manager.send_event('wid1', 'messages', None, 'put', 3)
-        await manager.send_event('wid1', 'messages', None, 'put', 0)  # i.e. end the workflow
+        await manager.send_event('wid1', 'queue', 'messages', None, 'put', 3)
+        await manager.send_event('wid1', 'queue', 'messages', None, 'put', 0)  # i.e. end the workflow
         await asyncio.sleep(0.1)  # workflow now finishes and removes itself
         assert not manager.has_workflow('wid1')
         assert total == 6
@@ -176,7 +176,7 @@ async def test_get_queue():
     async def workflow():
         async with queue('messages', None) as q, \
                 state('result', None, None) as result, \
-                event('finish', None) as finish:
+                queue('finish', None) as finish:
             a = await q.get()
             b = await q.get()
             await result.set(a + b)
@@ -193,13 +193,11 @@ async def test_get_queue():
         await asyncio.sleep(0.1)
         q = await wm.get_queue('wid', 'messages', None)
         result = await wm.get_state('wid', 'result', None)
-        finish = await wm.get_event('wid', 'finish', None)
+        finish = await wm.get_queue('wid', 'finish', None)
 
         assert await result.get() is None
         await q.put(3)
         await q.put(4)
         await asyncio.sleep(0.1)
         assert await result.get() == 7
-        await finish.set()
-
-
+        await finish.put(None)

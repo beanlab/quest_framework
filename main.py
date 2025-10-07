@@ -6,7 +6,7 @@ import uuid
 from pathlib import Path
 
 from src.quest import step, create_filesystem_historian
-from src.quest.external import state, queue
+from src.quest.resources import state, queue
 
 logging.basicConfig(level=logging.DEBUG)
 INPUT_EVENT_NAME = 'input'

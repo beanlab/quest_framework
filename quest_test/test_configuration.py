@@ -1,5 +1,4 @@
 import asyncio
-import functools
 
 import pytest
 
@@ -56,9 +55,9 @@ async def test_configuration():
     historian.run()
     await asyncio.sleep(0.1)
 
-    await historian.record_external_event('foobar', None, 'put', 'a')
-    await historian.record_external_event('foobar', None, 'put', 'b')
-    await historian.record_external_event('foobar', None, 'put', 'c')
+    await historian.record_external_event('queue', 'foobar', None, 'put', 'a')
+    await historian.record_external_event('queue', 'foobar', None, 'put', 'b')
+    await historian.record_external_event('queue', 'foobar', None, 'put', 'c')
 
     await asyncio.sleep(0.1)
 
@@ -76,9 +75,9 @@ async def test_configuration():
     historian.run()
     await asyncio.sleep(0.1)
 
-    await historian.record_external_event('foobar', None, 'put', 'a')
-    await historian.record_external_event('foobar', None, 'put', 'b')
-    await historian.record_external_event('foobar', None, 'put', 'c')
+    await historian.record_external_event('queue', 'foobar', None, 'put', 'a')
+    await historian.record_external_event('queue', 'foobar', None, 'put', 'b')
+    await historian.record_external_event('queue', 'foobar', None, 'put', 'c')
 
     await asyncio.sleep(0.1)
 
