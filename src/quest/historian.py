@@ -610,7 +610,7 @@ class Historian:
                 prune_on_exit = False
                 raise asyncio.CancelledError(SUSPENDED) from cancel
             else:
-                quest_logger.exception(f'{step_id} canceled')
+                quest_logger.debug(f'{step_id} canceled')
                 serialized_exception = serialize_exception(cancel)
                 self._history.append(StepEndRecord(
                     type='end',
@@ -622,9 +622,10 @@ class Historian:
                 ))
                 raise
 
-        except Exception as ex:
-            quest_logger.exception(f'Error in {step_id}')
+        except BaseException as ex:
             serialized_exception = serialize_exception(ex)
+            quest_logger.debug(f'Exception in {step_id}: {serialized_exception}')
+
             self._history.append(StepEndRecord(
                 type='end',
                 timestamp=_get_current_timestamp(),
@@ -635,6 +636,9 @@ class Historian:
             ))
             raise
 
+        except:
+            quest_logger.exception('Unhandled error passing through handle_step!')
+            
         finally:
             if prune_on_exit:
                 _prune(step_id, self._history)
