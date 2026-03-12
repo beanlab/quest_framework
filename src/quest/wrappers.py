@@ -3,7 +3,7 @@ from asyncio import Task
 from functools import wraps
 from typing import Callable, Coroutine, TypeVar
 
-from .historian import find_historian
+from .historian_context import find_historian
 
 
 def _get_func_name(func) -> str:

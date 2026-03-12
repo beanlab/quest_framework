@@ -1,7 +1,8 @@
 import inspect
 from functools import wraps
 
-from .historian import GLOBAL_VERSION, QUEST_VERSIONS, find_historian
+from .historian import GLOBAL_VERSION, QUEST_VERSIONS
+from .historian_context import find_historian
 
 DEFAULT_VERSION = ''
 
