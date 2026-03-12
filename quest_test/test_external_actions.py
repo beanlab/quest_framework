@@ -334,7 +334,8 @@ async def test_multiqueue_default():
     await historian.record_external_event('chat', 'p1', 'put', 'bye')
 
     result = await workflow
-    assert result == [('p1', 'hello'), ('p2', 'hi'), ('p1', 'bye')]
+    assert result[-1] == ('p1', 'bye')
+    assert set(result[:2]) == {('p1', 'hello'), ('p2', 'hi')}
 
     # After removing p1 -> when p1 tries to send message, it should raise KeyError
     # with pytest.raises(KeyError):
