@@ -9,15 +9,13 @@ from .history import History
 from .historian_context import SUSPENDED, historian_context
 from .historian_helpers import (
     get_function_name,
-    _create_resource_id,
     _get_current_timestamp,
     _get_id,
     _get_qualified_version,
-    _get_type_name,
 )
+from .historian_resources import ResourceRuntime, ResourceRuntimeContext
 from .quest_types import ConfigurationRecord, VersionRecord, StepStartRecord, StepEndRecord, \
-    ResourceAccessEvent, ResourceEntry, ResourceLifecycleEvent, TaskEvent
-from .resources import ResourceStreamManager
+    ResourceAccessEvent, TaskEvent
 from .serializer import StepSerializer
 from .utils import quest_logger, task_name_getter
 from .utils import (
@@ -91,25 +89,6 @@ class _Wrapper:
     pass
 
 
-def wrap_methods_as_historian_events(resource: T, name: str, identity: str | None, historian: 'Historian',
-                                     internal=True) -> T:
-    wrapper = _Wrapper()
-
-    historian_action = historian.handle_internal_event if internal else historian.record_external_event
-
-    for field in dir(resource):
-        if field.startswith('_'):
-            continue
-
-        if callable(method := getattr(resource, field)):
-            # Use default-value kwargs to force value binding instead of late binding
-            @wraps(method)
-            async def record(*args, _name=name, _identity=identity, _field=field, **kwargs):
-                return await historian_action(_name, _identity, _field, *args, **kwargs)
-
-            setattr(wrapper, field, record)
-
-    return wrapper
 def _prune(step_id: str, history: "History"):
     """
     Remove substep work
@@ -191,15 +170,6 @@ class Historian:
         # As the workflow proceeds, it will now use the latest versions observed.
         self._discovered_versions = {}
 
-        # These are the resources available to the outside world.
-        #  This could include values that can be accessed,
-        #  queues to push to, etc.
-        # See also external.py
-        self._resources: dict[str, ResourceEntry] = {}
-
-        # This is the resource stream manager that handles calls to stream the historian's resources
-        self._resource_stream_manager = ResourceStreamManager()
-
         # We keep track of all open tasks so we can properly suspend them
         self._open_tasks: list[Task] = []
 
@@ -242,6 +212,16 @@ class Historian:
         # noinspection PyTypeChecker
         self._last_record_gate: asyncio.Future = None
 
+        self._resource_runtime = ResourceRuntime(ResourceRuntimeContext(
+            history=self._history,
+            replay_started=self._replay_started,
+            fatal_exception=self._fatal_exception,
+            get_next_record=self._next_record,
+            replay_complete=self._replay_complete,
+            get_task_name=self._get_task_name,
+            make_unique_id=self._get_unique_id,
+        ))
+
     def _reset_replay(self):
         quest_logger.debug('Resetting replay')
 
@@ -250,7 +230,7 @@ class Historian:
         self._versions = {}
 
         self._existing_history = list(self._history)
-        self._resources = {}
+        self._resource_runtime.reset()
 
         # The workflow ID is used as the task name for the root task
         self._prefix = {
@@ -378,7 +358,7 @@ class Historian:
             async for next_record in self._task_replay_records(self._get_external_task_name()):
                 with next_record as record:
                     if record['type'] == 'external':
-                        await self._replay_external_event(record)
+                        await self._resource_runtime.replay_external_event(record)
 
                     elif record['type'] == 'set_version':
                         self._replay_version(record)
@@ -577,177 +557,19 @@ class Historian:
             self._prefix[self._get_task_name()].pop(-1)
 
     async def record_external_event(self, name, identity, action, *args, **kwargs):
-        """
-        When an external event occurs, this method is called.
-        """
-        resource_id = _create_resource_id(name, identity)
-        step_id = self._get_unique_id(resource_id + '.' + action)
-
-        quest_logger.debug(f'External event {step_id} with {args} and {kwargs}')
-
-        resource = self._resources[resource_id]['resource']
-
-        function = getattr(resource, action)
-        if inspect.iscoroutinefunction(function):
-            result = await function(*args, **kwargs)
-        else:
-            result = function(*args, **kwargs)
-
-        self._history.append(ResourceAccessEvent(
-            type='external',
-            timestamp=_get_current_timestamp(),
-            step_id=step_id,
-            task_id=self._get_task_name(),
-            resource_id=resource_id,
-            action=action,
-            args=list(args),
-            kwargs=kwargs,
-            result=result
-        ))
-
-        return result
+        return await self._resource_runtime.record_external_event(name, identity, action, *args, **kwargs)
 
     async def _replay_external_event(self, record: ResourceAccessEvent):
-        """
-        When an external event is replayed, this method is called
-        """
-        assert record['type'] == 'external', str(record)
-
-        result = getattr(
-            self._resources[record['resource_id']]['resource'],
-            record['action']
-        )(*record['args'], **record['kwargs'])
-
-        if inspect.iscoroutine(result):
-            result = await result
-
-        assert result == record['result']
+        await self._resource_runtime.replay_external_event(record)
 
     async def handle_internal_event(self, name, identity, action, *args, **kwargs):
-        """
-        Internal events are always played
-        If the event is replayed, the details are asserted
-        If the event is new, it is recorded
-        """
-        resource_id = _create_resource_id(name, identity)
-        step_id = self._get_unique_id(resource_id + '.' + action)
-
-        resource = self._resources[resource_id]['resource']
-        function = getattr(resource, action)
-
-        if (next_record := await self._next_record()) is None:
-            self._history.append(ResourceAccessEvent(
-                type='internal_start',
-                timestamp=_get_current_timestamp(),
-                step_id=step_id,
-                task_id=self._get_task_name(),
-                resource_id=resource_id,
-                action=action,
-                args=list(args),
-                kwargs=kwargs,
-                result=None
-            ))
-        else:
-            with next_record as record:
-                assert 'internal_start' == record['type'], str(record)
-                assert resource_id == record['resource_id'], str(record)
-                assert action == record['action'], str(record)
-                assert list(args) == list(record['args']), str(record)
-                assert kwargs == record['kwargs'], str(record)
-
-        quest_logger.debug(f'Calling {step_id} with {args} and {kwargs}')
-        if inspect.iscoroutinefunction(function):
-            result = await function(*args, **kwargs)
-        else:
-            result = function(*args, **kwargs)
-
-        if (next_record := await self._next_record()) is None:
-            self._history.append(ResourceAccessEvent(
-                type='internal_end',
-                timestamp=_get_current_timestamp(),
-                step_id=step_id,
-                task_id=self._get_task_name(),
-                resource_id=resource_id,
-                action=action,
-                args=list(args),
-                kwargs=kwargs,
-                result=result
-            ))
-            await self._update_resource_stream(identity)
-
-        else:
-            with next_record as record:
-                assert 'internal_end' == record['type'], f'internal != {record["type"]}'
-                assert resource_id == record['resource_id']
-                assert action == record['action']
-                assert list(args) == list(record['args'])
-                assert kwargs == record['kwargs']
-                assert result == record['result']
-
-        return result
+        return await self._resource_runtime.handle_internal_event(name, identity, action, *args, **kwargs)
 
     async def register_resource(self, name, identity, resource):
-        resource_id = _create_resource_id(name, identity)
-        # TODO - support the ability to limit the exposed API on the resource
-
-        if resource_id in self._resources:
-            raise Exception(f'A resource for {identity} named {name} already exists in this workflow')
-            # TODO - custom exception
-
-        step_id = self._get_unique_id(resource_id + '.' + '__init__')
-        quest_logger.debug(f'Creating {resource_id}')
-
-        self._resources[resource_id] = ResourceEntry(
-            name=name,
-            identity=identity,
-            type=_get_type_name(resource),
-            resource=resource
-        )
-
-        if (next_record := await self._next_record()) is None:
-            self._history.append(ResourceLifecycleEvent(
-                type='create_resource',
-                timestamp=_get_current_timestamp(),
-                step_id=step_id,
-                task_id=self._get_task_name(),
-                resource_id=resource_id,
-                resource_type=_get_type_name(resource)
-            ))
-            await self._update_resource_stream(identity)
-
-        else:
-            with next_record as record:
-                assert record['type'] == 'create_resource'
-                assert record['resource_id'] == resource_id
-
-        return resource_id
+        return await self._resource_runtime.register_resource(name, identity, resource)
 
     async def delete_resource(self, name, identity, suspending=False):
-        resource_id = _create_resource_id(name, identity)
-        if resource_id not in self._resources:
-            raise Exception(f'No resource for {identity} named {name} found')
-            # TODO - custom exception
-
-        step_id = self._get_unique_id(resource_id + '.' + '__del__')
-        quest_logger.debug(f'Removing {resource_id}')
-        resource_entry = self._resources.pop(resource_id)
-
-        if not suspending:
-            if (next_record := await self._next_record()) is None:
-                self._history.append(ResourceLifecycleEvent(
-                    type='delete_resource',
-                    timestamp=_get_current_timestamp(),
-                    step_id=step_id,
-                    task_id=self._get_task_name(),
-                    resource_id=resource_id,
-                    resource_type=resource_entry['type']
-                ))
-                await self._update_resource_stream(identity)
-
-            else:
-                with next_record as record:
-                    assert record['type'] == 'delete_resource'
-                    assert record['resource_id'] == resource_id
+        await self._resource_runtime.delete_resource(name, identity, suspending=suspending)
 
     def start_task(self, func, *args, name=None, task_factory=asyncio.create_task, **kwargs):
         historian_context.set(self)
@@ -806,7 +628,7 @@ class Historian:
         kwargs = await self.handle_step('kwargs', lambda: kwargs)
         result = await self.handle_step(get_function_name(self.workflow), self.workflow, *args, **kwargs)
         self._workflow_completed = True
-        self._resource_stream_manager.notify_of_workflow_stop()
+        self._resource_runtime.notify_of_workflow_stop()
         return result
 
     async def _run_with_exception_handling(self, *args, **kwargs):
@@ -903,7 +725,7 @@ class Historian:
     def signal_suspend(self):
         quest_logger.debug(f'-- Suspending {self.workflow_id} --')
 
-        self._resource_stream_manager.notify_of_workflow_stop()
+        self._resource_runtime.notify_of_workflow_stop()
 
         # Cancelling these in reverse order is important
         # If a parent thread cancels, it will cancel a child.
@@ -928,28 +750,18 @@ class Historian:
                 pass
 
     async def get_resources(self, identity):
-        # Wait until the replay is done.
-        # This ensures that all pre-existing resources have been rebuilt.
-        await self._replay_started.wait()
-        await self._replay_complete()
-
-        # If the application has failed, let the caller know
-        if self._fatal_exception.done():
-            await self._fatal_exception
-
-        resources: dict[(str, str), str] = {}  # dict[(name, identity), type]
-        for entry in self._resources.values():
-            # Always return public resources and private resources for the specified identity
-            if entry['identity'] is None or entry['identity'] == identity:
-                resources[(entry['name'], entry['identity'])] = entry['type']
-
-        return resources
+        return await self._resource_runtime.get_resources(identity)
 
     def get_resource_stream(self, identity):
-        return self._resource_stream_manager.get_resource_stream(
-            identity,
-            lambda: self.get_resources(identity),
-        )
+        return self._resource_runtime.get_resource_stream(identity)
 
     async def _update_resource_stream(self, identity):
-        await self._resource_stream_manager.update(identity)
+        await self._resource_runtime.update_resource_stream(identity)
+
+    @property
+    def _resources(self):
+        return self._resource_runtime._resources
+
+    @property
+    def _resource_stream_manager(self):
+        return self._resource_runtime._resource_stream_manager
