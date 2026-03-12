@@ -134,9 +134,13 @@ class WorkflowManager:
         self._workflows[workflow_id] = historian
 
         self._workflow_tasks[workflow_id] = (task := historian.run(*workflow_args, **workflow_kwargs))
+        task.add_done_callback(lambda t: self._schedule_store_result(workflow_id, t, delete_on_finish))
 
-        # run _store_result asynchronously in the background
-        task.add_done_callback(lambda t: asyncio.create_task(self._store_result(workflow_id, t, delete_on_finish)))
+    def _schedule_store_result(self, workflow_id: str, task: asyncio.Task, delete_on_finish: bool):
+        try:
+            asyncio.create_task(self._store_result(workflow_id, task, delete_on_finish))
+        except RuntimeError:
+            pass
 
     async def delete_workflow(self, workflow_id: str):
         """
@@ -156,23 +160,22 @@ class WorkflowManager:
 
     async def _store_result(self, workflow_id: str, task: asyncio.Task, delete_on_finish: bool):
         """Store the result or exception of a completed workflow"""
-        if (
-                (ex := task.exception()) is not None
-                and isinstance(ex, asyncio.CancelledError)
-                and ex.args and ex.args[0] == SUSPENDED
-        ):
-            return
+        cancelled_error = None
+        try:
+            task.exception()
+        except asyncio.CancelledError as ex:
+            cancelled_error = ex
 
-        if not delete_on_finish:
+        if cancelled_error is not None:
+            if cancelled_error.args and cancelled_error.args[0] == SUSPENDED:
+                return
+
+        elif not delete_on_finish:
             try:
-                # Retrieve the workflow result if it completed successfully
                 result = task.result()
-                serialized_result = await self._serializer.serialize(result)
-                result = serialized_result
-
+                result = await self._serializer.serialize(result)
             except BaseException as e:
-                serialized_exception = serialize_exception(e)
-                result = serialized_exception
+                result = serialize_exception(e)
 
             wdata = self._workflow_data[workflow_id]
             self._results[workflow_id] = WorkflowResult(
@@ -182,10 +185,9 @@ class WorkflowManager:
                 result=result
             )
 
-        # Completed workflow
-        del self._workflows[workflow_id]
-        del self._workflow_tasks[workflow_id]
-        del self._workflow_data[workflow_id]
+        self._workflows.pop(workflow_id, None)
+        self._workflow_tasks.pop(workflow_id, None)
+        self._workflow_data.pop(workflow_id, None)
 
     def start_workflow(self, workflow_type: str, workflow_id: str, *workflow_args, delete_on_finish: bool = True,
                        **workflow_kwargs):
