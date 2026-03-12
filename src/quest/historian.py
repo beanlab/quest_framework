@@ -1,9 +1,8 @@
 import asyncio
-import inspect
 import traceback
 from asyncio import Task
 from functools import wraps
-from typing import Callable, TypeVar
+from typing import Callable
 
 from .history import History
 from .historian_context import SUSPENDED, historian_context
@@ -12,7 +11,6 @@ from .historian_helpers import (
     get_function_name,
     _get_current_timestamp,
     _get_id,
-    _get_qualified_version,
 )
 from .historian_resources import ResourceRuntime, ResourceRuntimeContext
 from .quest_types import ConfigurationRecord, VersionRecord, StepStartRecord, StepEndRecord, \
@@ -82,9 +80,6 @@ GLOBAL_VERSION = "_global_version"
 # To prune correctly, I need to turn process the sequence like a tree
 # Each task and step is a separate branch
 # I need to look for resources that are open in each branch and match the relevant events
-
-T = TypeVar('T')
-
 
 class _Wrapper:
     pass
