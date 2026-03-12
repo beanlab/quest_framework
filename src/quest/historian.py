@@ -7,6 +7,7 @@ from typing import Callable, TypeVar
 
 from .history import History
 from .historian_context import SUSPENDED, historian_context
+from .historian_evolution import EvolutionRuntime, EvolutionRuntimeContext
 from .historian_helpers import (
     get_function_name,
     _get_current_timestamp,
@@ -137,8 +138,6 @@ class Historian:
         # TODO - change nomenclature (away from workflow)? Maybe just use workflow.__name__?
         self.workflow_id = workflow_id
         self.workflow = workflow
-        self._configurations: list[tuple[Callable, list, dict]] = []
-
         # This indicates whether the workflow function has completed
         # Suspending the workflow does not affect this value
         self._workflow_completed = False
@@ -155,20 +154,6 @@ class Historian:
         # If the application fails, this future will know.
         # See also get_resources() and _run_with_exception_handling()
         self._fatal_exception = asyncio.Future()
-
-        # Keep track of configuration position during the replay
-        self._configuration_pos = 0
-
-        # Keep track of the versions of the workflow function
-        self._versions = {}
-
-        # Keep track of the discovered, unprocessed versions
-        # While the code runs, it finds functions that are versioned
-        # However, we only process the versions during live play
-        #  (not replay), so we need to save these until the replay is complete
-        # Then we add events to the history to record the new versions.
-        # As the workflow proceeds, it will now use the latest versions observed.
-        self._discovered_versions = {}
 
         # We keep track of all open tasks so we can properly suspend them
         self._open_tasks: list[Task] = []
@@ -221,13 +206,20 @@ class Historian:
             get_task_name=self._get_task_name,
             make_unique_id=self._get_unique_id,
         ))
+        self._evolution_runtime = EvolutionRuntime(EvolutionRuntimeContext(
+            history=self._history,
+            get_external_task_name=self._get_external_task_name,
+            get_task_name=self._get_task_name,
+            get_next_record=self._next_record,
+            replay_has_completed=lambda: self._last_record_gate is not None and self._last_record_gate.done(),
+            existing_history=lambda: self._existing_history,
+            record_gates=lambda: self._record_gates,
+        ))
 
     def _reset_replay(self):
         quest_logger.debug('Resetting replay')
 
-        self._configuration_pos = 0
-
-        self._versions = {}
+        self._evolution_runtime.reset()
 
         self._existing_history = list(self._history)
         self._resource_runtime.reset()
@@ -270,7 +262,7 @@ class Historian:
         quest_logger.debug(f'{self.workflow_id} -- Replay Complete --')
         # TODO - log this only once?
 
-        self._process_discovered_versions()
+        self._evolution_runtime.process_discovered_versions()
 
     def _get_external_task_name(self):
         return f'{self.workflow_id}.external'
@@ -361,10 +353,10 @@ class Historian:
                         await self._resource_runtime.replay_external_event(record)
 
                     elif record['type'] == 'set_version':
-                        self._replay_version(record)
+                        self._evolution_runtime.replay_version(record)
 
                     elif record['type'] == 'configuration':
-                        await self._run_configuration(record)
+                        await self._evolution_runtime.run_configuration(record)
 
             quest_logger.debug(f'External event handler {self._get_task_name()} completed')
         except Exception:
@@ -383,88 +375,26 @@ class Historian:
             return None
 
     async def _run_configuration(self, config_record: ConfigurationRecord):
-        config_function, args, kwargs = self._configurations[self._configuration_pos]
-        quest_logger.debug(f'Running configuration: {get_function_name(config_function)}(*{args}, **{kwargs})')
-
-        assert config_record['function_name'] == get_function_name(config_function), str(config_record)
-        assert config_record['args'] == args, str(config_record)
-        assert config_record['kwargs'] == kwargs, str(config_record)
-
-        await config_function(*args, **kwargs)
-        self._configuration_pos += 1
+        await self._evolution_runtime.run_configuration(config_record)
 
     def get_version(self, module_name, function_name, version_name=GLOBAL_VERSION):
-        version = self._versions.get(_get_qualified_version(module_name, function_name, version_name), None)
-        quest_logger.debug(
-            f'{self._get_task_name()} get_version({module_name}, {function_name}, {version_name} returned "{version}"')
-        return version
+        return self._evolution_runtime.get_version(module_name, function_name, version_name)
 
     def _discover_versions(self, function, versions: dict[str, str]):
-        self._discovered_versions.update({
-            _get_qualified_version(function.__module__, function.__qualname__, version_name): version
-            for version_name, version in versions.items()
-        })
-
-        # If the replay has already finished...
-        if self._last_record_gate is not None and self._last_record_gate.done():
-            self._process_discovered_versions()
+        self._evolution_runtime.discover_versions(function, versions)
 
     def _process_discovered_versions(self):
-        for version_name, version in self._discovered_versions.items():
-            # These records are replayed by the external handler
-            self._record_version_event(version_name, version)
-        self._discovered_versions = {}
+        self._evolution_runtime.process_discovered_versions()
 
     def _record_version_event(self, version_name, version):
-        if self._versions.get(version_name, None) == version:
-            return  # Version not changed
-
-        quest_logger.debug(f'Version record: {version_name} = {version}')
-        self._versions[version_name] = version
-
-        self._history.append(VersionRecord(
-            type='set_version',
-            timestamp=_get_current_timestamp(),
-            step_id=version_name,
-            task_id=self._get_external_task_name(),  # the external task owns these
-            version=version
-        ))
+        self._evolution_runtime.record_version_event(version_name, version)
 
     def _replay_version(self, record: VersionRecord):
-        quest_logger.debug(f'{self._get_task_name()} setting version {record["step_id"]} = "{record["version"]}"')
-        self._versions[record['step_id']] = record['version']
+        self._evolution_runtime.replay_version(record)
 
     # TODO - keep or discard?
     async def _after_version(self, module_name, func_name, version_name, version):
-        version_name = _get_qualified_version(module_name, func_name, version_name)
-        quest_logger.debug(f'{self._get_task_name()} is waiting for version {version_name}=={version}')
-
-        found = False
-        for record in self._existing_history:
-            if record['type'] == 'version' \
-                    and record['version_name'] == version_name \
-                    and record['version'] == version:
-                found = True
-                await self._record_gates[_get_id(record)]
-
-        if not found:
-            quest_logger.error(f'{self._get_task_name()} did not find version {version_name}=={version}')
-            raise Exception(f'{self._get_task_name()} did not find version {version_name}=={version}')
-
-        if (next_record := await self._next_record()) is not None:
-            with next_record as record:
-                assert record['type'] == 'after_version', str(record)
-                assert record['version_name'] == version_name, str(record)
-                assert record['version'] == version, str(record)
-
-        else:
-            self._history.append(VersionRecord(
-                type='after_version',
-                timestamp=_get_current_timestamp(),
-                step_id='version',
-                task_id=self._get_task_name(),
-                version=version
-            ))
+        await self._evolution_runtime.after_version(module_name, func_name, version_name, version)
 
     async def handle_step(self, func_name, func: Callable, *args, **kwargs):
         step_id = self._get_unique_id(func_name)
@@ -683,44 +613,10 @@ class Historian:
         return task
 
     def configure(self, config_function, *args, **kwargs):
-        """
-        Configuration happens when the application is run, before the run function is called.
-        Here we inject a configuration event into the history,
-        which is processed by the external task
-        """
-        if not callable(config_function):
-            raise Exception(f'First argument to configure must be a callable. Received {config_function}.')
-
-        self._configurations.append((config_function, list(args), kwargs))
+        self._evolution_runtime.configure(config_function, *args, **kwargs)
 
     def _add_new_configurations(self):
-        config_records = [
-            record
-            for record in self._history
-            if record['type'] == 'configuration'
-        ]
-
-        # We should have a configuration to replay for each record in the past
-        assert len(config_records) <= len(self._configurations)
-
-        for record, (config_function, args, kwargs) in zip(config_records, self._configurations):
-            assert record['function_name'] == get_function_name(config_function)
-            assert record['args'] == args
-            assert record['kwargs'] == kwargs
-
-        # Add new configuration records
-        for config_function, args, kwargs in self._configurations[len(config_records):]:
-            quest_logger.debug(f'Adding new configuration: {get_function_name(config_function)}(*{args}, **{kwargs}')
-
-            self._history.append(ConfigurationRecord(
-                type='configuration',
-                timestamp=_get_current_timestamp(),
-                step_id='configuration',
-                task_id=self._get_external_task_name(),  # the external task owns these
-                function_name=get_function_name(config_function),
-                args=args,
-                kwargs=kwargs
-            ))
+        self._evolution_runtime.add_new_configurations()
 
     def signal_suspend(self):
         quest_logger.debug(f'-- Suspending {self.workflow_id} --')
