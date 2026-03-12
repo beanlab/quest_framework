@@ -6,7 +6,8 @@ from functools import wraps
 from typing import Protocol, Callable, TypeVar, Any, TypedDict
 
 from .external import State, IdentityQueue, Queue, Event
-from .historian import Historian, _Wrapper, SUSPENDED
+from .historian import Historian, _Wrapper
+from .historian_context import SUSPENDED
 from .history import History
 from .persistence import BlobStorage
 from .serializer import StepSerializer

@@ -2,12 +2,12 @@ import asyncio
 import inspect
 import traceback
 from asyncio import Task
-from contextvars import ContextVar
 from datetime import datetime
 from functools import wraps
 from typing import Callable, TypeVar
 
 from .history import History
+from .historian_context import SUSPENDED, historian_context
 from .quest_types import ConfigurationRecord, VersionRecord, StepStartRecord, StepEndRecord, \
     ResourceAccessEvent, ResourceEntry, ResourceLifecycleEvent, TaskEvent
 from .resources import ResourceStreamManager
@@ -76,32 +76,6 @@ GLOBAL_VERSION = "_global_version"
 # To prune correctly, I need to turn process the sequence like a tree
 # Each task and step is a separate branch
 # I need to look for resources that are open in each branch and match the relevant events
-
-SUSPENDED = '__WORKFLOW_SUSPENDED__'
-
-
-def suspendable(func):
-    """
-    Makes a __aexit__ or __exit__ method suspendable
-    With this decorator, the exit method will not be called
-      when the workflow is suspending.
-    It will only be called when the with context exits for other reasons.
-    """
-    if inspect.iscoroutinefunction(func):
-        @wraps(func)
-        async def new_func(self, exc_type, exc_val, exc_tb):
-            if exc_type is asyncio.CancelledError and exc_val.args[0] == SUSPENDED:
-                return
-            await func(self, exc_type, exc_val, exc_tb)
-    else:
-        @wraps(func)
-        def new_func(self, exc_type, exc_val, exc_tb):
-            if exc_type is asyncio.CancelledError and exc_val.args[0] == SUSPENDED:
-                return
-            func(self, exc_type, exc_val, exc_tb)
-
-    return new_func
-
 
 T = TypeVar('T')
 
@@ -202,9 +176,6 @@ def _get_qualified_version(module_name, function_name, version_name: str) -> str
 # Resource names should be unique to the workflow and identity
 def _create_resource_id(name: str, identity: str | None) -> str:
     return f'{name}|{identity}' if identity is not None else name
-
-
-historian_context = ContextVar('historian')
 
 
 def get_function_name(func):
@@ -1021,21 +992,3 @@ class Historian:
 
     async def _update_resource_stream(self, identity):
         await self._resource_stream_manager.update(identity)
-
-
-class HistorianNotFoundException(Exception):
-    pass
-
-
-def find_historian() -> Historian:
-    if (workflow := historian_context.get()) is not None:
-        return workflow
-
-    outer_frame = inspect.currentframe()
-    is_workflow = False
-    while not is_workflow:
-        outer_frame = outer_frame.f_back
-        if outer_frame is None:
-            raise HistorianNotFoundException("Historian object not found in event stack")
-        is_workflow = isinstance(outer_frame.f_locals.get('self'), Historian)
-    return outer_frame.f_locals.get('self')
