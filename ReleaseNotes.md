@@ -1,5 +1,9 @@
 # Release Notes
 
+## 0.2.17
+
+- Fixed SqlBlobStorage implementation
+
 ## 0.2.7
 - *DuplicateWorkflowException* to prevent duplicate workflows from being started while already running
 

@@ -1,4 +1,12 @@
-from .. import WorkflowFactory, WorkflowManager, PersistentHistory, History, BlobStorage, Blob
+from .. import (
+    Blob,
+    BlobStorage,
+    History,
+    NoopSerializer,
+    PersistentHistory,
+    WorkflowFactory,
+    WorkflowManager,
+)
 
 try:
     from sqlalchemy import create_engine, Column, Integer, String, JSON, Engine
@@ -43,7 +51,10 @@ class SqlBlobStorage(BlobStorage):
 
     def write_blob(self, key: str, blob: Blob):
         # Check to see if a blob exists, if so rewrite it
-        record_to_update = self._get_session().query(RecordModel).filter(RecordModel.name == self._name).one_or_none()
+        record_to_update = self._get_session().query(RecordModel).filter(
+            RecordModel.name == self._name,
+            RecordModel.key == key,
+        ).one_or_none()
         if record_to_update:
             record_to_update.blob = blob
         else:
@@ -53,24 +64,27 @@ class SqlBlobStorage(BlobStorage):
 
     # noinspection PyTypeChecker
     def read_blob(self, key: str) -> Blob | None:
-        records = self._get_session().query(RecordModel).filter(RecordModel.name == self._name).all()
-        for record in records:
-            if record.key == key:
-                return record.blob
+        record = self._get_session().query(RecordModel).filter(
+            RecordModel.name == self._name,
+            RecordModel.key == key,
+        ).one_or_none()
+        if record:
+            return record.blob
 
     def has_blob(self, key: str) -> bool:
-        records = self._get_session().query(RecordModel).filter(RecordModel.name == self._name).all()
-        for record in records:
-            if record.key == key:
-                return True
-        return False
+        return self._get_session().query(RecordModel).filter(
+            RecordModel.name == self._name,
+            RecordModel.key == key,
+        ).one_or_none() is not None
 
     def delete_blob(self, key: str):
-        records = self._get_session().query(RecordModel).filter(RecordModel.name == self._name).all()
-        for record in records:
-            if record.key == key:
-                self._get_session().delete(record)
-                self._get_session().commit()
+        record = self._get_session().query(RecordModel).filter(
+            RecordModel.name == self._name,
+            RecordModel.key == key,
+        ).one_or_none()
+        if record:
+            self._get_session().delete(record)
+            self._get_session().commit()
 
 
 def create_sql_manager(
@@ -85,4 +99,4 @@ def create_sql_manager(
     def create_history(wid: str) -> History:
         return PersistentHistory(wid, SqlBlobStorage(wid, database.get_session()))
 
-    return WorkflowManager(namespace, storage, create_history, factory)
+    return WorkflowManager(namespace, storage, create_history, factory, serializer=NoopSerializer())
