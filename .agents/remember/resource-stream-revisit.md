@@ -157,56 +157,51 @@ Resource names and runtime resource types form a dynamic interface in the same s
 
 Typed schemas, generated bindings, or stronger contracts may be added later if concrete experience demonstrates their value. The core design should not require them now.
 
-### 7. Resource generations identify exact resource lifetimes
+### 7. Communication primitives are directional
 
-A resource key such as `(name, identity)` may be deleted and later recreated. Those two resources can represent different workflow interactions even though their semantic key is the same.
+The external data-communication model has three resource types:
 
-Every resource lifetime therefore needs a **generation** identifier. A generation:
+- `state` carries workflow-owned data from the workflow to clients;
+- `queue` carries client input to the workflow for a known identity;
+- `identity_queue` carries client input to the workflow when the interaction establishes or returns an identity.
 
-- is assigned when the resource is registered;
-- remains stable while that resource exists;
-- changes when a resource with the same key is deleted and recreated;
-- is included in the published surface;
-- is required on every external resource operation, including reads;
-- is checked before invoking the operation.
+State is externally read-only. The workflow may change it, and its current value is included directly in surface snapshots. Clients do not fetch or mutate state through external resource operations.
 
-A stale operation must be rejected rather than applied to a newer resource that happens to have the same name and identity. The client must not automatically retry a stale operation against the new generation, because it may represent a different interaction.
+Queues expose only `put` externally. Business responses and acknowledgements should be represented through workflow-published state rather than a general request/response or arbitrary-action mechanism. Application-level correlation can be carried in queue payloads when needed.
 
-Quest already creates deterministic unique IDs for repeated invocations in the same scope. The `step_id` associated with a resource's `create_resource` lifecycle event can likely serve as its generation. This has the useful property that replay reconstructs the same generation for the same logical resource interaction, including across suspension and resumption.
+An external `event` resource is unnecessary because a queue input can represent a signal. Writable state and arbitrary resource actions are also outside the external protocol. These concepts may remain useful as internal workflow implementation utilities, but they are not published communication primitives.
 
-Generation is a correctness token, not an authentication mechanism.
+### 8. Resources retain stable name-based addresses
 
-Breaking the external-operation API to require generation is acceptable because Quest is still experimental and design quality takes priority over compatibility.
+Resources continue to be addressed by workflow, name, and identity. Stable names are part of a workflow's designed public interface: an integration may intentionally target the current `messages` queue without first discovering a particular resource lifetime.
 
-### 8. Snapshot revision and resource generation are different
+A delayed operation can therefore reach a replacement resource created later at the same `(name, identity)`. Optional resource generations could provide REST-like conditional-write semantics for clients that need exact-lifetime validation, but no concrete application currently requires that complexity. Generations are deferred and documented separately in [resource-generations.md](resource-generations.md).
 
-A **snapshot revision** identifies a version of the whole published surface.
+### 9. Snapshot revisions are not part of the external protocol
 
-A **resource generation** identifies one resource lifetime.
+The client protocol does not include a snapshot revision. WebSocket messages are ordered within a connection, each connection has one sender, and the initial snapshot after reconnection authoritatively replaces the client's prior surface.
 
-A resource can retain its generation across many state changes and surface revisions. External actions should be validated against the resource generation rather than the global surface revision; an unrelated surface update should not invalidate an otherwise relevant operation.
+The runtime does not need an internal or client-visible version counter. A per-subscription dirty event is sufficient; harmless redundant snapshots are preferred over version-tracking complexity. A revision can be added later if concrete experience demonstrates a need.
 
-Snapshot revisions are useful for ordering pushed snapshots and ignoring older data around reconnection. Their exact representation and lifecycle remain to be finalized.
+### 10. Dirty triggers remain generic
 
-### 9. External operations do not inherently change the surface
-
-An external signal does not necessarily change workflow-controlled published state.
-
-For example, a queue may intentionally accept repeated inputs while remaining the same resource generation. Each `put()` should not automatically cause a redundant surface publication merely because an external operation occurred.
-
-Surface publication should occur when the published surface actually changes, such as:
+The runtime retains the current generic notification points:
 
 - resource creation;
 - resource deletion;
-- a change to state that is part of the published surface.
+- completion of every internal resource event.
 
-It should not occur after every arbitrary external resource operation.
+Each notification only marks relevant subscriptions dirty; it does not construct or push a snapshot and does not wait for a subscriber. This avoids teaching the historian which resource types or actions affect published data.
 
-### 10. Queue policy belongs to workflows and applications
+Some internal events, such as `queue.get()`, may therefore cause a redundant snapshot. Latest-state coalescing limits these snapshots, and the minor redundancy is preferable to type- and action-specific notification logic.
+
+An external queue `put()` does not directly mark subscriptions dirty. If it allows an internal `queue.get()` to complete, that generic internal completion does mark them dirty. Repeated inputs remain valid while the queue is active.
+
+### 11. Queue policy belongs to workflows and applications
 
 Ordinary queues should retain ordinary repeatable queue semantics. If a queue remains active, it may accept multiple inputs. A workflow may consume all, consume some, or ignore extras.
 
-Generation validation rejects inputs after the resource has disappeared or been replaced, but it does not impose one-response-only behavior during an active resource lifetime.
+A write fails when no resource is active at the named address. If a resource is replaced at the same address, name-based callers intentionally target the current resource. This does not impose one-response-only behavior during an active resource lifetime.
 
 Quest should not impose one-shot behavior, acknowledgement policy, deduplication, idempotency, or business-level interpretation on all applications. Such behavior can be expressed by workflow code or optional abstractions if needed.
 
@@ -216,18 +211,17 @@ The design suggests the following separation:
 
 ### Resource runtime
 
-The resource runtime owns the authoritative registry and resource visibility. On a publishable change, it updates the current surface and marks relevant subscriptions dirty without waiting for them.
+The resource runtime owns the authoritative registry and resource visibility. At each generic notification point, it marks relevant subscriptions dirty without constructing a snapshot or waiting for them.
 
 ### Subscription
 
 A subscription contains approximately:
 
 - subscriber identity;
-- a dirty event;
-- closed/stopped state;
-- enough revision information to avoid redundant sends.
+- a dirty event, initialized as set;
+- closed/stopped state.
 
-It does not contain a queue of snapshots or a gate that workflow execution waits upon.
+Registration does not await: it adds the subscription and initializes the dirty event as set so the sender immediately reads the current surface. It does not contain a snapshot queue, version counter, or gate that workflow execution waits upon.
 
 ### WebSocket sender
 
@@ -245,20 +239,18 @@ async def push_updates(subscription, websocket):
 
 If the surface changes while `websocket.send()` is blocked, the dirty event is set again. After the send finishes, the sender reads the then-current surface.
 
-The production implementation must preserve this behavior without a lost-notification race around initial subscription, event clearing, or stream termination.
+Subscription registration occurs without awaiting and initializes the event as set. The sender clears the event immediately before reading the latest surface. A concurrent change either appears in that read or sets the event for another pass. The design may produce a redundant snapshot in a race, but it does not lose the latest state.
 
 ### External operation
 
-An external call identifies:
+An external queue write identifies:
 
 - workflow;
 - resource name;
 - identity;
-- generation;
-- action;
-- arguments.
+- input value.
 
-The runtime finds the current resource by `(name, identity)`, validates the generation, and invokes the action only on a match. A dedicated stale-resource error should distinguish a stale operation from an application/resource exception.
+The runtime finds the current resource by `(name, identity)`, validates that it is a writable queue visible to the caller, and performs `put`. The stable name targets whichever resource is currently active at that address.
 
 ## Replay and determinism
 
@@ -266,10 +258,8 @@ The new stream model must preserve Quest's replay guarantees:
 
 - replay reconstructs the authoritative current resource surface;
 - replay does not emit historical intermediate surfaces as though they were live changes;
-- a logically identical resource creation reconstructs the same generation;
-- external history identifies the resource generation it targeted;
-- stale-generation validation does not make replay nondeterministic;
-- suspension and resumption preserve the intended logical resource lifetime.
+- external history preserves name-based queue writes;
+- suspension and resumption preserve the intended active resource surface.
 
 Older persisted records are not a primary compatibility constraint while the project remains experimental, though the history schema change should still be deliberate and explicit.
 
@@ -292,61 +282,57 @@ The following design questions remain open or need more precise decisions before
 
 ### Snapshot contents
 
-- Does a surface snapshot include current `state` values, or only resource descriptors/handles?
-- If values are fetched separately, what consistency guarantee exists between discovery and read?
-- Which resource data is considered part of the published surface?
-- What serialization constraints apply to published values?
+A snapshot is a plain list of type-specific resource records, with no envelope. The resource type determines permitted behavior, so records do not include an operation list.
 
-Presentation metadata is out of scope, but the data-level snapshot contract still needs definition.
+```json
+[
+  {"type": "state", "name": "message", "identity": "user-1", "value": "Hello"},
+  {"type": "queue", "name": "response", "identity": "user-1"},
+  {"type": "identity_queue", "name": "register", "identity": null}
+]
+```
 
-### Revision semantics
+A `state` record includes its current value directly. State is not fetched separately. Queue records describe input channels but do not expose queue contents or internal state. The explicit fields replace the current mapping from `(name, identity)` tuple keys to resource class names.
 
-- Is the revision global per workflow or scoped by identity-visible surface?
-- Does every publishable mutation increment it, including a mutation invisible to a given subscriber?
-- How is revision identity handled across suspension, process restart, and replay?
-- Does a reconnecting client compare revisions across connection lifetimes, or simply replace its state with the initial snapshot?
+State values and queue inputs must be supported by Quest's configured serializer. The resource surface does not publish input or value schemas. Validation belongs to workflow or application logic unless concrete experience justifies a protocol-level schema later.
+
+Presentation metadata is out of scope.
 
 ### Publication triggers
 
-- How do resource implementations indicate that exposed state changed?
-- Should built-in `state.set()` publish directly through the runtime?
-- How should custom resources participate without requiring UI-specific metadata?
-- Are current notifications after every internal resource operation too broad for the new semantics?
+The existing generic triggers remain: resource creation, resource deletion, and completion of every internal resource event. They mark subscriptions dirty rather than pushing snapshots. Redundant snapshots are acceptable in exchange for keeping the historian independent of resource type and action semantics.
 
 ### Initial subscription and lost-update safety
 
-- How are subscription registration and initial snapshot capture ordered?
-- How does the implementation guarantee that a change concurrent with initial snapshot creation is either represented in that snapshot or causes a later dirty notification?
-- What is the simplest event/condition implementation that preserves this invariant?
+Registration synchronously adds the subscription with its `asyncio.Event` already set. The sender clears the event immediately before reading the latest surface. A concurrent change either appears in that read or leaves the event set for another pass. No internal version counter is needed; redundant snapshots are acceptable.
 
 ### Completion, suspension, and failure
 
-- Does the stream send an explicit terminal snapshot or simply end?
-- What surface remains available after completion?
-- Should a reconnecting UI be able to obtain completed, suspended, or failed status?
-- How long should terminal state be retained by `WorkflowManager`?
-- Does resumption continue the same subscription conceptually, or require a new subscription?
+The stream sends no terminal snapshot or status envelope. Its termination reason distinguishes outcomes:
 
-### Generation persistence and history schema
+- completion ends the async iterator normally and closes the WebSocket normally;
+- suspension raises a dedicated `WorkflowSuspended` signal locally and uses a defined application WebSocket close code;
+- workflow failure raises a failure error locally and uses a distinct failure close code;
+- abnormal transport closure represents network loss rather than a managed workflow outcome.
 
-- Confirm that the resource creation `step_id` is the correct generation identifier.
-- Store the generation in `ResourceEntry` and expose it in snapshots.
-- Add generation to external resource-access records and replay validation.
-- Define the stale-resource exception and wire format.
-- Confirm behavior for repeated create/delete cycles, nested scopes, and suspend/resume replay.
+Clients discard the displayed surface when the stream ends. Resumption requires a new subscription. Durable workflow status, results, and retention remain separate `WorkflowManager` API concerns.
+
+### Deferred resource generations
+
+Optional exact-lifetime preconditions are outside the current scope. Their motivation, compatibility strategy, and likely implementation are preserved in [resource-generations.md](resource-generations.md).
 
 ### API shape
 
 - Define the new return shape of `get_resources()` and resource-stream snapshots.
 - Decide whether `get_resource_stream()` remains a synchronous context manager around an async iterator or is replaced with a simpler subscription API.
-- Update manager wrappers and external resource wrappers to retain and send generation.
-- Decide whether direct name-based convenience APIs such as `get_state()` return generation-bound wrappers.
+- Update queue and identity-queue wrappers for the restricted, name-addressed `put` API.
+- Remove external writable-state and event operations; state is consumed from snapshots.
 
 ### WebSocket protocol
 
 - Define initial subscription request and snapshot response shapes.
-- Define stale-resource and workflow-terminal errors.
-- Ensure authentication and identity authorization remain independent of resource generation.
+- Define missing-resource and workflow-terminal errors.
+- Preserve authentication and identity authorization for name-addressed resources.
 - Define reconnect behavior and heartbeat/liveness handling.
 - Bound socket/server buffering so obsolete snapshots cannot accumulate without limit.
 
@@ -367,8 +353,10 @@ Tests should cover at least:
 - slow listeners skipping intermediate states and eventually receiving the latest state;
 - multiple independent subscribers;
 - reconnect and current-state resynchronization;
-- deterministic generations across replay and suspend/resume;
-- stale operations rejected after resource replacement;
-- repeated operations accepted while an ordinary queue generation remains active;
-- no automatic publication solely because an external operation occurred;
+- deterministic name-addressed operations across replay and suspend/resume;
+- repeated operations accepted while an ordinary queue remains active;
+- state values included directly in snapshots and unavailable for external mutation;
+- queues exposing only name-addressed `put` operations;
+- no external event resource or arbitrary resource actions;
+- no automatic publication solely because a queue write occurred;
 - completion, suspension, and failure behavior once those semantics are decided.
