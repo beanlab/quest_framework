@@ -7,3 +7,5 @@ __pycache__/
 /quest_test/event_tests/.pytest_cache
 poetry.lock
 /quest_test/*.env
+.agents/scratch/
+demos/state/

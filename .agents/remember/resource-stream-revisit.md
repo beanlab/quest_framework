@@ -150,7 +150,7 @@ Strongly typed UI contracts are not required at this stage.
 
 Resource names and runtime resource types form a dynamic interface in the same spirit as names in Python or JavaScript. Conventions and tests are sufficient while the design is experimental.
 
-Typed schemas, generated bindings, or stronger contracts may be added later if concrete experience demonstrates their value. The core design should not require them now.
+Typed schemas, generated bindings, or stronger contracts may be added later if concrete experience demonstrates their value. Action parameter and return schemas are explicitly deferred until after the core refactor and are documented in [snapshot-schema.md](snapshot-schema.md). The current protocol exposes action names only.
 
 ### 7. Resource classes declare their external surface
 
@@ -159,7 +159,7 @@ The historian and workflow manager retain their generic external-event interface
 A resource class declares its external surface through decorators with two independent roles:
 
 - `@external_value` marks a getter whose current result is included in the resource representation;
-- `@external_action` marks a method that may be invoked through the generic external-event interface.
+- `@external_action` marks a method that may be invoked through the generic external-event interface and whose name is included in that representation.
 
 External access is default-deny. An unannotated method remains available to workflow code through the internal resource interface but cannot be called externally.
 
@@ -327,7 +327,7 @@ Quest guarantees that `WorkflowFailed` instances emitted by subscriptions have a
 
 ### Snapshot contents
 
-A snapshot is a plain list of generic resource records, with no envelope. The current working shape gives each record its stable address, resource type, exposed state, and exposed action names.
+A snapshot is a plain list of generic resource records, with no envelope. The current shape gives each record its stable address, resource type, exposed state, and a list of exposed action names. Parameter schemas, return schemas, and action descriptions are not included in the current protocol; that possible later feature is documented in [snapshot-schema.md](snapshot-schema.md).
 
 ```json
 [
@@ -348,15 +348,29 @@ A snapshot is a plain list of generic resource records, with no envelope. The cu
 ]
 ```
 
-The runtime builds `state` from getters marked `@external_value` and `actions` from methods marked `@external_action`. State is included directly rather than fetched through separate external operations. Action arguments, return values, and exposed state do not publish schemas; validation belongs to resource, workflow, or application logic unless concrete experience justifies protocol-level schemas later.
+The runtime builds `state` from getters marked `@external_value` and `actions` as a list containing the names of methods marked `@external_action`. An exposed-value getter must be synchronous, accept no arguments beyond `self`, and be side-effect-free. These constraints keep snapshot construction synchronous and deterministic; side-effect freedom is a resource-author contract rather than something the runtime can fully enforce. State is included directly rather than fetched through separate external operations. Action arguments and return values do not publish schemas in the current protocol; validation belongs to resource, workflow, or application logic.
 
-Exposed values, action arguments, and return values must be supported by Quest's configured serializer. Presentation metadata remains out of scope. The getter contract, naming and aliasing, ordering, failure behavior, inheritance, and stable type identifiers for custom resources remain to be defined before this shape is final.
+Exposed state values must be supported by Quest's configured serializer because they are included in snapshots. External action arguments and results must likewise be serializable when they are transported or recorded, but they are not part of the snapshot record. If any exposed-value getter raises, construction of the entire snapshot fails. The runtime must not omit the affected resource, because omission would falsely represent it as withdrawn, and the protocol does not embed per-resource error records.
+
+A snapshot-construction failure affects only the one-shot read or subscription performing that construction. It does not fail, suspend, or otherwise alter the workflow, historian, or other subscriptions. Exposed-value reads are observer-side operations: they are neither recorded in history nor replayed. An author may therefore fix a faulty getter and resume observation without changing workflow history. A failed subscription terminates; a new read or subscription may retry against the current resource surface.
+
+Locally, both `get_resources()` and subscription iteration report this failure by raising `ResourceSnapshotFailed` from the original getter exception. The dedicated exception lets consumers distinguish an observation failure from a workflow failure, while standard exception chaining preserves the underlying bug.
+
+Presentation metadata remains out of scope. By default, a resource's external type identifier is its package-qualified class name (`__module__` plus `__qualname__`). This disambiguates unrelated classes with the same class name, while treating a class move or rename like a change to any other public package reference. A resource may instead use `@resource_type("...")` to declare a stable observer-facing protocol type that remains unchanged when its implementation class moves or is renamed. An explicit type identifier is optional, not required. The built-in resources use explicit identifiers such as `state`, `queue`, and `identity_queue`, which is why the examples use those concise values.
+
+An exposed value's state key and an external action's action name are the decorated Python member's name. The decorators do not currently accept observer-facing aliases. External action routing can therefore continue to find the requested member directly with `getattr()` and then verify its decorator metadata; it need not scan every annotated method for a matching alias. Renaming a decorated member is an external protocol change. Aliases may be added later if concrete need justifies the additional routing complexity.
+
+Resource-record order, state-key order, and action-name order are not protocol semantics and are explicitly unspecified. The surface is conceptually a set of resources keyed by address, each containing a state mapping and a set of actions. An implementation may happen to emit a stable order, but observers must not rely on it or use resource position as identity. This keeps presentation ordering and layout under UI control.
+
+Decorator metadata follows ordinary Python inheritance and wrapping semantics; Quest adds no inheritance machinery. An inherited decorated method retains its metadata through normal attribute lookup. An override replaces the inherited method and is exposed only if the override is itself decorated. Multiple inheritance follows the normal method resolution order. Wrappers built with `functools.wraps()` preserve decorator attributes in the usual way.
+
+Exact transport failure representation remains to be defined before this shape is final.
 
 ### Publication triggers
 
 Resource creation, resource deletion, and termination of methods marked `@invalidates_snapshot` mark subscriptions dirty. Snapshot-invalidating methods do so after successful or exceptional termination because a failing method may already have mutated exposed state. These triggers do not construct snapshots or wait for consumers.
 
-Snapshot invalidation applies to calls routed through the resource boundary. Resource authors must mark the boundary method that performs or initiates a visible mutation. Later mutations performed by detached background work are not detected automatically. Decorator behavior through wrappers and inheritance remains to be specified.
+Snapshot invalidation applies to calls routed through the resource boundary. Resource authors must mark the boundary method that performs or initiates a visible mutation. Later mutations performed by detached background work are not detected automatically. `@invalidates_snapshot` follows the ordinary Python inheritance and wrapping semantics defined above.
 
 ### Initial subscription and lost-update safety
 
@@ -381,13 +395,9 @@ Optional exact-lifetime preconditions are outside the current scope. Their motiv
 
 The direction above is settled, but the following details require explicit decisions before implementation is fully specified.
 
-### Exposed value and action contracts
+### Snapshot-construction failure transport
 
-- Decide whether `@external_value` getters must be synchronous, argument-free, and side-effect-free.
-- Define getter failure behavior and whether one failing value invalidates the resource record or the whole snapshot.
-- Define stable external type names, state keys, action names, optional aliases, and deterministic ordering.
-- Define decorator behavior through inheritance, overrides, and the wrappers returned to workflow code.
-- Decide whether action signatures or schemas remain entirely out of band.
+- Define how a whole-snapshot construction failure is represented over WebSocket or other remote transports.
 
 ### Replay of generic actions
 
@@ -418,7 +428,7 @@ The direction above is settled, but the following details require explicit decis
 
 After the open design questions are resolved, implementation includes:
 
-- add `@external_value`, `@external_action`, and `@invalidates_snapshot` metadata and introspection;
+- add `@resource_type`, `@external_value`, `@external_action`, and `@invalidates_snapshot` metadata and introspection;
 - update `get_resources()` and subscriptions to return the generic resource records;
 - implement `subscribe_resources()` as the agreed synchronous context manager and single-use async iterator, replacing `get_resource_stream()` without an alias;
 - retain generic Historian and manager external-event routing, restricted at runtime to actions declared by each resource;
@@ -437,12 +447,14 @@ Tests should cover at least:
 - multiple independent subscribers;
 - reconnect and current-state resynchronization;
 - deterministic name-addressed operations across replay and suspend/resume under the selected replay policy;
-- generated identities and generic action return values across replay;
+- generated identities and externally invoked action results across replay;
 - clear failure when replayed actions are incompatible with evolved resources;
 - repeated operations accepted while an ordinary queue remains active;
 - exposed values included directly in snapshots;
 - multiple exposed values and configured serialization behavior;
 - exposed-value getter failure behavior;
+- default package-qualified resource types and explicit `@resource_type` overrides;
+- snapshots listing only the names of `@external_action` methods;
 - only `@external_action` methods callable externally;
 - unannotated methods rejected by external routing;
 - custom resources mixing exposed state and actions;
