@@ -169,6 +169,8 @@ The built-in resources use this generic mechanism to preserve directional commun
 - `queue` exposes `put` through `@external_action` and does not expose `get` or its contents;
 - `identity_queue` exposes `put` through `@external_action` and may return the established identity.
 
+Published values remain the authoritative channel for workflow state and ongoing workflow output, but external actions are not required to return `None`. An action result may carry immediate protocol information needed to complete an interaction. `identity_queue` is the motivating case: it creates an identity, delivers that identity with the value to the workflow, and returns the same identity to the previously unidentified caller. The caller can then observe resources published privately for that identity. This bootstrap handshake requires both sides to learn the same value unless identity instead comes from authentication or the client. Such a result is not published workflow state and is not part of the resource snapshot.
+
 A workflow author may define a custom resource that combines exposed values and actions—for example, a scene containing visible choices and actions that write to a private underlying queue. The historian does not know how the resource implements those actions.
 
 Business acknowledgement, idempotency, and interpretation remain application concerns. The generic mechanism permits custom external actions, but only those explicitly declared by the resource author.
@@ -265,7 +267,15 @@ The new stream model must preserve Quest's replay guarantees:
 - external history preserves name-addressed action calls;
 - suspension and resumption preserve the intended active resource surface.
 
-Generic external actions introduce an unresolved replay question. Re-invoking an action may repeat side effects or produce a different result; `identity_queue.put()` generating an identity is an immediate example. The implementation must deliberately define whether action calls are re-executed, whether recorded results are restored, and what determinism contract custom actions must satisfy. Replay against evolved or replacement resource implementations must also fail clearly when the recorded action is no longer compatible.
+Generic external actions introduce an unresolved replay question. Re-invoking an action may repeat side effects or produce a different result; `identity_queue.put()` generating an identity is an immediate example. The current implementation re-executes every external action during replay and asserts that its result equals the recorded result. External actions do not run through `handle_step()`, and `IdentityQueue.put()` calls `uuid.uuid4()` directly, so replay generates a different identity and should fail its result assertion.
+
+The discussion identified a promising alternative, but it is not yet a settled design. Each external invocation could be recorded once with a unique operation task ID and launch a separate historian-managed task. During live execution the caller would await that task and receive its result. During replay the external handler would launch the task under the recorded ID without an external caller or response. The task would consume its own replay records, while global record gates preserve ordering relative to workflow tasks and other external invocations. Separate task identities would permit concurrent external actions without sharing a replay stream or prefix stack.
+
+Under this candidate model, an external action would re-execute to reconstruct its resource effects, while nondeterministic values that affect those effects would be produced through `handle_step()`. For example, `identity_queue.put()` could durably generate its identity in a step and then enqueue the resulting `(identity, value)` normally. Replay would restore the recorded identity through the step and repeat the queue insertion. The live action result would be returned to the client, but no client response would be delivered during replay. This may avoid both a two-record external-action envelope and resource-specific replay handlers.
+
+A two-record `external_start`/`external_end` model was also considered. It would allow nested steps to appear between action boundaries, unlike the current post-execution external record. However, all current external calls share one synthetic external task identity. Concurrent calls could interleave their boundaries and corrupt a shared prefix stack unless actions were serialized or given separate operation identities. The separate durable-task model appears cleaner, but its task completion, failure, cancellation, and compatibility semantics still need to be designed.
+
+The implementation must deliberately define the final replay model and the determinism contract custom actions must satisfy. Replay against evolved or replacement resource implementations must also fail clearly when the recorded action is no longer compatible.
 
 Older persisted records are not a primary compatibility constraint while the project remains experimental, though the history schema change should still be deliberate and explicit.
 
@@ -364,7 +374,7 @@ Resource-record order, state-key order, and action-name order are not protocol s
 
 Decorator metadata follows ordinary Python inheritance and wrapping semantics; Quest adds no inheritance machinery. An inherited decorated method retains its metadata through normal attribute lookup. An override replaces the inherited method and is exposed only if the override is itself decorated. Multiple inheritance follows the normal method resolution order. Wrappers built with `functools.wraps()` preserve decorator attributes in the usual way.
 
-Exact transport failure representation remains to be defined before this shape is final.
+If snapshot construction fails during a WebSocket subscription, the server closes only that connection with a dedicated application close code and a generic reason such as `resource snapshot failed`. The original exposed-value getter exception is logged server-side but is not sent to the client, avoiding both implementation-detail leakage and an error envelope in the plain-list snapshot protocol. Other remote transports should likewise report a transport-appropriate typed subscription failure without altering the workflow.
 
 ### Publication triggers
 
@@ -395,15 +405,13 @@ Optional exact-lifetime preconditions are outside the current scope. Their motiv
 
 The direction above is settled, but the following details require explicit decisions before implementation is fully specified.
 
-### Snapshot-construction failure transport
-
-- Define how a whole-snapshot construction failure is represented over WebSocket or other remote transports.
-
 ### Replay of generic actions
 
-- Define whether replay re-executes external actions, restores recorded results, or combines both approaches.
-- Define the determinism and side-effect contract for custom actions.
-- Handle generated identities and other nondeterministic results explicitly.
+- Decide whether to adopt the candidate model in which each recorded external invocation launches a separately identified historian-managed task.
+- Define operation-task success, failure, cancellation, and suspension behavior without incorrectly turning a rejected client operation into workflow failure.
+- Define the determinism and side-effect contract for custom actions, including which nondeterministic values must use `handle_step()`.
+- Confirm that live action results are returned to callers but are neither redelivered nor compared as top-level action results during replay.
+- Handle generated identities explicitly, including `identity_queue` restoring the same identity internally during replay that it returned externally during live execution.
 - Define incompatibility errors when evolved resource code no longer exposes a recorded action.
 
 ### Authorization
@@ -447,12 +455,14 @@ Tests should cover at least:
 - multiple independent subscribers;
 - reconnect and current-state resynchronization;
 - deterministic name-addressed operations across replay and suspend/resume under the selected replay policy;
-- generated identities and externally invoked action results across replay;
+- concurrent external operations retaining independent task and replay state under the selected replay policy;
+- generated identities being restored internally during replay while action results are returned only to live callers;
+- external-operation failure and cancellation without unintended workflow failure;
 - clear failure when replayed actions are incompatible with evolved resources;
 - repeated operations accepted while an ordinary queue remains active;
 - exposed values included directly in snapshots;
 - multiple exposed values and configured serialization behavior;
-- exposed-value getter failure behavior;
+- exposed-value getter failure behavior, including local exception chaining and isolated WebSocket closure with the dedicated application close code;
 - default package-qualified resource types and explicit `@resource_type` overrides;
 - snapshots listing only the names of `@external_action` methods;
 - only `@external_action` methods callable externally;
