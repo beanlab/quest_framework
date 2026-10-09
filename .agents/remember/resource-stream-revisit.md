@@ -6,9 +6,9 @@ This document captures the intent, motivation, and design decisions from the res
 
 ## Project intent
 
-Quest is a framework for expressing long-running workflows that control a changing **state and action surface**.
+Quest is a framework for expressing long-running workflows that control a changing **resource surface**.
 
-A workflow publishes resources while they are relevant. A user interface observes the current resource surface and decides how to render it. The UI may invoke exposed resource actions, and those actions may allow the workflow to proceed.
+A workflow publishes resources while they are relevant. A user interface observes the current resource surface and decides how to render it. The UI may write to exposed queue resources, and that input may allow the workflow to proceed.
 
 For example, a workflow might expose:
 
@@ -28,8 +28,8 @@ The workflow controls:
 
 - which resources currently exist;
 - resource names, identities, types, and values;
-- which actions are currently available;
-- when the workflow waits for an action;
+- which input queues are currently available;
+- when the workflow waits for queue input;
 - how inputs are interpreted;
 - when resources are changed or withdrawn.
 
@@ -71,11 +71,11 @@ Transport delivery is not workflow intent.
 The current design conflates:
 
 - **transport progress**: a listener or socket accepted an update; and
-- **workflow progress**: the intended user supplied an action the workflow needs.
+- **workflow progress**: the intended user supplied queue input the workflow needs.
 
 A UI subscribing, rendering, or asking for another update should not advance the workflow. Likewise, an inactive UI should not prevent unrelated workflow execution.
 
-Required interaction sequencing should be represented explicitly in workflow logic. If a workflow needs user input, it should expose an action resource and await that resource. If it does not need input, it should be free to continue regardless of subscriber behavior.
+Required interaction sequencing should be represented explicitly in workflow logic. If a workflow needs user input, it should expose a queue resource and await input from it. If it does not need input, it should be free to continue regardless of subscriber behavior.
 
 ## Agreed design direction
 
@@ -145,7 +145,7 @@ async with state("message", user_id, "Confirm purchase?"):
             answer = await confirmation.get()
 ```
 
-The supporting states are created before the action resource. Contexts unwind in reverse order, so the action disappears before its supporting states. A UI can treat the key action resource as the readiness marker and render only when it is present.
+The supporting states are created before the queue resource. Contexts unwind in reverse order, so the queue disappears before its supporting states. A UI can treat the key queue resource as the readiness marker and render only when it is present.
 
 UIs are expected to tolerate incomplete combinations of resources by waiting for the key resources they need. Atomic multi-resource publication or UI-specific grouping is not currently required.
 
@@ -276,9 +276,9 @@ This design deliberately does not decide application policy for:
 
 Quest should make these policies possible, not mandate them.
 
-## Remaining details to discuss
+## Detailed decisions
 
-The following design questions remain open or need more precise decisions before implementation.
+The following sections elaborate decisions that are settled for the current design.
 
 ### Snapshot contents
 
@@ -321,16 +321,20 @@ Clients discard the displayed surface when the stream ends. Resumption requires 
 
 Optional exact-lifetime preconditions are outside the current scope. Their motivation, compatibility strategy, and likely implementation are preserved in [resource-generations.md](resource-generations.md).
 
+## Remaining implementation details
+
+The core semantics are settled, but these concrete API and transport details still need definition during implementation.
+
 ### API shape
 
-- Define the new return shape of `get_resources()` and resource-stream snapshots.
+- Update `get_resources()` and resource-stream snapshots to return the agreed plain list of type-specific records.
 - Decide whether `get_resource_stream()` remains a synchronous context manager around an async iterator or is replaced with a simpler subscription API.
 - Update queue and identity-queue wrappers for the restricted, name-addressed `put` API.
 - Remove external writable-state and event operations; state is consumed from snapshots.
 
 ### WebSocket protocol
 
-- Define initial subscription request and snapshot response shapes.
+- Define the initial subscription request and the transport serialization of the agreed snapshot list.
 - Define missing-resource and workflow-terminal errors.
 - Preserve authentication and identity authorization for name-addressed resources.
 - Define reconnect behavior and heartbeat/liveness handling.
@@ -359,4 +363,4 @@ Tests should cover at least:
 - queues exposing only name-addressed `put` operations;
 - no external event resource or arbitrary resource actions;
 - no automatic publication solely because a queue write occurred;
-- completion, suspension, and failure behavior once those semantics are decided.
+- completion, suspension, and failure behavior, including the selected local signals and WebSocket close codes.
