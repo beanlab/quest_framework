@@ -4,6 +4,8 @@
 
 This document captures the intent, motivation, settled decisions, and open design questions from the resource-stream discussion on the `resource-stream-revisit` branch. It is an evolving design record, not yet an implementation plan. Sections explicitly labeled as remaining design questions are not settled.
 
+External-event execution and replay can be refactored independently and are now specified in [external-events-refactor.md](external-events-refactor.md). This document retains only the external-action details that directly define the resource surface and its integration boundary.
+
 ## Project intent
 
 Quest is a framework for expressing long-running workflows that control a changing **resource surface**.
@@ -256,28 +258,17 @@ An external operation identifies:
 
 The runtime finds the current resource by `(name, identity)`, verifies that the requested method is marked `@external_action`, invokes it, and records the name-addressed interaction for replay. The stable name targets whichever resource is currently active at that address. Resource-specific and language-specific clients may expose safer convenience APIs over this generic operation.
 
-The authenticated caller identity is distinct from the target resource identity in the address. The transport or manager boundary must authorize the caller to observe and act on that target, including defined treatment of public resources. The exact authorization API remains open.
+The authenticated caller identity is distinct from the target resource identity in the address. Action authorization and its relationship to durable launch are covered by [external-events-refactor.md](external-events-refactor.md). Resource observation authorization remains part of this stream design.
 
 ## Replay and determinism
 
-The new stream model must preserve Quest's replay guarantees:
+The stream model must preserve Quest's replay guarantees:
 
 - replay reconstructs the authoritative current resource surface;
 - replay does not emit historical intermediate surfaces as though they were live changes;
-- external history preserves name-addressed action calls;
 - suspension and resumption preserve the intended active resource surface.
 
-Generic external actions introduce an unresolved replay question. Re-invoking an action may repeat side effects or produce a different result; `identity_queue.put()` generating an identity is an immediate example. The current implementation re-executes every external action during replay and asserts that its result equals the recorded result. External actions do not run through `handle_step()`, and `IdentityQueue.put()` calls `uuid.uuid4()` directly, so replay generates a different identity and should fail its result assertion.
-
-The discussion identified a promising alternative, but it is not yet a settled design. Each external invocation could be recorded once with a unique operation task ID and launch a separate historian-managed task. During live execution the caller would await that task and receive its result. During replay the external handler would launch the task under the recorded ID without an external caller or response. The task would consume its own replay records, while global record gates preserve ordering relative to workflow tasks and other external invocations. Separate task identities would permit concurrent external actions without sharing a replay stream or prefix stack.
-
-Under this candidate model, an external action would re-execute to reconstruct its resource effects, while nondeterministic values that affect those effects would be produced through `handle_step()`. For example, `identity_queue.put()` could durably generate its identity in a step and then enqueue the resulting `(identity, value)` normally. Replay would restore the recorded identity through the step and repeat the queue insertion. The live action result would be returned to the client, but no client response would be delivered during replay. This may avoid both a two-record external-action envelope and resource-specific replay handlers.
-
-A two-record `external_start`/`external_end` model was also considered. It would allow nested steps to appear between action boundaries, unlike the current post-execution external record. However, all current external calls share one synthetic external task identity. Concurrent calls could interleave their boundaries and corrupt a shared prefix stack unless actions were serialized or given separate operation identities. The separate durable-task model appears cleaner, but its task completion, failure, cancellation, and compatibility semantics still need to be designed.
-
-The implementation must deliberately define the final replay model and the determinism contract custom actions must satisfy. Replay against evolved or replacement resource implementations must also fail clearly when the recorded action is no longer compatible.
-
-Older persisted records are not a primary compatibility constraint while the project remains experimental, though the history schema change should still be deliberate and explicit.
+The external-operation history model, concurrent replay, generated results such as identities, failure semantics, and the determinism contract for custom actions are specified independently in [external-events-refactor.md](external-events-refactor.md). The stream refactor must not depend on the current single-record external replay mechanism.
 
 ## Scope boundaries
 
@@ -405,19 +396,10 @@ Optional exact-lifetime preconditions are outside the current scope. Their motiv
 
 The direction above is settled, but the following details require explicit decisions before implementation is fully specified.
 
-### Replay of generic actions
+### Observation authorization
 
-- Decide whether to adopt the candidate model in which each recorded external invocation launches a separately identified historian-managed task.
-- Define operation-task success, failure, cancellation, and suspension behavior without incorrectly turning a rejected client operation into workflow failure.
-- Define the determinism and side-effect contract for custom actions, including which nondeterministic values must use `handle_step()`.
-- Confirm that live action results are returned to callers but are neither redelivered nor compared as top-level action results during replay.
-- Handle generated identities explicitly, including `identity_queue` restoring the same identity internally during replay that it returned externally during live execution.
-- Define incompatibility errors when evolved resource code no longer exposes a recorded action.
-
-### Authorization
-
-- Distinguish authenticated caller identity from target resource identity in manager and transport APIs.
-- Define who may invoke actions on public resources and how private-resource access is enforced.
+- Distinguish authenticated observer identity from target resource identity in manager and transport APIs.
+- Define who may observe public resources and how private-resource visibility is enforced.
 
 ### Subscription and transport termination
 
@@ -439,7 +421,7 @@ After the open design questions are resolved, implementation includes:
 - add `@resource_type`, `@external_value`, `@external_action`, and `@invalidates_snapshot` metadata and introspection;
 - update `get_resources()` and subscriptions to return the generic resource records;
 - implement `subscribe_resources()` as the agreed synchronous context manager and single-use async iterator, replacing `get_resource_stream()` without an alias;
-- retain generic Historian and manager external-event routing, restricted at runtime to actions declared by each resource;
+- integrate with the generic Historian and manager external-operation boundary defined in [external-events-refactor.md](external-events-refactor.md), restricting routing at runtime to actions declared by each resource;
 - build protective type-specific convenience interfaces in client libraries, with exposed state consumed from snapshots rather than fetched separately;
 - implement the initial WebSocket subscription request and snapshot serialization.
 
@@ -454,11 +436,6 @@ Tests should cover at least:
 - slow listeners skipping intermediate states and eventually receiving the latest state;
 - multiple independent subscribers;
 - reconnect and current-state resynchronization;
-- deterministic name-addressed operations across replay and suspend/resume under the selected replay policy;
-- concurrent external operations retaining independent task and replay state under the selected replay policy;
-- generated identities being restored internally during replay while action results are returned only to live callers;
-- external-operation failure and cancellation without unintended workflow failure;
-- clear failure when replayed actions are incompatible with evolved resources;
 - repeated operations accepted while an ordinary queue remains active;
 - exposed values included directly in snapshots;
 - multiple exposed values and configured serialization behavior;
@@ -472,6 +449,6 @@ Tests should cover at least:
 - snapshot-invalidating internal and external methods marking subscriptions dirty;
 - snapshot-invalidating methods marking dirty after exceptional termination;
 - queue operations without `@invalidates_snapshot` producing no automatic publication;
-- authenticated caller versus target-resource authorization;
+- authenticated observer versus target-resource visibility authorization;
 - context exit or workflow termination waking blocked iteration;
 - completion, suspension, and failure behavior, including the selected local signals and, once defined, WebSocket close codes.
