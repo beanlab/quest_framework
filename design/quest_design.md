@@ -151,6 +151,7 @@ class Ledger:
     async def add_record(self, task_id, record):
         ...
         # add record to ledger
+
 ```
 
 Do we include `task_id` in the API, or do we always record the task ID of the caller by looking it up in context?
@@ -158,9 +159,18 @@ If you look it up, the caller can't mess it up, but it is more magical and harde
 
 ```python
 class Historian:
-    def __init__(self, ledger: Ledger):
+    """This class embodies how the Ledger is used to create the Quest experience"""
+    
+    def __init__(self, ledger: Ledger, entrypoint: Callable):
         self._ledger = ledger
 
+    # Versioning of code
+    async def when(self): ... # Return the timestamp of the currently held record 
+
+    # Steps
+    async def run_step(self, step_func): ...
+
+    # Resources
     async def add_state(self, ident, name, get_func): ...
 
     async def remove_state(self, ident, name): ...
@@ -169,8 +179,22 @@ class Historian:
 
     async def remove_action(self, ident, name): ...
 
-    async def run_step(self, step_func): ...
+    # Tasks
+    async def start_task(self, task_name, callable): ...
 
+    # Workflow entrypoint
+    async def run(self): ...
+    
 ```
 
-Do we split out resource stuff?
+Do we split out resource stuff? No - I think it makes sense for the Historian to be **the** class where logic about how to use the ledger is embodied. Historian represents the fundamental quest interface.
+
+Task group stuff might be extractable. We might also extract out the resource inventory. But the historian will control whether calls are made to these classes based on the records it has.
+
+The Ledger stores records and returns them in locked order.
+
+The Historian decides what records are created and interprets records in the context of replay.
+
+The ResourceManager keeps track of which resources exist for which identities. It handles the snapshots and the stream.
+
+The TaskManager handles the TaskGroup and task lifecycle concerns.

@@ -142,7 +142,7 @@ async def main(b=7):
                 return await self._queue.get()
 
         with namespace('inputs', ident, Request('Supply a value for A')) as request:
-            return await request.get_value()
+            return  await request.get_value()
 
     a1_task = get_user_input(ident1)
     a2_task = get_user_input(ident2)
