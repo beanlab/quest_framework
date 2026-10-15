@@ -136,3 +136,41 @@ def state(ident, name, value):
     return State(ident, name, value, find_historian())
 
 ```
+
+```python
+class Ledger:
+    def __init__(self):
+        self._history = []
+        self._gates = {}
+        # Indicate when all gates have been cleared, i.e. replay is complete
+        
+    async def get_next_record(self, task_id):
+        ...
+        # await gates until getting to next task_id record
+
+    async def add_record(self, task_id, record):
+        ...
+        # add record to ledger
+```
+
+Do we include `task_id` in the API, or do we always record the task ID of the caller by looking it up in context?
+If you look it up, the caller can't mess it up, but it is more magical and harder to understand.
+
+```python
+class Historian:
+    def __init__(self, ledger: Ledger):
+        self._ledger = ledger
+
+    async def add_state(self, ident, name, get_func): ...
+
+    async def remove_state(self, ident, name): ...
+
+    async def add_action(self, ident, name, action_func): ...
+
+    async def remove_action(self, ident, name): ...
+
+    async def run_step(self, step_func): ...
+
+```
+
+Do we split out resource stuff?
