@@ -122,6 +122,7 @@ def _prune(step_id: str, history: "History"):
     for record in to_delete:
         history.remove(record)
 
+
 def _get_exception_class(exception_type: str):
     module_name, class_name = exception_type.rsplit('.', 1)
     module = __import__(module_name, fromlist=[class_name])

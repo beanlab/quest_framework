@@ -8,25 +8,9 @@ class Historian:
     async def when(self): ...  # Return the timestamp of the currently held record
 
     # Steps
-    async def run_step(self, func_name, func: Callable, *args, **kwargs):
-        return await self._run_with_pruning(func_name, func, *args, **kwargs)
+    
 
-    async def _run_with_pruning(self, func_name, func: Callable, *args, **kwargs):
-        try:
-            prune_on_exit = True
-            return await self._run_step(func_name, func, *args, **kwargs)
-
-        except asyncio.CancelledError as cancel:
-            if cancel.args and cancel.args[0] == SUSPENDED:
-                prune_on_exit = False
-                raise
-        finally:
-            if prune_on_exit:
-                _prune(step_id, self._history)
-
-    async def _run_live_step(self, func_name, func: Callable, *args, **kwargs):
-        pass
-
+        
     async def _run_step(self, func_name, func: Callable, *args, **kwargs):
         step_id = self._get_unique_id(func_name)
         unique_func_name = step_id.split('.')[-1]
