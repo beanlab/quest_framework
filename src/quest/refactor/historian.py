@@ -1,168 +1,139 @@
-import asyncio
-from asyncio import Task
-from typing import Callable
-
-from quest import step
-
-
 class Historian:
-    async def invoke_action(self, identity, target: str, *args, **kwargs) -> Task:
-        """Returns the task from invoking target in a new task"""
-        task_id = await self.start_action(target, *args, **kwargs)
-        return await self.get_task(task_id)
-    
-    def start_action(self, identity, target: str, *args, **kwargs) -> str:
-        """Returns the task ID from invoking target in a new task"""
-        # calls _start_task and returns the resulting task ID
-    
-    def get_task(self, identity, task_id) -> Task:
-        """Returns the Task associated with target"""
-        
-    def get_values(self, identity: str | None):
-        ...
-    
-    async def _start_task(self, target: Callable, *args, **kwargs) -> Task:
-        """
-        
-        :param target: 
-        :param args: 
-        :param kwargs: 
-        :return: 
-        """
-    
-    async def _run_step(self, target: Callable, *args, **kwargs):
-        """
-        Checks to see if `target` has already run.
-        If it has, it returns the result.
-        If it hasn't, it runs the `target`.
-        :param target: 
-        :param args: 
-        :param kwargs: 
-        :return: The result of calling `target`
-        """
-        
-    
-async def main(a, b=7):
-    @step
-    async def get_random() -> int:
-        return random.random()
-    
-    c = a + await get_random()
-    d = b * await get_random()
-    
-    return c + d
+    """This class embodies how the Ledger is used to create the Quest experience"""
 
+    def __init__(self, ledger: Ledger, entrypoint: Callable):
+        self._ledger = ledger
 
-async def elsewhere():
-    historian = Historian(actions={'main': main})
-    result = await historian.invoke_action('main', 7, b=5)
+    # Versioning of code
+    async def when(self): ...  # Return the timestamp of the currently held record
 
+    # Steps
+    async def run_step(self, func_name, func: Callable, *args, **kwargs):
+        return await self._run_with_pruning(func_name, func, *args, **kwargs)
 
-async def main(b=7):
-    ident = '123'
+    async def _run_with_pruning(self, func_name, func: Callable, *args, **kwargs):
+        try:
+            prune_on_exit = True
+            return await self._run_step(func_name, func, *args, **kwargs)
 
-    @step
-    async def get_random() -> int:
-        return random.random()
+        except asyncio.CancelledError as cancel:
+            if cancel.args and cancel.args[0] == SUSPENDED:
+                prune_on_exit = False
+                raise
+        finally:
+            if prune_on_exit:
+                _prune(step_id, self._history)
 
-    class Request:
-        def __init__(self, message):
-            self._message = message
-            self._queue = asyncio.Queue()
-            
-        @value(ident) 
-        def message(self):
-            return _message
-        
-        @action(ident)
-        async def supply_value(self, value):
-            await self._queue.put(value)
-            
-        async def get_value(self):
-            return await self._queue.get()
-            
-    
-    with namespace('inputs', ident, Request('Supply a value for A')) as request:
-        a = await request.get_value()
-        
-    c = a + await get_random()
-    d = b * await get_random()
+    async def _run_live_step(self, func_name, func: Callable, *args, **kwargs):
+        pass
 
-    return c + d
+    async def _run_step(self, func_name, func: Callable, *args, **kwargs):
+        step_id = self._get_unique_id(func_name)
+        unique_func_name = step_id.split('.')[-1]
 
+        if (next_record := await self._next_record()) is not None:
+            with next_record as record:
+                assert record['step_id'] == step_id, f'{record["step_id"]} != {step_id}'
+                if record['type'] == 'end':
+                    # When sub-step records are pruned, only the 'end' record remains
+                    # So when we replay, if we find an 'end' record at the beginning of the step,
+                    #  it means the step has already completed and we should rehydrate the result
+                    if record['exception'] is not None:
+                        exception_data = record['exception']
+                        ex = deserialize_exception(exception_data)
+                        raise ex
 
-async def elsewhere():
-    historian = Historian(actions={'main': main})
-    task_id = await historian.start_action('main', b=5)
-    ...
-    historian.get_values()  # sees the message and the `supply_value` action
-    ...
-    await historian.invoke_action('inputs.supply_value', 7)
-    ...
-    result = await historian.get_task(task_id)
-    
-    
-    
-async def elsewhere():
-    historian = Historian(actions={'main': main})
-    task_id = await historian.start_action('main', b=5)
-    task_id = await historian.start_action('main', b=23)  # Why would I ever call `main` twice?
-    # Calling this main twice will result in an error because the namespace/resource collision
-    # You could write a main that used different identities; this use-case makes sense
-    # You could write a main that used an input to modify the namespace/resource names
-    # Namespaces and resources are the API, so this would be akin to dynamically building the API at runtime
-    # I guess you could do this. Quest should be simple and unopinionated. 
+                    deserialized_result = await self._serializer.deserialize(record['result'])
+                    return deserialized_result
 
+                else:
+                    assert record['type'] == 'start'
 
-async def main(b=7):
-    ident1 = '123'
-    ident2 = 'abc'
+        if next_record is None:
+            # i.e. the replay has finished and we are now running live code
+            quest_logger.debug(f'{self._get_task_name()} starting step {func_name} with {args} and {kwargs}')
+            self._history.append(StepStartRecord(
+                type='start',
+                timestamp=_get_current_timestamp(),
+                task_id=self._get_task_name(),
+                step_id=step_id
+            ))
 
-    @step
-    async def get_random() -> int:
-        return random.random()
+        try:
+            self._prefix[self._get_task_name()].append(unique_func_name)
 
-    @task
-    async def get_user_input(ident):
-        
-        class Request:
-            def __init__(self, message):
-                self._message = message
-                self._queue = asyncio.Queue()
-    
-            @value(ident)
-            def message(self):
-                return self._message
-    
-            @action(ident)
-            async def supply_value(self, value):
-                await self._queue.put(value)
-    
-            async def get_value(self):
-                return await self._queue.get()
+            result = func(*args, **kwargs)
+            if hasattr(result, '__await__'):
+                result = await result
+            quest_logger.debug(f'{self._get_task_name()} completing step {func_name} with {result}')
 
-        with namespace('inputs', ident, Request('Supply a value for A')) as request:
-            return  await request.get_value()
+            serialized_result = await self._serializer.serialize(result)
 
-    a1_task = get_user_input(ident1)
-    a2_task = get_user_input(ident2)
-    a1, a2 = await asyncio.gather(a1_task, a2_task)
-    
-    c = a1 * a2
-    d = b * await get_random()
+            self._history.append(StepEndRecord(
+                type='end',
+                timestamp=_get_current_timestamp(),
+                task_id=self._get_task_name(),
+                step_id=step_id,
+                result=serialized_result,
+                exception=None
+            ))
 
-    return c + d
+            return result
 
-    
-async def elsewhere():
-    historian = Historian(actions={'main': main})
-    task_id = await historian.start_action('main', b=5)
-    ...
-    historian.get_values('123')  # sees the message and the `supply_value` action
-    historian.get_values('abc')  # sees the message and the `supply_value` action
-    ...
-    await historian.invoke_action('123', 'inputs.supply_value', 7)
-    await historian.invoke_action('abc', 'inputs.supply_value', 12)
-    ...
-    result = await historian.get_task(task_id)
-    
+        except asyncio.CancelledError as cancel:
+            if cancel.args and cancel.args[0] == SUSPENDED:
+                raise
+            else:
+                quest_logger.debug(f'{step_id} canceled')
+                serialized_exception = serialize_exception(cancel)
+                self._history.append(StepEndRecord(
+                    type='end',
+                    timestamp=_get_current_timestamp(),
+                    task_id=self._get_task_name(),
+                    step_id=step_id,
+                    result=None,
+                    exception=serialized_exception
+                ))
+                raise
+
+        except BaseException as ex:
+            serialized_exception = serialize_exception(ex)
+            quest_logger.debug(f'Exception in {step_id}: {serialized_exception}')
+
+            self._history.append(StepEndRecord(
+                type='end',
+                timestamp=_get_current_timestamp(),
+                step_id=step_id,
+                task_id=self._get_task_name(),
+                result=None,
+                exception=serialized_exception
+            ))
+            raise
+
+        except:
+            quest_logger.exception('Unhandled error passing through handle_step!')
+            # TODO - raise?
+
+        finally:
+            self._prefix[self._get_task_name()].pop(-1)
+
+    # Resources
+    async def add_state(self, ident, name, get_func): ...
+
+    async def remove_state(self, ident, name): ...
+
+    async def add_action(self, ident, name, action_func): ...
+
+    async def remove_action(self, ident, name): ...
+
+    async def get_state(self, ident): ...  # i.e. get_resources
+
+    async def call_action(self, ident, name, *args, **kwargs): ...  # i.e. handle_external_event
+
+    # Tasks
+    async def start_task(self, task_name, callable, *args, ** kwargs) -> Task: ...
+
+    # Workflow entrypoint
+    async def run(self): ...
+
+    async def suspend(self): ...

@@ -54,7 +54,7 @@ GLOBAL_VERSION = "_global_version"
 # - can an external event be associated with a task?
 # - the external event IS associated with a resource
 # - all resources are created in a task; are all associations with a resource unique to that task?
-#  - they ARE associated with that task an all sub-tasks.
+#  - they ARE associated with that task and all sub-tasks.
 #  - but that means that a resource can be created in the top task and passed to two sub-tasks
 #  - then one task can interact with the resource and external events while the other performs sub-steps
 # - so...we'd have to know which later task was affected by the external event
@@ -121,6 +121,7 @@ def _prune(step_id: str, history: "History"):
 
     for record in to_delete:
         history.remove(record)
+
 def _get_exception_class(exception_type: str):
     module_name, class_name = exception_type.rsplit('.', 1)
     module = __import__(module_name, fromlist=[class_name])

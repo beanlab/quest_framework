@@ -179,11 +179,17 @@ class Historian:
 
     async def remove_action(self, ident, name): ...
 
+    async def get_state(self, ident): ...  # i.e. get_resources
+    
+    async def call_action(self, ident, name, *args, **kwargs): ...  # i.e. handle_external_event
+    
     # Tasks
-    async def start_task(self, task_name, callable): ...
+    async def start_task(self, task_name?, callable, *args, **kwargs) -> Task: ...
 
     # Workflow entrypoint
     async def run(self): ...
+    
+    async def suspend(self): ...  
     
 ```
 
@@ -198,3 +204,5 @@ The Historian decides what records are created and interprets records in the con
 The ResourceManager keeps track of which resources exist for which identities. It handles the snapshots and the stream.
 
 The TaskManager handles the TaskGroup and task lifecycle concerns.
+
+Identity only applies to Resources.
