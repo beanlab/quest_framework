@@ -2,7 +2,11 @@ import asyncio
 from collections.abc import Collection
 
 
-def get_task_name(known_task_names: Collection[str], external_task_name: str) -> str:
+external_task_name = 'external'
+known_task_names: Collection[str]
+
+
+def get_task_id() -> str:
     """Return the current task's known name, or the external-task fallback."""
     try:
         task = asyncio.current_task()

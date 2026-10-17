@@ -1,9 +1,12 @@
 import asyncio
-from typing import Callable
+from typing import Callable, Protocol
 
 from quest.refactor.suspension import is_suspension
-
 from .ledger import Ledger
+from .logging import logger as quest_logger
+from .tasks import get_task_id
+from .utils import get_current_timestamp
+
 
 def _prune(step_id: str, history: "History"):
     """
@@ -41,19 +44,29 @@ def _prune(step_id: str, history: "History"):
 
     for record in to_delete:
         history.remove(record)
-        
-        
+
+
+class PrefixHandler(Protocol):
+    def get_unique_id(self, func_name) -> str: ...
+
+    def push_prefix(self, step_name): ...
+
+    def pop_prefix(self): ...
+
+
 class StepHandler:
-    def __init__(self, ledger: Ledger):
+    def __init__(self, ledger: Ledger, prefix_handler: PrefixHandler):
         self._ledger = ledger
+        self._prefix_handler = prefix_handler
 
     async def run_step(self, func_name, func: Callable, *args, **kwargs):
-        return await self._run_with_pruning(func_name, func, *args, **kwargs)
+        step_id = self._prefix_handler.get_unique_id(func_name)
+        return await self._run_with_pruning(step_id, func_name, func, *args, **kwargs)
 
-    async def _run_with_pruning(self, func_name, func: Callable, *args, **kwargs):
+    async def _run_with_pruning(self, step_id, func_name, func: Callable, *args, **kwargs):
         prune_on_exit = True
         try:
-            return await self._run_step_with_record_check(func_name, func, *args, **kwargs)
+            return await self._run_step_with_record_check(step_id, func_name, func, *args, **kwargs)
 
         except asyncio.CancelledError as cancel:
             if is_suspension(cancel):
@@ -61,19 +74,17 @@ class StepHandler:
                 raise
         finally:
             if prune_on_exit:
-                _prune(step_id, self._history)
+                _prune(step_id, self._ledger)
 
-    async def _run_step_with_record_check(self, func_name, func: Callable, *args, **kwargs):
-        step_id = self._get_unique_id(func_name)
-        unique_func_name = step_id.split('.')[-1]
+    async def _run_step_with_record_check(self, step_id, func_name, func: Callable, *args, **kwargs):
 
-        if (next_record := await self._next_record()) is None:
+        if (next_record := await self._ledger.get_next_record()) is None:
             # The replay has finished and we are now running live code
-            quest_logger.debug(f'{self._get_task_name()} starting step {func_name} with {args} and {kwargs}')
+            quest_logger.debug(f'Starting step {func_name} with {args} and {kwargs}')
             self._history.append(StepStartRecord(
                 type='start',
-                timestamp=_get_current_timestamp(),
-                task_id=self._get_task_name(),
+                timestamp=get_current_timestamp(),
+                task_id=get_task_id(),
                 step_id=step_id
             ))
 
@@ -95,29 +106,37 @@ class StepHandler:
                 else:
                     assert record['type'] == 'start'
 
-        return await self._run_step_with_task_prefix(func_name, func, *args, **kwargs)
+        return await self._run_step_with_task_prefix(step_id, func_name, func, *args, **kwargs)
 
-    async def _run_step_with_task_prefix(self, func_name, func: Callable, *args, **kwargs):
+    async def _run_step_with_task_prefix(self, step_id, func_name, func: Callable, *args, **kwargs):
+        # We keep add the unique step ID to the prefix in order to clearly identify
+        # all records under the scope of a step
+        # This way we can cleanly prune all obsolete records after a step finishes.
+
+        # We use the last token of the step_id because this has been uniquified,
+        # while the function name might be repeated
+        unique_func_name = step_id.split('.')[-1]
+
         try:
-            self._prefix[self._get_task_name()].append(unique_func_name)
-            return await self._run_step_with_recorded_result(func_name, func, *args, **kwargs)
+            self._prefix_handler.push_prefix(unique_func_name)
+            return await self._run_step_with_recorded_result(step_id, func_name, func, *args, **kwargs)
 
         finally:
-            self._prefix[self._get_task_name()].pop(-1)
+            self._prefix_handler.pop_prefix()
 
-    async def _run_step_with_recorded_result(self, func_name, func: Callable, *args, **kwargs):
+    async def _run_step_with_recorded_result(self, step_id, func_name, func: Callable, *args, **kwargs):
         try:
             result = func(*args, **kwargs)
             if hasattr(result, '__await__'):
                 result = await result
-            quest_logger.debug(f'{self._get_task_name()} completing step {func_name} with {result}')
+            quest_logger.debug(f'Completing step {func_name} with {result}')
 
             serialized_result = await self._serializer.serialize(result)
 
             self._history.append(StepEndRecord(
                 type='end',
-                timestamp=_get_current_timestamp(),
-                task_id=self._get_task_name(),
+                timestamp=get_current_timestamp(),
+                task_id=get_task_id(),
                 step_id=step_id,
                 result=serialized_result,
                 exception=None
@@ -133,8 +152,8 @@ class StepHandler:
                 serialized_exception = serialize_exception(cancel)
                 self._history.append(StepEndRecord(
                     type='end',
-                    timestamp=_get_current_timestamp(),
-                    task_id=self._get_task_name(),
+                    timestamp=get_current_timestamp(),
+                    task_id=get_task_id(),
                     step_id=step_id,
                     result=None,
                     exception=serialized_exception
@@ -147,9 +166,9 @@ class StepHandler:
 
             self._history.append(StepEndRecord(
                 type='end',
-                timestamp=_get_current_timestamp(),
+                timestamp=get_current_timestamp(),
                 step_id=step_id,
-                task_id=self._get_task_name(),
+                task_id=get_task_id(),
                 result=None,
                 exception=serialized_exception
             ))
