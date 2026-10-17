@@ -19,14 +19,14 @@ class StepHandler:
         self._unique_id_handler = unique_id_handler
         self._replay_stream = replay_stream
 
-    async def run_step(self, func_name, func: Callable, *args, **kwargs):
-        step_id = self._unique_id_handler.get_unique_id(func_name)
+    async def run_step(self, task_id, func_name, func: Callable, *args, **kwargs):
+        step_id = self._unique_id_handler.get_unique_id(task_id, func_name)
         return await self._run_with_pruning(step_id, func_name, func, *args, **kwargs)
 
-    async def _run_with_pruning(self, step_id, func_name, func: Callable, *args, **kwargs):
+    async def _run_with_pruning(self, task_id, step_id, func_name, func: Callable, *args, **kwargs):
         prune_on_exit = True
         try:
-            return await self._run_step_with_record_check(step_id, func_name, func, *args, **kwargs)
+            return await self._run_step_with_record_check(task_id, step_id, func_name, func, *args, **kwargs)
 
         except asyncio.CancelledError as cancel:
             if is_suspension(cancel):
@@ -36,7 +36,7 @@ class StepHandler:
             if prune_on_exit:
                 _prune(step_id, self._ledger)
 
-    async def _run_step_with_record_check(self, step_id, func_name, func: Callable, *args, **kwargs):
+    async def _run_step_with_record_check(self, task_id, step_id, func_name, func: Callable, *args, **kwargs):
 
         if (next_record := await self._replay_stream.get_next_record()) is None:
             # The replay has finished and we are now running live code
@@ -65,9 +65,9 @@ class StepHandler:
                 else:
                     assert record['entry_type'] == 'start'
 
-        return await self._run_step_with_task_prefix(step_id, func_name, func, *args, **kwargs)
+        return await self._run_step_with_task_prefix(task_id, step_id, func_name, func, *args, **kwargs)
 
-    async def _run_step_with_task_prefix(self, step_id, func_name, func: Callable, *args, **kwargs):
+    async def _run_step_with_task_prefix(self, task_id, step_id, func_name, func: Callable, *args, **kwargs):
         # We keep add the unique step ID to the prefix in order to clearly identify
         # all records under the scope of a step
         # This way we can cleanly prune all obsolete records after a step finishes.
@@ -77,13 +77,13 @@ class StepHandler:
         unique_func_name = step_id.split('.')[-1]
 
         try:
-            self._unique_id_handler.push_prefix(unique_func_name)
-            return await self._run_step_with_recorded_result(step_id, func_name, func, *args, **kwargs)
+            self._unique_id_handler.push_prefix(task_id, unique_func_name)
+            return await self._run_step_with_recorded_result(task_id, step_id, func_name, func, *args, **kwargs)
 
         finally:
-            self._unique_id_handler.pop_prefix()
+            self._unique_id_handler.pop_prefix(task_id)
 
-    async def _run_step_with_recorded_result(self, step_id, func_name, func: Callable, *args, **kwargs):
+    async def _run_step_with_recorded_result(self, task_id, step_id, func_name, func: Callable, *args, **kwargs):
         try:
             result = func(*args, **kwargs)
             if hasattr(result, '__await__'):
@@ -93,6 +93,7 @@ class StepHandler:
             serialized_result = await self._serializer.serialize(result)
 
             await self._ledger.add_record(
+                task_id=task_id,
                 entry_type='end',
                 entry_id=step_id,
                 data=StepResult(result=serialized_result, exception=None)
@@ -107,6 +108,7 @@ class StepHandler:
                 quest_logger.debug(f'{step_id} canceled')
                 serialized_exception = serialize_exception(cancel)
                 await self._ledger.add_record(
+                    task_id=task_id,
                     entry_type='end',
                     entry_id=step_id,
                     data=StepResult(result=None, exception=serialized_exception)
@@ -118,6 +120,7 @@ class StepHandler:
             quest_logger.debug(f'Exception in {step_id}: {serialized_exception}')
 
             await self._ledger.add_record(
+                task_id=task_id,
                 entry_type='end',
                 entry_id=step_id,
                 data=StepResult(result=None, exception=serialized_exception)

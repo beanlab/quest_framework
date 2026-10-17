@@ -1,7 +1,7 @@
 from copy import deepcopy
 from typing import Any, TypedDict
 
-from .tasks import get_task_id
+from .context import get_task_id
 from .utils import get_current_timestamp
 
 
@@ -23,11 +23,11 @@ class Ledger:
         self._gates = {}
         # Indicate when all gates have been cleared, i.e. replay is complete
 
-    async def add_record(self, entry_type: str, entry_id: str, data):
+    async def add_record(self, task_id, entry_type: str, entry_id: str, data):
         self._history.append(LedgerEntry(
             entry_type=entry_type,
             timestamp=get_current_timestamp(),
-            task_id=get_task_id(),
+            task_id=task_id,
             entry_id=entry_id,
             data=data
         ))

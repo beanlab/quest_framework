@@ -1,11 +1,9 @@
 import asyncio
-import datetime
 import traceback
-from typing import Callable, Generator, Coroutine, AsyncGenerator
+from typing import Callable, AsyncGenerator
 
 from .ledger import LedgerEntry
 from .logging import quest_logger
-from .tasks import get_task_id
 from .utils import get_id, get_current_timestamp
 
 
@@ -63,23 +61,26 @@ class ReplayStream:
         if self._last_record_gate is not None:
             await self._last_record_gate
 
-    async def get_next_record(self) -> NextRecord | None:
-        if self._replay_records[get_task_id()] is None:
+    async def get_next_record(self, task_id) -> NextRecord | None:
+        if self._replay_records[task_id] is None:
             # I believe this path only runs on the first live play of the workflow; TODO - confirm
             self._current_record_timestamp = None
             return None
 
         try:
-            current_record = await self._replay_records[get_task_id()].asend(None)
+            current_record = await self._replay_records[task_id].asend(None)
             self._current_record_timestamp = current_record.current_record['timestamp']
             return current_record
 
         except StopAsyncIteration:
-            self._replay_records[get_task_id()] = None
+            self._replay_records[task_id] = None
             self._current_record_timestamp = None
             return None
 
-    async def _task_replay_records(self, task_id):
+    async def start_task_replay(self, task_id):
+        self._replay_records[task_id] = self._get_task_replay_records(task_id)
+
+    async def _get_task_replay_records(self, task_id):
         """Yield the tasks for this task ID"""
         for record in self._history:
             # If the record belongs to another task, we need to wait
@@ -111,8 +112,8 @@ class ReplayStream:
                     self._record_gates[get_id(r)].set_result(None)
 
                 # noinspection PyUnboundLocalVariable
-                quest_logger.debug(f'{get_task_id()} replaying {record}')
+                quest_logger.debug(f'{task_id} replaying {record}')
                 yield NextRecord(record, complete)
 
-        quest_logger.debug(f'Replay for {get_task_id()} complete')
+        quest_logger.debug(f'Replay for {task_id} complete')
         await self.replay_complete()

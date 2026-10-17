@@ -13,3 +13,11 @@ def get_id(item):
         return tuple(get_id(v) for v in item)
 
     return item
+
+
+def get_function_name(func):
+    if hasattr(func, '__name__'):
+        return func.__name__
+    return func.__class__.__name__
+
+
