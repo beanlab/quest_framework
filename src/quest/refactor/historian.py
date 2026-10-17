@@ -1,49 +1,31 @@
 from typing import Callable
 
 from .ledger import Ledger
+from .replay_stream import ReplayStream
 from .step_handler import StepHandler
-from .tasks import get_task_id
-
-
-class PrefixHandler:
-    def __init__(self):
-        self.reset()
-
-    def reset(self):
-        self._unique_ids: set[str] = set()
-        self._prefix = {}
-
-    def _get_prefixed_name(self, event_name: str) -> str:
-        return '.'.join(self._prefix[get_task_id()]) + '.' + event_name
-
-    def get_unique_id(self, event_name: str) -> str:
-        prefixed_name_root = self._get_prefixed_name(event_name)
-        prefixed_name = prefixed_name_root
-        counter = 0
-        while prefixed_name in self._unique_ids:
-            counter += 1
-            prefixed_name = f'{prefixed_name_root}_{counter}'
-        self._unique_ids.add(prefixed_name)
-        return prefixed_name
-
-    def push_prefix(self, unique_step_name: str):
-        self._prefix[get_task_id()].append(unique_step_name)
-
-    def pop_prefix(self):
-        self._prefix[get_task_id()].pop(-1)
+from .unique_ids import UniqueIdHandler
 
 
 class Historian:
-    """This class embodies how the Ledger is used to create the Quest experience"""
 
-    def __init__(self, ledger: Ledger, entrypoint: Callable):
+    def __init__(self, workflow_id: str, entrypoint: Callable, ledger: Ledger):
+        self._workflow_id = workflow_id
+        self._entrypoint = entrypoint
+
         self._ledger = ledger
-        self._prefix_handler = PrefixHandler()
-        self._step_handler = StepHandler(ledger, self._prefix_handler)
+        self._unique_id_handler: UniqueIdHandler = None
+        self._step_handler: StepHandler = None
+        self._replay_stream: ReplayStream = None
+
+    async def _prepare_replay(self):
+        # Called at the beginning of run
+        self._unique_id_handler = UniqueIdHandler(self._workflow_id)
+        self._replay_stream = ReplayStream(await self._ledger.get_records())
+        self._step_handler = StepHandler(self._ledger, self._unique_id_handler, self._replay_stream)
 
     # Versioning of code
     async def when(self):
-        ...  # Return the timestamp of the currently held record
+        return self._replay_stream.when()
 
     # Steps
 

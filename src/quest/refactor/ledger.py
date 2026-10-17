@@ -1,38 +1,43 @@
-from dataclasses import dataclass
-from datetime import datetime
-from typing import Any
+from copy import deepcopy
+from typing import Any, TypedDict
 
 from .tasks import get_task_id
+from .utils import get_current_timestamp
 
 
-def _get_current_timestamp() -> str:
-    return datetime.utcnow().isoformat()
-
-
-@dataclass
-class LedgerEntry:
-    type: str
+class LedgerEntry(TypedDict):
+    entry_type: str
     timestamp: str
     task_id: str
-    id: str  # step id, resource id, etc.
+    entry_id: str  # step id, resource id, etc.
     data: Any
 
 
 class Ledger:
+    # TODO - whether here or a layer down (probably down?) we need to buffer in memory and write intermittently
+    # in order to maintain performance in the code execution
+    # This affects adding
+
     def __init__(self):
         self._history = []
         self._gates = {}
         # Indicate when all gates have been cleared, i.e. replay is complete
 
-    async def get_next_record(self): ...  # await gates until getting to next task_id record
-
-    async def add_record(self, record_type: str, operation_id: str, data):
+    async def add_record(self, entry_type: str, entry_id: str, data):
         self._history.append(LedgerEntry(
-            type=record_type,
-            timestamp=_get_current_timestamp(),
+            entry_type=entry_type,
+            timestamp=get_current_timestamp(),
             task_id=get_task_id(),
-            id=operation_id,
+            entry_id=entry_id,
             data=data
         ))
 
-    async def remove_records(self, records_to_remove): ...  # to be used by prune
+    async def get_records(self) -> list[LedgerEntry]:
+        return deepcopy(self._history)
+
+    # This method is used by pruning in step_handler.py
+    # Pruning is an essential part of successful replay logic
+    # and involves an intimate manipulation of the ledger
+    async def _remove_records(self, records_to_remove: list[LedgerEntry]):
+        for record in records_to_remove:
+            self._history.remove(record)
