@@ -1,7 +1,6 @@
 from copy import deepcopy
 from typing import Any, TypedDict
 
-from .context import get_task_id
 from .utils import get_current_timestamp
 
 
@@ -35,9 +34,6 @@ class Ledger:
     async def get_records(self) -> list[LedgerEntry]:
         return deepcopy(self._history)
 
-    # This method is used by pruning in step_handler.py
-    # Pruning is an essential part of successful replay logic
-    # and involves an intimate manipulation of the ledger
-    async def _remove_records(self, records_to_remove: list[LedgerEntry]):
+    async def remove_records(self, records_to_remove: list[LedgerEntry]):
         for record in records_to_remove:
             self._history.remove(record)

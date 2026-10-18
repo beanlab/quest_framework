@@ -1,9 +1,11 @@
 import asyncio
+import traceback
 from typing import Callable, TypedDict, Any
 
 from .ledger import Ledger
 from .logging import quest_logger
 from .replay_stream import ReplayStream
+from .serializer import StepSerializer
 from .suspension import is_suspension
 from .unique_ids import UniqueIdHandler
 
@@ -14,10 +16,16 @@ class StepResult(TypedDict):
 
 
 class StepHandler:
-    def __init__(self, ledger: Ledger, unique_id_handler: UniqueIdHandler, replay_stream: ReplayStream):
+    def __init__(self,
+                 ledger: Ledger,
+                 unique_id_handler: UniqueIdHandler,
+                 replay_stream: ReplayStream,
+                 serializer: StepSerializer
+                 ):
         self._ledger = ledger
         self._unique_id_handler = unique_id_handler
         self._replay_stream = replay_stream
+        self._serializer = serializer
 
     async def run_step(self, task_id, func_name, func: Callable, *args, **kwargs):
         step_id = self._unique_id_handler.get_unique_id(task_id, func_name)
@@ -34,14 +42,15 @@ class StepHandler:
                 raise
         finally:
             if prune_on_exit:
-                _prune(step_id, self._ledger)
+                await _prune(step_id, self._ledger)
 
     async def _run_step_with_record_check(self, task_id, step_id, func_name, func: Callable, *args, **kwargs):
 
-        if (next_record := await self._replay_stream.get_next_record()) is None:
+        if (next_record := await self._replay_stream.get_next_record(task_id)) is None:
             # The replay has finished and we are now running live code
             quest_logger.debug(f'Starting step {func_name} with {args} and {kwargs}')
             await self._ledger.add_record(
+                task_id=task_id,
                 entry_type='start',
                 entry_id=step_id,
                 data=None
@@ -56,7 +65,7 @@ class StepHandler:
                     #  it means the step has already completed and we should rehydrate the result
                     if record['data']['exception'] is not None:
                         exception_data = record['data']['exception']
-                        ex = deserialize_exception(exception_data)
+                        ex = _deserialize_exception(exception_data)
                         raise ex
 
                     deserialized_result = await self._serializer.deserialize(record['data']['result'])
@@ -106,7 +115,7 @@ class StepHandler:
                 raise
             else:
                 quest_logger.debug(f'{step_id} canceled')
-                serialized_exception = serialize_exception(cancel)
+                serialized_exception = _serialize_exception(cancel)
                 await self._ledger.add_record(
                     task_id=task_id,
                     entry_type='end',
@@ -116,7 +125,7 @@ class StepHandler:
                 raise
 
         except BaseException as ex:
-            serialized_exception = serialize_exception(ex)
+            serialized_exception = _serialize_exception(ex)
             quest_logger.debug(f'Exception in {step_id}: {serialized_exception}')
 
             await self._ledger.add_record(
@@ -132,13 +141,13 @@ class StepHandler:
             raise
 
 
-def _prune(step_id: str, history: "History"):
+async def _prune(step_id: str, ledger: Ledger):
     """
     Remove substep work
     Records whose step_ids are prefixed by the step_id of the step are substep work
     Keep external events that belong to resources created outside the step
     """
-    items = reversed(history)
+    items = reversed(await ledger.get_records())
     to_delete = []
 
     # Last record should be a step with the give step ID
@@ -166,5 +175,30 @@ def _prune(step_id: str, history: "History"):
     except StopIteration:
         pass
 
-    for record in to_delete:
-        history.remove(record)
+    await ledger.remove_records(to_delete)
+
+
+def _get_type_name(obj):
+    return obj.__class__.__module__ + '.' + obj.__class__.__name__
+
+
+def _get_exception_class(exception_type: str):
+    module_name, class_name = exception_type.rsplit('.', 1)
+    module = __import__(module_name, fromlist=[class_name])
+    exception_class = getattr(module, class_name)
+    return exception_class
+
+
+def _serialize_exception(ex: BaseException) -> dict:
+    return {
+        "type": _get_type_name(ex),
+        "args": ex.args,
+        "traceback": traceback.format_exc()
+    }
+
+
+def _deserialize_exception(data: dict) -> Exception:
+    exc_cls = _get_exception_class(data["type"])
+    exc_instance: Exception = exc_cls(*data.get("args", ()))
+    exc_instance._original_traceback = data["traceback"]  # Include original tracebook info
+    return exc_instance

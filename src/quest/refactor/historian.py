@@ -6,6 +6,7 @@ from typing import Callable
 
 from .ledger import Ledger
 from .replay_stream import ReplayStream
+from .serializer import StepSerializer
 from .step_handler import StepHandler
 from .tasks import TaskManager
 from .unique_ids import UniqueIdHandler
@@ -16,12 +17,13 @@ task_id = ContextVar('task_id')
 
 class Historian:
 
-    def __init__(self, workflow_id: str, entrypoint: Callable, ledger: Ledger):
+    def __init__(self, workflow_id: str, entrypoint: Callable, ledger: Ledger, serializer: StepSerializer):
         self._workflow_id = workflow_id
         self._external_task_id = f'{workflow_id}._external'
         self._entrypoint = entrypoint
 
         self._ledger = ledger
+        self._serializer = serializer
         self._unique_id_handler: UniqueIdHandler = None
         self._step_handler: StepHandler = None
         self._replay_stream: ReplayStream = None
@@ -30,7 +32,7 @@ class Historian:
         # Called at the beginning of run
         self._unique_id_handler = UniqueIdHandler(self._workflow_id, self._external_task_id)
         self._replay_stream = ReplayStream(await self._ledger.get_records())
-        self._step_handler = StepHandler(self._ledger, self._unique_id_handler, self._replay_stream)
+        self._step_handler = StepHandler(self._ledger, self._unique_id_handler, self._replay_stream, self._serializer)
         self._task_manager = TaskManager(self._workflow_id, self._unique_id_handler, self._ledger, self._replay_stream)
 
     def _get_current_task_id(self):
