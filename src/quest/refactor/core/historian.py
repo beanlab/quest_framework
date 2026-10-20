@@ -4,9 +4,11 @@ from asyncio import Task
 from contextvars import ContextVar
 from typing import Callable
 
+from .actions import ActionHandler
 from .ledger import Ledger
 from .replay_stream import ReplayStream
 from .serializer import StepSerializer
+from .state import StateHandler
 from .step_handler import StepHandler
 from .tasks import TaskManager
 from .unique_ids import UniqueIdHandler
@@ -26,6 +28,8 @@ class Historian:
         self._serializer = serializer
         self._unique_id_handler: UniqueIdHandler = None
         self._step_handler: StepHandler = None
+        self._state_handler: StateHandler = None
+        self._action_handler: ActionHandler = None
         self._replay_stream: ReplayStream = None
 
     async def _prepare_replay(self):
@@ -33,6 +37,8 @@ class Historian:
         self._unique_id_handler = UniqueIdHandler(self._workflow_id, self._external_task_id)
         self._replay_stream = ReplayStream(await self._ledger.get_records())
         self._step_handler = StepHandler(self._ledger, self._unique_id_handler, self._replay_stream, self._serializer)
+        self._state_handler = StateHandler()
+        self._action_handler = ActionHandler()
         self._task_manager = TaskManager(self._workflow_id, self._unique_id_handler, self._ledger, self._replay_stream)
 
     def _get_current_task_id(self):
@@ -49,23 +55,25 @@ class Historian:
         return await self._step_handler.run_step(task_id, func_name, func, *args, **kwargs)
 
     # Resources
-    async def add_state(self, ident, name, get_func):
-        ...
+    async def add_state(self, ident, name, value):
+        return self._state_handler.set_state(ident, name, value)
 
     async def remove_state(self, ident, name):
-        ...
+        return self._state_handler.delete_state(ident, name)
+
+    async def get_state(self, ident, name=None):
+        return self._state_handler.get_state(ident, name=name)
 
     async def add_action(self, ident, name, action_func):
-        ...
+        return self._action_handler.add_action(ident, name, action_func)
 
     async def remove_action(self, ident, name):
-        ...
-
-    async def get_state(self, ident):
-        ...  # i.e. get_resources
+        return self._action_handler.remove_action(ident, name)
 
     async def call_action(self, ident, name, *args, **kwargs):
-        ...  # i.e. handle_external_event
+        action = self._action_handler.get_action(ident, name)
+        task = self.start_task(action, args, kwargs, task_name=name)
+        return await task
 
     # Tasks
     async def start_task(self, func, args, kwargs, task_name=None, task_factory=asyncio.create_task) -> Task:
