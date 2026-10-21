@@ -4,7 +4,7 @@ from asyncio import Task
 from contextvars import ContextVar
 from typing import Callable
 
-from .actions import ActionHandler
+from .resources import ActionHandler
 from .ledger import Ledger
 from .replay_stream import ReplayStream
 from .serializer import StepSerializer
