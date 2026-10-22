@@ -20,7 +20,7 @@ class TaskManager:
         # We keep track of all open tasks so we can properly suspend them
         self._open_tasks: list[Task] = []
 
-    def start_task(self, parent_task_id, func, args, kwargs, task_name: str | None, task_factory):
+    def start_task(self, parent_task_id, func, args, kwargs, task_name: str | None, task_factory=asyncio.create_task):
         task_id = task_name or self._unique_id_handler.get_unique_id(parent_task_id, get_function_name(func))
         quest_logger.debug(f'Requested {task_id} start')
 
