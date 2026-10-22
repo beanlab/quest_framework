@@ -1,5 +1,5 @@
 import asyncio
-from typing import Any
+from typing import Any, Callable
 
 from .ledger import Ledger
 from .replay_stream import ReplayStream
@@ -16,41 +16,6 @@ from .utils import get_function_name
 
 # @resource - adds the needed __aenter__, __aexit__ methods to register @action methods and State objects with historian
 
-
-class State:
-    def __init__(self, identity, name, value):
-        self._identity = identity
-        self._name = name
-        self._initial_value = value
-        self._historian = find_historian()
-
-    async def __aenter__(self):
-        await self.set(self._initial_value)
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self._historian.delete_state(self._identity, self._name)
-
-    async def get(self):
-        # Called to publish value in workflow surface
-        return await self._historian.get_state(self._identity, self._name)
-
-    async def set(self, value):
-        # Indicates to historian that the value has changed and needs to be republished
-        return await self._historian.set_state(self._identity, self._name, value)
-
-
-@resource
-class Queue:
-    def __init__(self):
-        self._queue = asyncio.Queue()
-
-    @action(visible=True)
-    async def put(self, item):
-        return await self._queue.put(item)
-
-    @action
-    async def get(self):
-        return await self._queue.get()
 
 
 #
@@ -106,7 +71,7 @@ class ResourceManager:
         await self._with_single_record('del_state', task_id, identity, name, None)
         del self._state[identity][name]
 
-    async def add_action(self, task_id, identity: str, name: str, func):
+    async def add_action(self, task_id, identity: str, name: str, func: Callable, visible: bool):
         await self._with_single_record('add_action', task_id, identity, name, get_function_name(func))
 
         if identity not in self._actions:

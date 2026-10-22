@@ -17,6 +17,10 @@ historian_context = ContextVar('historian')
 task_id = ContextVar('task_id')
 
 
+def find_historian() -> 'Historian':
+    return historian_context.get()
+
+
 class Historian:
 
     def __init__(self, workflow_id: str, entrypoint: Callable, ledger: Ledger, serializer: StepSerializer):
@@ -53,7 +57,7 @@ class Historian:
         return await self._step_handler.run_step(task_id, func_name, func, *args, **kwargs)
 
     # Resources
-    async def add_state(self, ident, name, value):
+    async def set_state(self, ident, name, value):
         return await self._resource_manager.set_state(self._get_current_task_id(), ident, name, value)
 
     async def get_state(self, ident, name):
@@ -83,7 +87,7 @@ class Historian:
         # Yes, an async function returning a Task
         # Getting the Task started (submitted) requires a little waiting,
         # but then the caller can continue without the Task work having completed
-        
+
         # Normally, we generate the new task name ourselves, but the main and external event tasks will supply their own
 
         # Usually, we want normal asyncio tasks. However, the external event task and the main task need to be coupled.

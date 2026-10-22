@@ -125,7 +125,7 @@ class State:
         self._value = value
 
     async def __aenter__(self):
-        await self._historian.add_state(self._identity, self._name, self.get)
+        await self._historian.set_state(self._identity, self._name, self.get)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
