@@ -10,7 +10,7 @@ from .utils import get_function_name
 
 
 class TaskManager:
-    def __init__(self, workflow_id: str, unique_id_handler: UniqueIdHandler, ledger: Ledger,
+    def __init__(self, workflow_id: str, ledger: Ledger, unique_id_handler: UniqueIdHandler,
                  replay_stream: ReplayStream):
         self._workflow_id = workflow_id
         self._unique_id_handler = unique_id_handler

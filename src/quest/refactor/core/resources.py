@@ -63,12 +63,11 @@ def _create_resource_id(name: str, identity: str | None) -> str:
 
 
 class ResourceManager:
-    def __init__(self, ledger: Ledger, replay_stream: ReplayStream, task_manager: TaskManager):
+    def __init__(self, ledger: Ledger, replay_stream: ReplayStream):
         self._state: dict[str | None, Any] = {}
         self._actions: dict[str | None, Any] = {}
         self._ledger = ledger
         self._replay_stream = replay_stream
-        self._task_manager = task_manager
 
     def get_resources(self, identity: str | None):
         """Return a snapshot of state and actions"""
@@ -122,12 +121,6 @@ class ResourceManager:
             del self._actions[identity]
 
     async def invoke_action(self, caller_task_id, identity: str, name: str, *args, **kwargs):
-        # I don't think we need a specific single record here
-        # because start_task will ensure synchronization in the replay
-        return await self._task_manager.start_task(
-            caller_task_id,
-            self._actions[identity][name],
-            args,
-            kwargs,
-            task_name=_create_resource_id(name, identity)
-        )
+        await self._with_single_record('invoke_action', caller_task_id, identity, name, (args, kwargs))
+        await self._actions[identity][name](*args, **kwargs)
+        
