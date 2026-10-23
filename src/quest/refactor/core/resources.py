@@ -1,9 +1,7 @@
-import asyncio
 from typing import Any, Callable
 
 from .ledger import Ledger
 from .replay_stream import ReplayStream
-from .tasks import TaskManager
 from .utils import get_function_name
 
 
@@ -15,7 +13,6 @@ from .utils import get_function_name
 # workflow API surface.
 
 # @resource - adds the needed __aenter__, __aexit__ methods to register @action methods and State objects with historian
-
 
 
 #
@@ -71,7 +68,7 @@ class ResourceManager:
         await self._with_single_record('del_state', task_id, identity, name, None)
         del self._state[identity][name]
 
-    async def add_action(self, task_id, identity: str, name: str, func: Callable, visible: bool):
+    async def add_action(self, task_id, identity: str, name: str, func: Callable):
         await self._with_single_record('add_action', task_id, identity, name, get_function_name(func))
 
         if identity not in self._actions:
@@ -88,4 +85,3 @@ class ResourceManager:
     async def invoke_action(self, caller_task_id, identity: str, name: str, *args, **kwargs):
         await self._with_single_record('invoke_action', caller_task_id, identity, name, (args, kwargs))
         await self._actions[identity][name](*args, **kwargs)
-        

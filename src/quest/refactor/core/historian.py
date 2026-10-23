@@ -74,6 +74,8 @@ class Historian:
 
     async def invoke_action(self, ident, name, *args, **kwargs) -> Task:
         # Yes, an async function returning a Task. See start_task.
+
+        # TODO - I think the start_task should be on the external side, not this side
         task = await self.start_task(
             self._resource_manager.invoke_action,
             (self._get_current_task_id(), ident, name, *args),
