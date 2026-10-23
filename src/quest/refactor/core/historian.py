@@ -57,8 +57,8 @@ class Historian:
         return await self._step_handler.run_step(task_id, func_name, func, *args, **kwargs)
 
     # Resources
-    async def set_state(self, ident, name, value):
-        return await self._resource_manager.set_state(self._get_current_task_id(), ident, name, value)
+    async def set_state(self, ident, name, value, external):
+        return await self._resource_manager.set_state(self._get_current_task_id(), ident, name, value, external)
 
     async def get_state(self, ident, name):
         return await self._resource_manager.get_state(self._get_current_task_id(), ident, name)
@@ -66,8 +66,8 @@ class Historian:
     async def remove_state(self, ident, name):
         return await self._resource_manager.delete_state(self._get_current_task_id(), ident, name)
 
-    async def add_action(self, ident, name, action_func):
-        return await self._resource_manager.add_action(self._get_current_task_id(), ident, name, action_func)
+    async def add_action(self, ident, name, action_func, external):
+        return await self._resource_manager.add_action(self._get_current_task_id(), ident, name, action_func, external)
 
     async def remove_action(self, ident, name):
         return await self._resource_manager.remove_action(self._get_current_task_id(), ident, name)

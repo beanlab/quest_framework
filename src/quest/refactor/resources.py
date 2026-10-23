@@ -5,15 +5,36 @@ from functools import wraps
 from .core.historian import find_historian
 
 
+# Two things need to be tracked for actions:
+# - Is the action recorded in the ledger, and thus replay sequence enforced between separate tasks?
+#   - Anytime two separate tasks mutate the same state (e.g. touch a queue), the actions they take must be tracked
+#   - This includes both internal and external tasks
+# - Is the action visible in the workflow surface, allowing external actors to invoke the action?
+
+# @action - the method is recorded and sequenced by the ledger; visible=True means the action can be called through the
+# workflow API surface.
+
+# @resource - adds the needed __aenter__, __aexit__ methods to register @action methods and State objects with historian
+
+
 class State:
-    def __init__(self, identity, name, value):
+    # State is a special class.
+    # We need a first-class way to monitor state as a resource, so we know when that state changes
+    #  and can publish a resource update.
+
+    # All members of this type in a @resource will be registered as state with the historian.
+    # You can also use State directly in a workflow.
+    
+    def __init__(self, identity, name, value, external=False):
         self._identity = identity
         self._name = name
         self._initial_value = value
+        self._external = external
         self._historian = find_historian()
 
     async def __aenter__(self):
         await self.set(self._initial_value)
+        return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self._historian.remove_state(self._identity, self._name)
@@ -24,18 +45,19 @@ class State:
 
     async def set(self, value):
         # Indicates to historian that the value has changed and needs to be republished
-        return await self._historian.set_state(self._identity, self._name, value)
+        return await self._historian.set_state(self._identity, self._name, value, self._external)
 
 
 class Action:
-    def __init__(self, identity, name, func):
+    def __init__(self, identity, name, func, external=False):
         self._identity = identity
         self._name = name
         self._func = func
+        self._external = external
         self._historian = find_historian()
 
     async def __aenter__(self):
-        await self._historian.add_action(self._identity, self._name, self._func)
+        await self._historian.add_action(self._identity, self._name, self._func, self._external)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -55,6 +77,24 @@ def resource(_cls=None, *, _scope_name=None):
     # The class should define self._name in __init__ if it wants to support
     # custom runtime resource names
 
+    # Anything that can be mutated and observed by multiple tasks needs to be tracked
+    #  by Historian. This includes State set_state, get_state and any @action methods.
+    
+    # Actions
+    # At __enter__, any @action needs to be registered with Historian
+    # Later, when someone calls the @action method on the class,
+    #  that method should route the call to Historian.
+    #  So the body of @action method is completely replaced during __enter__.
+    
+    # State
+    # At __enter__, any State needs to be registered with Historian
+    # Later, when someone calls set_state or get_state,
+    #  that method should route the call to Historian.
+    #  So the body of these methods need to be replaced.
+    
+    # IMPORTANT: What happens if we try to re-enter a resource? Is that allowed?
+    # To support this, in __exit__ we'd have to restore the original method bodies.
+    
     def decorate(cls):
 
         def add(func):
@@ -70,13 +110,15 @@ def resource(_cls=None, *, _scope_name=None):
 
         @add
         def _get_identity(self):
+            # Identity is: self._identity, or public
             return getattr(self, '_identity', None)
 
         @add
         def _iter_actions(self):
-            for name, member in vars(self).items():
-                if inspect.isfunction(member) and hasattr(member, _quest_action_name):
-                    yield self._get_name(name, member), member
+            for name, method in inspect.getmembers(self, inspect.ismethod):
+                func = method.__func__
+                if hasattr(func, _quest_action_name):
+                    yield name, self._get_name(name, func), method
 
         @add
         def _iter_state(self):
@@ -92,27 +134,27 @@ def resource(_cls=None, *, _scope_name=None):
         # This includes internal actions as well as external actions
         # So all actions must be registered, AND the action body must route through historian
 
-        # So, iterate all
-
-        def decorate_action(func):
-            @wraps(func)
-            async def new_action_func(self, *args, **kwargs):
-                historian = find_historian()
-                return await historian.invoke_action(self._get_identity(), self._get_name(), *args, **kwargs)
-            return new_action_func
-
-        for name, member in vars(cls).items():
-            if inspect.isfunction(member) and hasattr(member, _quest_action_name):
-                setattr(cls, name, decorate_action(member))
+        def decorate_action(method, historian, identity, name):
+            @wraps(method)
+            async def routed(*args, **kwargs):
+                return await historian.invoke_action(identity, name, *args, **kwargs)
+            return routed
 
         @add
         async def __aenter__(self):
             # Find all State instances and @action methods
             historian = find_historian()
 
-            for name, member in self._iter_actions():
-                await historian.add_action(self._get_identity(), name, member)
+            for attr_name, action_name, method in self._iter_actions():
+                # Register original method with Historian
+                await historian.add_action(self._get_identity(), action_name, method)
+                # Replace method with route-through-Historian version
+                setattr(self, attr_name, decorate_action(method, historian, self._get_identity(), action_name))
 
+            for name, member in self._iter_state():
+                # Register state with Historian
+                await member.__aenter__()
+                
             return self
 
         @add
@@ -121,7 +163,11 @@ def resource(_cls=None, *, _scope_name=None):
 
             for name, member in self._iter_actions():
                 await historian.remove_action(self._get_identity(), name)
+                # TODO - revert member body to original form?
 
+            for name, member in self._iter_state():
+                await member.__aexit__(exc_type, exc_val, exc_tb)
+                
         return cls
 
     if _cls is None:
