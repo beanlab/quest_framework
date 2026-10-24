@@ -1,7 +1,9 @@
 import asyncio
 import random
 
-from .resources import State, Action
+from .context import these
+from .resources import State, Action, IdentityQueue, Queue
+from .decorators import step, task
 
 
 @task
@@ -35,16 +37,25 @@ async def get_target_score():
 
 async def workflow():
     users = {}
-    with identity_queue(None, 'name') as name_queue:
+    with IdentityQueue(None, 'name') as name_queue:
         while len(users) < 3:
             identity, name = await name_queue.get()
             users[identity] = name
 
-    plays = [play(ident, await get_target_score()) for ident in users]
-    scores = {identity: score for identity, score in zip(users, asyncio.gather(*plays))}
-    final_message = '\n'.join(f'{users[identity]} has {scores[identity]}' for identity in users)
+    plays = [
+        play(ident, await get_target_score())
+        for ident in users
+    ]
+    scores = {
+        identity: score
+        for identity, score in zip(users, await asyncio.gather(*plays))
+    }
+    final_message = '\n'.join(
+        f'{users[identity]} has {scores[identity]}'
+        for identity in users
+    )
 
     with State(None, 'message', final_message), \
-            these({identity: queue(identity, 'confirm') for identity in users}) as confirm_queues:
+            these({identity: Queue(identity, 'confirm') for identity in users}) as confirm_queues:
         for q in confirm_queues.values():
             await q.get()
