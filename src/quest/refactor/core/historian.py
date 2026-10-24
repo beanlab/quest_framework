@@ -5,7 +5,6 @@ from contextvars import ContextVar
 from typing import Callable
 
 from quest.refactor.core.resources import ResourceManager
-
 from .ledger import Ledger
 from .replay_stream import ReplayStream
 from .serializer import StepSerializer
@@ -72,10 +71,12 @@ class Historian:
     async def remove_action(self, ident, name):
         return await self._resource_manager.remove_action(self._get_current_task_id(), ident, name)
 
-    async def invoke_action(self, ident, name, *args, **kwargs) -> Task:
-        # Yes, an async function returning a Task. See start_task.
+    async def invoke_action(self, ident, name, *args, **kwargs):
+        return await self._resource_manager.invoke_action(self._get_current_task_id(), ident, name, *args, **kwargs)
 
-        # TODO - I think the start_task should be on the external side, not this side
+    async def external_invoke_action(self, ident, name, *args, **kwargs) -> Task:
+        # This is the function that should be called from tasks that are not managed by the Historian
+        # Yes, an async function returning a Task. See start_task.
         task = await self.start_task(
             self._resource_manager.invoke_action,
             (self._get_current_task_id(), ident, name, *args),
@@ -138,8 +139,7 @@ class Historian:
             raise
 
     # Workflow entrypoint
-    async def run(self):
-        ...
+    async def run(self): ...
 
     async def suspend(self):
         ...
