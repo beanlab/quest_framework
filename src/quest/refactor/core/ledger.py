@@ -37,3 +37,6 @@ class Ledger:
     async def remove_records(self, records_to_remove: list[LedgerEntry]):
         for record in records_to_remove:
             self._history.remove(record)
+
+    async def clear(self):
+        self._history.clear()

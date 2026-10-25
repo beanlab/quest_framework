@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import dataclass
 from itertools import chain
 from typing import Any, Callable
@@ -42,14 +43,26 @@ class Resources:
 
 
 class ResourceManager:
-    def __init__(self, ledger: Ledger, replay_stream: ReplayStream):
+    def __init__(self, ledger: Ledger, replay_stream: ReplayStream, fatal_exception: asyncio.Future):
         self._state: dict[IDENTITY, dict[NAME, State]] = {}
         self._actions: dict[IDENTITY, dict[NAME, Action]] = {}
         self._ledger = ledger
         self._replay_stream = replay_stream
+        self._fatal_exception = fatal_exception
 
-    def get_resources(self, identity: IDENTITY) -> Resources:
+    async def get_resources(self, identity: IDENTITY) -> Resources:
         """Return a snapshot of external state and actions"""
+
+        # Wait until the replay is complete before returning resources
+        # We rely on the replay to build up the resource state,
+        #  so calling this before replay is complete will produce incorrect results
+        await self._replay_stream.replay_complete()
+
+        # When the workflow fails, it fails this future with the exception
+        # By waiting on this failed future, the exception propagates to resource observers
+        if self._fatal_exception.done():
+            await self._fatal_exception
+
         state = [
             (ident, name, state)
             for ident, name, state, in chain(
