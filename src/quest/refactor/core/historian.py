@@ -63,7 +63,7 @@ class Historian:
         return self._workflow_task.__await__()
 
     def _get_current_task_id(self):
-        return current_task_id.get(self._external_task_id)
+        return current_task_id.get(self._workflow_id)
 
     # Versioning of code
     async def when(self):
@@ -109,19 +109,6 @@ class Historian:
         return self._resource_manager.resource_stream(identities)
 
     # Tasks
-    def _task_factory_with_historian_context(self, task_factory):
-        def create_task(coroutine, name=None):
-            ctx = contextvars.copy_context()
-            ctx.run(historian_context.set, self)
-            ctx.run(current_task_id.set, name)
-            return task_factory(
-                coroutine,
-                name=name,
-                context=ctx,
-            )
-
-        return create_task
-
     async def start_task(self, func, args, kwargs, task_name=None, task_factory=asyncio.create_task) -> Task:
         # Yes, an async function returning a Task
         # Getting the Task started (submitted) requires a little waiting,
@@ -142,6 +129,22 @@ class Historian:
             task_factory=self._task_factory_with_historian_context(task_factory),
         )
 
+    def _task_factory_with_historian_context(self, task_factory):
+        def create_task(coroutine, name=None):
+            ctx = contextvars.copy_context()
+            ctx.run(historian_context.set, self)
+            ctx.run(current_task_id.set, name)
+            return task_factory(
+                coroutine,
+                name=name,
+                context=ctx,
+            )
+
+        return create_task
+
+    #
+    # Run
+    #
     def _wrap_with_args_remembered(self, func, args, kwargs):
         @wraps(func)
         async def wrapped():
@@ -202,7 +205,6 @@ class Historian:
         return wrapped
 
     async def run(self):
-        historian_context.set(self)
         # TODO - add debug logging throughout
         # quest_logger.debug(f'Running workflow {self.workflow_id}')
 
@@ -220,21 +222,23 @@ class Historian:
         # The external_replay will exit normally when replay is complete
         try:
             async with asyncio.TaskGroup() as _task_factory:
-                await self._task_manager.start_task(
-                    self._workflow_id,
+                external_task_id = f'{self._workflow_id}.external'
+                # noinspection PyTypeChecker
+                # The typechecker is confused about the signature of create_task
+                # What it expects and what it sees are identical, but it still raises a warning
+                await self.start_task(
                     self._resource_manager.external_action_handler,
-                    (),
+                    (external_task_id,),
                     {},
-                    task_name='external',
+                    task_name=external_task_id,
                     task_factory=_task_factory.create_task
                 )
 
-                return await self._task_manager.start_task(
-                    self._workflow_id,
+                # noinspection PyTypeChecker
+                return await self.start_task(
                     func,
                     (),
                     {},
-                    task_name=f'run',
                     task_factory=_task_factory.create_task
                 )
 
