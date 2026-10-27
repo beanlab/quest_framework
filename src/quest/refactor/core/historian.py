@@ -226,5 +226,19 @@ class Historian:
 
         # Workflow logic completed
 
+    def signal_suspend(self):
+        # This function is synchronous because it is called by the SIGINT handler,
+        #  which requires a synchronous function
+
+        # quest_logger.debug(f'-- Suspending {self.workflow_id} --')
+
+        # TODO - after resource stream is refactored, re-enable
+        # self._resource_runtime.notify_of_workflow_stop()
+        # Originally, this was in the synchronous signal_suspend, now on TaskManager
+        # Is it important that notifying of workflow stop still happen?
+
+        self._task_manager.signal_suspend()
+
     async def suspend(self):
-        ...
+        self.signal_suspend()
+        await self._task_manager.suspend()
