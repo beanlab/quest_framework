@@ -24,7 +24,11 @@ def find_historian() -> 'Historian':
 
 
 class Historian:
-
+    # Historian's job is to take a function and a ledger
+    #  and replay what needs to be replayed and run what needs to run
+    # It is the interface to the running workflow, where steps, tasks, and resources
+    #  are registered and accessed
+    
     def __init__(self, workflow_id: str, entrypoint: Callable, ledger: Ledger, serializer: StepSerializer):
         self._workflow_id = workflow_id
         self._external_task_id = f'{workflow_id}._external'

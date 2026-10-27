@@ -9,3 +9,7 @@ def is_suspension(cancel: CancelledError) -> bool:
 
 def suspend_task(task):
     task.cancel(SUSPENDED)
+
+
+def raise_suspension():
+    raise CancelledError(SUSPENDED)

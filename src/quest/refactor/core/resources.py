@@ -1,7 +1,8 @@
 import asyncio
 from dataclasses import dataclass
-from itertools import chain
-from typing import Any, Callable
+from typing import Any, Callable, AsyncGenerator
+
+from quest.refactor.core.suspension import raise_suspension
 
 from .ledger import Ledger
 from .replay_stream import ReplayStream
@@ -42,15 +43,31 @@ class Resources:
     actions: list[tuple[IDENTITY, NAME]]
 
 
+class ResourceStream:
+    def __init__(self, resource_iterator: AsyncGenerator[Resources]):
+        self._resource_iterator = resource_iterator
+
+    async def __aenter__(self):
+        return self._resource_iterator
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self._resource_iterator.aclose()
+
+
 class ResourceManager:
     def __init__(self, ledger: Ledger, replay_stream: ReplayStream, fatal_exception: asyncio.Future):
         self._state: dict[IDENTITY, dict[NAME, State]] = {}
         self._actions: dict[IDENTITY, dict[NAME, Action]] = {}
+
         self._ledger = ledger
         self._replay_stream = replay_stream
-        self._fatal_exception = fatal_exception
 
-    async def get_resources(self, identity: IDENTITY) -> Resources:
+        self._resource_streams: dict[IDENTITY, set[asyncio.Event]] = {}
+        self._fatal_exception = fatal_exception
+        self._workflow_suspended = False
+        self._workflow_complete = False  # TODO - wire this to historian
+
+    async def get_resources(self, identities: list[IDENTITY]) -> Resources:
         """Return a snapshot of external state and actions"""
 
         # Wait until the replay is complete before returning resources
@@ -65,24 +82,63 @@ class ResourceManager:
 
         state = [
             (ident, name, state)
-            for ident, name, state, in chain(
-                map(lambda t: (None, *t), self._state.get(None, {}).items()),
-                map(lambda t: (identity, *t), self._state.get(identity, {}).items()),
-            )
+            for ident in identities
+            for name, state, in self._state.get(ident, {}).items()
             if state.external
         ]
 
         actions = [
             (ident, name)
-            for ident, name, action, in chain(
-                map(lambda t: (None, *t), self._actions.get(None, {}).items()),
-                map(lambda t: (identity, *t), self._actions.get(identity, {}).items()),
-            )
+            for ident in identities
+            for name, action in self._actions.get(ident, {}).items()
             if action.external
         ]
 
         return Resources(state, actions)
 
+    async def resource_stream(self, identities: list[IDENTITY]) -> ResourceStream:
+        return ResourceStream(self._resource_stream(identities))
+
+    async def _resource_stream(self, identities: list[IDENTITY]) -> AsyncGenerator[Resources, None]:
+        # Whenever a resource is changed for an identity,
+        #  all events listening to that identity are set.
+        # Whenever resources for any identity listened to here are changed,
+        #  we issue an updated snapshot of all the resources visible to this stream
+
+        resources_updated = asyncio.Event()
+        for ident in identities:
+            if ident not in self._resource_streams:
+                self._resource_streams[ident] = set()
+            self._resource_streams[ident].add(resources_updated)
+
+        try:
+            while True:
+                await resources_updated.wait()
+                
+                if self._workflow_complete:
+                    return
+                elif self._workflow_suspended:
+                    raise_suspension()
+                    
+                resources_updated.clear()
+                yield await self.get_resources(identities)
+
+        finally:
+            # `yield` will raise GeneratorExit when .aclose() is called on it.
+            # This happens if the consumer of the stream exits the `async for` loop early
+            #  (this isn't a feature of for loops-it's a feature of the ResourceStream context).
+            # When the loop ends (through GeneratorExit or normally)
+            #  we clean up the listeners
+            for ident in identities:
+                self._resource_streams[ident].remove(resources_updated)
+
+    async def signal_suspension(self):
+        # When the workflow suspends, we need to signal suspension on all resource streams
+        self._workflow_suspended = True
+        for events in self._resource_streams.values():
+            for event in events:
+                event.set()
+                
     async def _with_single_record(self, record_type, task_id, identity, name, value):
         if (next_record := await self._replay_stream.get_next_record(task_id)) is None:
             await self._ledger.add_record(
@@ -162,4 +218,3 @@ class ResourceManager:
         except Exception:
             # quest_logger.exception('Error in _external_handler')
             raise
-
