@@ -10,6 +10,29 @@ from .unique_ids import UniqueIdHandler
 from .utils import get_function_name
 
 
+# external replay:
+# - there are possibly multiple threads interacting with the same resource
+# - if a resource is published, external parties can interact with it
+# - I need to make sure the external event is replayed at the right time
+#   - i.e. when the appropriate thread is ready to observe the result
+#
+#  E   A   B
+#  2   .   .
+#  .   3   .
+#  .   . ->2
+#  .   . ->3
+#
+# Guidelines
+# - external events do not have a workflow thread
+# - the sequence of external events is on the resource, not on the thread
+# - so a given thread can't interact with a resource until the events from other threads have processed
+#
+# Strategy
+# - break up the history into resource sequences
+# - advance each resource queue as threads interact
+# - when an external event is next in the sequence, replay it
+
+
 class TaskManager:
     def __init__(self, ledger: Ledger, unique_id_handler: UniqueIdHandler,
                  replay_stream: ReplayStream):
@@ -20,7 +43,8 @@ class TaskManager:
         # We keep track of all open tasks so we can properly suspend them
         self._open_tasks: list[Task] = []
 
-    async def start_task(self, parent_task_id, func, args, kwargs, task_name: str | None, task_factory=asyncio.create_task):
+    async def start_task(self, parent_task_id, func, args, kwargs, task_name: str | None,
+                         task_factory=asyncio.create_task):
         task_id = task_name or self._unique_id_handler.get_unique_id(parent_task_id, get_function_name(func))
         quest_logger.debug(f'Requested {task_id} start')
 

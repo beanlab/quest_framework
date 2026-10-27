@@ -25,7 +25,7 @@ class TypeSerializer(Protocol[T]):
         ...
 
 
-class NoopSerializer(StepSerializer):
+class NoOpSerializer(StepSerializer):
     async def serialize(self, obj: Any) -> Any:
         # object already JSON-serializable
         return obj

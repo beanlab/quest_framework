@@ -1,6 +1,7 @@
 from copy import deepcopy
 from typing import Any, TypedDict
 
+from quest import History
 from quest.refactor.core.suspension import is_suspension
 
 from .utils import get_current_timestamp
@@ -19,8 +20,8 @@ class Ledger:
     # in order to maintain performance in the code execution
     # This affects adding
 
-    def __init__(self):
-        self._history = []
+    def __init__(self, history: History[LedgerEntry]):
+        self._history = history
         self._gates = {}
         # Indicate when all gates have been cleared, i.e. replay is complete
 

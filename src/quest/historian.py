@@ -25,61 +25,7 @@ from .utils import (
 QUEST_VERSIONS = "_quest_versions"
 GLOBAL_VERSION = "_global_version"
 
-# external replay:
-# - there are possibly multiple threads interacting with the same resource
-# - if a resource is published, external parties can interact with it
-# - I need to make sure the external event is replayed at the right time
-#   - i.e. when the appropriate thread is ready to observe the result
-#
-#  E   A   B
-#  2   .   .
-#  .   3   .
-#  .   . ->2
-#  .   . ->3
-#
-# Guidelines
-# - external events do not have a workflow thread
-# - the sequence of external events is on the resource, not on the thread
-# - so a given thread can't interact with a resource until the events from other threads have processed
-#
-# Strategy
-# - break up the history into resource sequences
-# - advance each resource queue as threads interact
-# - when an external event is next in the sequence, replay it
 
-# History pruning
-# - cutting out nested steps
-# - but how do we know which external events "belonged" to a given step
-# - several external events may come in for one task while the other performs a step
-# - can an external event be associated with a task?
-# - the external event IS associated with a resource
-# - all resources are created in a task; are all associations with a resource unique to that task?
-#  - they ARE associated with that task and all sub-tasks.
-#  - but that means that a resource can be created in the top task and passed to two sub-tasks
-#  - then one task can interact with the resource and external events while the other performs sub-steps
-# - so...we'd have to know which later task was affected by the external event
-#
-#  E    A
-#  .    S
-#  1    |    # We don't want to miss replaying this event, even though it falls between the step records
-#  .    S
-#  .  ->1
-#
-#  E    A
-#  .    S
-#  1    |    # This event is safe to skip because the event resource is scoped to the step
-#  .  ->1
-#  .    S
-#
-# If a resource was created and destroyed within a step, all events associated with that resource can be skipped.
-# If a resource was created outside a step, actions on that resource should be preserved.
-# If the author puts "side effect" work on a resource inside a step, that's a problem.
-# Principle: all resources, associated events, and substeps that happen in a step will be entirely skipped.
-#            Never have side effects that are not entirely scoped to the step.
-#
-# To prune correctly, I need to turn process the sequence like a tree
-# Each task and step is a separate branch
-# I need to look for resources that are open in each branch and match the relevant events
 
 class _Wrapper:
     pass

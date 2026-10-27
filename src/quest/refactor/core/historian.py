@@ -5,15 +5,17 @@ from contextvars import ContextVar
 from functools import wraps
 from typing import Callable
 
-from quest.refactor.core.serializer import StepSerializer
-from quest.refactor.core.unique_ids import UniqueIdHandler
+from quest.refactor.core.serializer import NoOpSerializer
 
-from .ledger import Ledger
+from .history import History
+from .ledger import Ledger, LedgerEntry
 from .replay_stream import ReplayStream
 from .resources import ResourceManager
+from .serializer import StepSerializer
 from .step_handler import StepHandler
 from .suspension import is_suspension
 from .tasks import TaskManager
+from .unique_ids import UniqueIdHandler
 from .utils import get_function_name
 
 historian_context = ContextVar('historian')
@@ -26,24 +28,31 @@ def find_historian() -> 'Historian':
 
 class Historian:
     """Invokes a workflow durably while exposing the dynamic workflow resource API"""
-    
+
     # Historian's job is to take a function and a ledger
     #  and replay what needs to be replayed and run what needs to run
     # It is the interface to the running workflow, where steps, tasks, and resources
     #  are registered and accessed
 
-    def __init__(self, workflow_id: str, func: Callable, *args, serializer: StepSerializer, storage, **kwargs):
+    def __init__(
+            self,
+            workflow_id: str,
+            func: Callable,
+            *args,
+            serializer: StepSerializer = NoOpSerializer,
+            storage: History[LedgerEntry] = None,
+            **kwargs
+    ):
         self._workflow_id = workflow_id
-        self._external_task_id = f'{workflow_id}.external'  # TODO - is this needed?
         self._func = func
         self._args = args
         self._kwargs = kwargs
-        self._storage = storage
+        self._storage = storage if storage is not None else []
         self._serializer = serializer
 
     async def __aenter__(self):
         unique_id_handler = UniqueIdHandler()
-        self._ledger = Ledger(self._storage)  # TODO - figure out ledger creation
+        self._ledger = Ledger(self._storage)
         self._replay_stream = ReplayStream(await self._ledger.get_records())
         self._step_handler = StepHandler(self._ledger, unique_id_handler, self._replay_stream, self._serializer)
         self._task_manager = TaskManager(self._ledger, unique_id_handler, self._replay_stream)
