@@ -5,14 +5,15 @@ from contextvars import ContextVar
 from functools import wraps
 from typing import Callable
 
-from quest.refactor.core.resources import ResourceManager
+from quest.refactor.core.serializer import StepSerializer
+from quest.refactor.core.unique_ids import UniqueIdHandler
+
 from .ledger import Ledger
 from .replay_stream import ReplayStream
-from .serializer import StepSerializer
+from .resources import ResourceManager
 from .step_handler import StepHandler
 from .suspension import is_suspension
 from .tasks import TaskManager
-from .unique_ids import UniqueIdHandler
 from .utils import get_function_name
 
 historian_context = ContextVar('historian')
@@ -24,32 +25,42 @@ def find_historian() -> 'Historian':
 
 
 class Historian:
+    """Invokes a workflow durably while exposing the dynamic workflow resource API"""
+    
     # Historian's job is to take a function and a ledger
     #  and replay what needs to be replayed and run what needs to run
     # It is the interface to the running workflow, where steps, tasks, and resources
     #  are registered and accessed
-    
-    def __init__(self, workflow_id: str, entrypoint: Callable, ledger: Ledger, serializer: StepSerializer):
+
+    def __init__(self, workflow_id: str, func: Callable, *args, serializer: StepSerializer, storage, **kwargs):
         self._workflow_id = workflow_id
-        self._external_task_id = f'{workflow_id}._external'
-        self._entrypoint = entrypoint
-
-        self._ledger = ledger
+        self._external_task_id = f'{workflow_id}.external'  # TODO - is this needed?
+        self._func = func
+        self._args = args
+        self._kwargs = kwargs
+        self._storage = storage
         self._serializer = serializer
-        self._unique_id_handler: UniqueIdHandler = None
-        self._step_handler: StepHandler = None
-        self._resource_manager: ResourceManager = None
-        self._replay_stream: ReplayStream = None
 
-        self._fatal_exception = asyncio.Future()
-
-    async def _prepare_replay(self):
-        # Called at the beginning of run
-        self._unique_id_handler = UniqueIdHandler(self._workflow_id, self._external_task_id)
+    async def __aenter__(self):
+        unique_id_handler = UniqueIdHandler()
+        self._ledger = Ledger(self._storage)  # TODO - figure out ledger creation
         self._replay_stream = ReplayStream(await self._ledger.get_records())
-        self._step_handler = StepHandler(self._ledger, self._unique_id_handler, self._replay_stream, self._serializer)
+        self._step_handler = StepHandler(self._ledger, unique_id_handler, self._replay_stream, self._serializer)
+        self._task_manager = TaskManager(self._ledger, unique_id_handler, self._replay_stream)
         self._resource_manager = ResourceManager(self._ledger, self._replay_stream)
-        self._task_manager = TaskManager(self._workflow_id, self._ledger, self._unique_id_handler, self._replay_stream)
+
+        self._workflow_task = self.run()
+
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        # We are outside the historian's context
+        # If something has gone wrong on this side, we want the historian to suspend
+        # Or if we are exiting the context before the historian finishes, we want to suspend
+        await self.suspend()
+
+    def __await__(self):
+        return self._workflow_task.__await__()
 
     def _get_current_task_id(self):
         return current_task_id.get(self._external_task_id)
@@ -59,7 +70,6 @@ class Historian:
         return self._replay_stream.when()
 
     # Steps
-
     async def run_step(self, func_name, func: Callable, *args, **kwargs):
         task_id = self._get_current_task_id()
         return await self._step_handler.run_step(task_id, func_name, func, *args, **kwargs)
@@ -95,6 +105,9 @@ class Historian:
         )
         return task
 
+    def get_resource_stream(self, identities: list[str]):
+        return self._resource_manager.resource_stream(identities)
+
     # Tasks
     def _task_factory_with_historian_context(self, task_factory):
         def create_task(coroutine, name=None):
@@ -120,7 +133,7 @@ class Historian:
         # Historian.run will launch these two tasks via a TaskGroup.create factory
 
         parent_task_id = self._get_current_task_id()
-        return self._task_manager.start_task(
+        return await self._task_manager.start_task(
             parent_task_id,
             func,
             args,
@@ -129,7 +142,7 @@ class Historian:
             task_factory=self._task_factory_with_historian_context(task_factory),
         )
 
-    def _wrap_with_args_remembered(self, func, *args, **kwargs):
+    def _wrap_with_args_remembered(self, func, args, kwargs):
         @wraps(func)
         async def wrapped():
             nonlocal args, kwargs
@@ -161,43 +174,46 @@ class Historian:
             try:
                 await func(*args, **kwargs)
                 await self._ledger.clear()
+
             except asyncio.CancelledError as cancel:
-                if is_suspension(cancel):
-                    raise
-                await self._ledger.clear()
+                if not is_suspension(cancel):
+                    await self._ledger.clear()
+                raise
+
             except:
                 # Any other
                 await self._ledger.clear()
-
-        return wrapped
-
-    def _wrap_with_exception_handling(self, func):
-        @wraps(func)
-        async def wrapped(*args, **kwargs):
-            try:
-                return await func(*args, **kwargs)
-            except Exception as ex:
-                self._fatal_exception.set_exception(ex)
                 raise
 
         return wrapped
 
-    async def run(self, func, *args, **kwargs):
+    def _wrap_with_resource_stream_handling(self, func):
+        @wraps(func)
+        async def wrapped(*args, **kwargs):
+            try:
+                result = await func(*args, **kwargs)
+                self._resource_manager.signal_workflow_complete()
+                return result
+
+            except BaseException as exc:
+                self._resource_manager.signal_workflow_error(exc)
+                raise
+
+        return wrapped
+
+    async def run(self):
         historian_context.set(self)
         # TODO - add debug logging throughout
         # quest_logger.debug(f'Running workflow {self.workflow_id}')
-
-        # Initialize all replay and record-tracking machinery
-        await self._prepare_replay()
 
         # Wrap func in error handling
         # The order of wrapping is important
         # We want the records for remembering args and running the workflow
         #  to be cleaned up
-        # And we want errors in any of these to be correctly handled
-        func = self._wrap_with_args_remembered(func, *args, **kwargs)
+        # And we want errors in any of these to properly close resource streams
+        func = self._wrap_with_args_remembered(self._func, self._args, self._kwargs)
         func = self._wrap_with_history_cleanup(func)
-        func = self._wrap_with_exception_handling(func)
+        func = self._wrap_with_resource_stream_handling(func)
 
         # We use a TaskGroup here to ensure that the external_replay task
         #  exits when the main task fails
@@ -236,11 +252,7 @@ class Historian:
 
         # quest_logger.debug(f'-- Suspending {self.workflow_id} --')
 
-        # TODO - after resource stream is refactored, re-enable
-        # self._resource_runtime.notify_of_workflow_stop()
-        # Originally, this was in the synchronous signal_suspend, now on TaskManager
-        # Is it important that notifying of workflow stop still happen?
-
+        self._resource_manager.signal_suspension()
         self._task_manager.signal_suspend()
 
     async def suspend(self):

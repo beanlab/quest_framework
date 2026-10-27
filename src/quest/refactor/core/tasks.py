@@ -11,9 +11,8 @@ from .utils import get_function_name
 
 
 class TaskManager:
-    def __init__(self, workflow_id: str, ledger: Ledger, unique_id_handler: UniqueIdHandler,
+    def __init__(self, ledger: Ledger, unique_id_handler: UniqueIdHandler,
                  replay_stream: ReplayStream):
-        self._workflow_id = workflow_id
         self._unique_id_handler = unique_id_handler
         self._ledger = ledger
         self._replay_stream = replay_stream
@@ -21,7 +20,7 @@ class TaskManager:
         # We keep track of all open tasks so we can properly suspend them
         self._open_tasks: list[Task] = []
 
-    def start_task(self, parent_task_id, func, args, kwargs, task_name: str | None, task_factory=asyncio.create_task):
+    async def start_task(self, parent_task_id, func, args, kwargs, task_name: str | None, task_factory=asyncio.create_task):
         task_id = task_name or self._unique_id_handler.get_unique_id(parent_task_id, get_function_name(func))
         quest_logger.debug(f'Requested {task_id} start')
 
@@ -66,7 +65,6 @@ class TaskManager:
         )
 
         self._unique_id_handler.start_prefix(task_id)
-        self._replay_stream.start_task_replay(task_id)
         self._open_tasks.append(task)
         task.add_done_callback(lambda t: self._open_tasks.remove(t) if t in self._open_tasks else None)
 

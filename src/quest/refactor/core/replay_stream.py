@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import traceback
 from typing import Callable, AsyncGenerator
 
@@ -33,7 +34,7 @@ class ReplayStream:
         # See also _next_record
         self._replay_records: dict[str, AsyncGenerator[NextRecord, None] | None] = {}
 
-        self._current_record_timestamp = None
+        self._current_record_timestamp: dict[str, datetime.datetime] = {}
 
         # To ensure that past events are replayed in the exact order
         #  they were created, a record gate exists for each record.
@@ -41,43 +42,49 @@ class ReplayStream:
         #  which allows every task to move to the next record
         # If something goes wrong while processing a record,
         #  the error is put here, leading to the replay failing
-        self._record_gates: dict[str, asyncio.Future] = {}
-
-        self._record_gates = {
+        self._record_gates: dict[str, asyncio.Future] = {
             get_id(record): asyncio.Future()
             for record in self._history
         }
 
-        # noinspection PyTypeChecker
-        # the linter needs an assignment expression in order to believe that self._last_record_gate was defined
-        self._last_record_gate: asyncio.Future = None
+        self._last_record_gate: asyncio.Future | None = None
         for self._last_record_gate in self._record_gates.values():
             pass  # i.e. when this loop finishes, _last_record_gate will be the last one
 
-    def when(self):
-        return self._current_record_timestamp or get_current_timestamp()
+    def when(self) -> datetime.datetime:
+        return (
+            max(self._current_record_timestamp.values())
+            if self._current_record_timestamp
+            else get_current_timestamp()
+        )
 
     async def replay_complete(self):
         if self._last_record_gate is not None:
             await self._last_record_gate
 
     async def get_next_record(self, task_id) -> NextRecord | None:
+        if task_id not in self._replay_records:
+            self._replay_records[task_id] = await self._start_task_replay(task_id)
+
         if self._replay_records[task_id] is None:
-            # I believe this path only runs on the first live play of the workflow; TODO - confirm
-            self._current_record_timestamp = None
+            # The replay record stream will be None once all records for this task are consumed
+            # This signals that live play will begin for this task
+            del self._current_record_timestamp[task_id]
             return None
 
         try:
             current_record = await self._replay_records[task_id].asend(None)
-            self._current_record_timestamp = current_record.current_record['timestamp']
+            self._current_record_timestamp[task_id] = datetime.datetime.fromisoformat(
+                current_record.current_record['timestamp']
+            )
             return current_record
 
         except StopAsyncIteration:
             self._replay_records[task_id] = None
-            self._current_record_timestamp = None
+            del self._current_record_timestamp[task_id]
             return None
 
-    async def start_task_replay(self, task_id):
+    async def _start_task_replay(self, task_id):
         self._replay_records[task_id] = self._get_task_replay_records(task_id)
 
     async def _get_task_replay_records(self, task_id):
@@ -89,12 +96,13 @@ class ReplayStream:
             if record['task_id'] != task_id:
                 if (gate := self._record_gates[get_id(record)]).done():
                     if gate.exception() is not None:
-                        quest_logger.debug(f'{task_id} found {record} errorred: {gate.exception()}')
+                        quest_logger.debug(f'{task_id} found {record} errored: {gate.exception()}')
                     else:
                         quest_logger.debug(f'{task_id} found {record} completed')
                 else:
                     quest_logger.debug(f'{task_id} waiting on {record}')
-                # We await either way: if the gate is pending, we wait; if the gate is errorred we stop waiting
+                # We await either way: if the gate is pending, we wait;
+                # if the gate is errored, the wait is short
                 await gate
 
             else:  # task ID matches

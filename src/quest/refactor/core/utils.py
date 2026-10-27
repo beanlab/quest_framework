@@ -1,8 +1,8 @@
-from datetime import datetime
+import datetime
 
 
-def get_current_timestamp() -> str:
-    return datetime.utcnow().isoformat()
+def get_current_timestamp() -> datetime.datetime:
+    return datetime.datetime.now(datetime.UTC)
 
 
 def get_id(item):

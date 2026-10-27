@@ -1,10 +1,6 @@
 class UniqueIdHandler:
-    def __init__(self, workflow_id: str, external_task_id: str):
-        # The workflow ID is used as the task name for the root task
-        self._prefix = {
-            workflow_id: [],
-            external_task_id: [],
-        }
+    def __init__(self):
+        self._prefix = {}
 
         self._unique_ids: set[str] = set()
         self._prefix = {}
