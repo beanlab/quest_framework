@@ -112,6 +112,9 @@ class ResourceManager:
         del self._state[identity][name]
 
     async def add_action(self, task_id, identity: str, name: str, func: Callable, external: bool):
+        # TODO - raise if action already exists? Treat state differently (state currently overrides)
+        # Maybe we need to have add_state, set_state separately...?
+
         await self._with_single_record('add_action', task_id, identity, name, get_function_name(func))
 
         if identity not in self._actions:
@@ -128,3 +131,35 @@ class ResourceManager:
     async def invoke_action(self, caller_task_id, identity: str, name: str, *args, **kwargs):
         await self._with_single_record('invoke_action', caller_task_id, identity, name, (args, kwargs))
         await self._actions[identity][name].func(*args, **kwargs)
+
+    async def invoke_external_action(self, caller_task_id, identity: str, name: str, *args, **kwargs):
+        await self._with_single_record(
+            'invoke_external_action', caller_task_id, identity, name, (identity, name, args, kwargs)
+        )
+        await self._actions[identity][name].func(*args, **kwargs)
+
+    async def external_action_handler(self, external_task_id):
+        # In live play, external events come from other tasks
+        # During replay, we need to perform these actions again
+        # Most events in the ledger are encountered through the natural flow of the code in replay.
+        #  In these cases, we simply confirm that the event happening matches what was written in the ledger.
+        # However, the external events are not triggered through the workflow code, so we can't rely on workflow
+        #  code to invoke the events at the right times.
+        # Instead, we use the ledger to identify when external events happened and replay them.
+        # So, this method looks through the ledger for records created by `invoke_external_action` to replay them.
+        try:
+            # quest_logger.debug(f'External event handler {self._get_task_name()} starting')
+            while (next_record := await self._replay_stream.get_next_record(external_task_id)) is not None:
+                with next_record as record:
+                    if record['entry_type'] == 'invoke_external_action':
+                        identity, name, args, kwargs = record['data']
+                        await self._actions[identity][name].func(*args, **kwargs)
+
+                    else:
+                        raise NotImplementedError(record['entry_type'])
+
+            # quest_logger.debug(f'External event handler {self._get_task_name()} completed')
+        except Exception:
+            # quest_logger.exception('Error in _external_handler')
+            raise
+

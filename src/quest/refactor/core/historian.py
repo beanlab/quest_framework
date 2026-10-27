@@ -83,10 +83,8 @@ class Historian:
         # This is the function that should be called from tasks that are not managed by the Historian
         # Yes, an async function returning a Task. See start_task.
 
-        # TODO - move external action handling to resource manager
-        # It knows how to iterate the records and handle them correctly
         task = await self.start_task(
-            self._resource_manager.invoke_action,
+            self._resource_manager.invoke_external_action,
             (self._get_current_task_id(), ident, name, *args),
             kwargs,
             task_name=name
@@ -94,6 +92,19 @@ class Historian:
         return task
 
     # Tasks
+    def _task_factory_with_historian_context(self, task_factory):
+        def create_task(coroutine, name=None):
+            ctx = contextvars.copy_context()
+            ctx.run(historian_context.set, self)
+            ctx.run(current_task_id.set, name)
+            return task_factory(
+                coroutine,
+                name=name,
+                context=ctx,
+            )
+
+        return create_task
+
     async def start_task(self, func, args, kwargs, task_name=None, task_factory=asyncio.create_task) -> Task:
         # Yes, an async function returning a Task
         # Getting the Task started (submitted) requires a little waiting,
@@ -113,37 +124,6 @@ class Historian:
             task_name=task_name,
             task_factory=self._task_factory_with_historian_context(task_factory),
         )
-
-    def _task_factory_with_historian_context(self, task_factory):
-        def create_task(coroutine, name=None):
-            ctx = contextvars.copy_context()
-            ctx.run(historian_context.set, self)
-            ctx.run(current_task_id.set, name)
-            return task_factory(
-                coroutine,
-                name=name,
-                context=ctx,
-            )
-
-        return create_task
-
-    async def _external_handler(self, external_task_id):
-        # TODO - move external action handling to resource manager
-
-        try:
-            # quest_logger.debug(f'External event handler {self._get_task_name()} starting')
-            while (next_record := self._replay_stream.get_next_record(external_task_id)) is not None:
-                with next_record as record:
-                    if record['type'] == 'external':
-                        await self.external_invoke_action(record)
-
-                    else:
-                        raise NotImplementedError(record['type'])
-
-            # quest_logger.debug(f'External event handler {self._get_task_name()} completed')
-        except Exception:
-            # quest_logger.exception('Error in _external_handler')
-            raise
 
     def _wrap_with_args_remembered(self, func, *args, **kwargs):
         @wraps(func)
@@ -222,7 +202,7 @@ class Historian:
             async with asyncio.TaskGroup() as _task_factory:
                 await self._task_manager.start_task(
                     self._workflow_id,
-                    self._external_handler,
+                    self._resource_manager.external_action_handler,
                     (),
                     {},
                     task_name='external',
@@ -234,7 +214,7 @@ class Historian:
                     func,
                     (),
                     {},
-                    task_name=f'{self._workflow_id}.run',
+                    task_name=f'run',
                     task_factory=_task_factory.create_task
                 )
 
