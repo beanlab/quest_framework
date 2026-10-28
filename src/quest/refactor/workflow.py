@@ -14,6 +14,7 @@ class Workflow:
     async def __aenter__(self):
         self._historian = Historian(*self._args, **self._kwargs)
         await self._historian.__aenter__()
+        return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self._historian.__aexit__(exc_val, exc_val, exc_tb)

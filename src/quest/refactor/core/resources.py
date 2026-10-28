@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from typing import Any, Callable, AsyncGenerator
 
 from quest.refactor.core.suspension import raise_suspension
-
 from .ledger import Ledger
 from .replay_stream import ReplayStream
 from .utils import get_function_name
@@ -44,7 +43,7 @@ class Resources:
 
 
 class ResourceStream:
-    def __init__(self, resource_iterator: AsyncGenerator[Resources]):
+    def __init__(self, resource_iterator: AsyncGenerator[Resources, None]):
         self._resource_iterator = resource_iterator
 
     async def __aenter__(self):
@@ -53,8 +52,13 @@ class ResourceStream:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self._resource_iterator.aclose()
 
+    def __aiter__(self):
+        return self._resource_iterator.__aiter__()
+
 
 class ResourceManager:
+    # TODO - when state is changed, publish resource updates!
+
     def __init__(self, ledger: Ledger, replay_stream: ReplayStream):
         self._state: dict[IDENTITY, dict[NAME, State]] = {}
         self._actions: dict[IDENTITY, dict[NAME, Action]] = {}

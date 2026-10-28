@@ -39,7 +39,7 @@ class Historian:
             workflow_id: str,
             func: Callable,
             *args,
-            serializer: StepSerializer = NoOpSerializer,
+            serializer: StepSerializer = NoOpSerializer(),
             storage: History[LedgerEntry] = None,
             **kwargs
     ):
@@ -58,7 +58,7 @@ class Historian:
         self._task_manager = TaskManager(self._ledger, unique_id_handler, self._replay_stream)
         self._resource_manager = ResourceManager(self._ledger, self._replay_stream)
 
-        self._workflow_task = self.run()
+        self._workflow_task = await self.run()
 
         return self
 
@@ -248,6 +248,7 @@ class Historian:
                     func,
                     (),
                     {},
+                    task_name=self._workflow_id,
                     task_factory=_task_factory.create_task
                 )
 

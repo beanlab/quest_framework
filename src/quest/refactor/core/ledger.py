@@ -1,9 +1,8 @@
 from copy import deepcopy
 from typing import Any, TypedDict
 
-from quest import History
-from quest.refactor.core.suspension import is_suspension
-
+from .suspension import is_suspension
+from .history import History
 from .utils import get_current_timestamp
 
 

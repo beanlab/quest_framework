@@ -69,7 +69,8 @@ class ReplayStream:
         if self._replay_records[task_id] is None:
             # The replay record stream will be None once all records for this task are consumed
             # This signals that live play will begin for this task
-            del self._current_record_timestamp[task_id]
+            if task_id in self._current_record_timestamp:
+                del self._current_record_timestamp[task_id]
             return None
 
         try:

@@ -148,7 +148,7 @@ def resource(_cls=None, *, _scope_name=None):
 
             for attr_name, action_name, method in self._iter_actions():
                 # Register original method with Historian
-                await historian.add_action(self._get_identity(), action_name, method)
+                await historian.add_action(self._get_identity(), action_name, method, False)
                 # Replace method with route-through-Historian version
                 setattr(self, attr_name, decorate_action(method, historian, self._get_identity(), action_name))
 

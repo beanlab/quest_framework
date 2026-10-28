@@ -2,8 +2,9 @@ import asyncio
 import random
 
 from .context import these
-from .resources import State, Action, IdentityQueue, Queue
 from .decorators import step, task
+from .resources import State, Action, IdentityQueue, Queue
+from .workflow import Workflow
 
 
 @task
@@ -37,7 +38,7 @@ async def get_target_score():
 
 async def workflow():
     users = {}
-    with IdentityQueue(None, 'name') as name_queue:
+    async with IdentityQueue(None, 'name') as name_queue:
         while len(users) < 3:
             identity, name = await name_queue.get()
             users[identity] = name
@@ -59,3 +60,13 @@ async def workflow():
             these({identity: Queue(identity, 'confirm') for identity in users}) as confirm_queues:
         for q in confirm_queues.values():
             await q.get()
+
+
+async def main():
+    async with Workflow('demo', workflow) as work:
+        async for resources in work.resource_stream([None]):
+            print(resources)
+
+
+if __name__ == '__main__':
+    asyncio.run(main())

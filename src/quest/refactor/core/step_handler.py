@@ -29,7 +29,7 @@ class StepHandler:
 
     async def run_step(self, task_id, func_name, func: Callable, *args, **kwargs):
         step_id = self._unique_id_handler.get_unique_id(task_id, func_name)
-        return await self._run_with_pruning(step_id, func_name, func, *args, **kwargs)
+        return await self._run_with_pruning(task_id, step_id, func_name, func, *args, **kwargs)
 
     async def _run_with_pruning(self, task_id, step_id, func_name, func: Callable, *args, **kwargs):
         prune_on_exit = True
