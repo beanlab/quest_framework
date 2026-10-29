@@ -18,7 +18,7 @@ async def play(identity: str, target_score: int):
         await score.set(await score.get() + 1)
         score_changed.set()
 
-    with score, Action(identity, 'increment', increment_score), \
+    async with score, Action(identity, 'increment', increment_score), \
             State(identity, 'message', 'Increment your score!') as message:
         while True:
             await score_changed.wait()
@@ -56,7 +56,7 @@ async def workflow():
         for identity in users
     )
 
-    with State(None, 'message', final_message), \
+    async with State(None, 'message', final_message), \
             these({identity: Queue(identity, 'confirm') for identity in users}) as confirm_queues:
         for q in confirm_queues.values():
             await q.get()
