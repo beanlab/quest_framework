@@ -3,11 +3,11 @@ from asyncio import Task
 from functools import wraps
 
 from .ledger import Ledger
-from .logging import quest_logger
 from .replay_stream import ReplayStream
 from .suspension import suspend_task
 from .unique_ids import UniqueIdHandler
 from .utils import get_function_name
+from ..logs import quest_logger
 
 
 # external replay:

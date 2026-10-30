@@ -4,8 +4,8 @@ import traceback
 from typing import Callable, AsyncGenerator
 
 from .ledger import LedgerEntry
-from .logging import quest_logger
 from .utils import get_id, get_current_timestamp
+from ..logs import quest_logger
 
 
 class NextRecord:

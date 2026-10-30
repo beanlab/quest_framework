@@ -108,7 +108,8 @@ class Resource:
         for name, method in inspect.getmembers(self, inspect.ismethod):
             func = method.__func__
             if hasattr(func, _quest_action_name):
-                yield name, self._get_name(name, func), method
+                is_external = getattr(func, _quest_action_external)
+                yield name, self._get_name(name, func), method, is_external
 
     def _iter_state(self):
         for name, member in vars(self).items():
@@ -119,9 +120,9 @@ class Resource:
         # Find all State instances and @action methods
         historian = find_historian()
 
-        for attr_name, action_name, method in self._iter_actions():
+        for attr_name, action_name, method, is_external in self._iter_actions():
             # Register original method with Historian
-            await historian.add_action(self._get_identity(), action_name, method, False)
+            await historian.add_action(self._get_identity(), action_name, method, is_external)
             # Replace method with route-through-Historian version
             setattr(self, attr_name, _decorate_action(method, historian, self._get_identity(), action_name))
             self._original_actions[attr_name] = (action_name, method)
@@ -143,106 +144,106 @@ class Resource:
             await member.__aexit__(exc_type, exc_val, exc_tb)
 
 
-def resource(_cls=None, *, _scope_name=None):
-    # Add context methods to register all state and actions on class with historian
-
-    # The class should define self._identity in __init__ if it wants to support
-    # identity-specific resources
-
-    # The class should define self._name in __init__ if it wants to support
-    # custom runtime resource names
-
-    # Anything that can be mutated and observed by multiple tasks needs to be tracked
-    #  by Historian. This includes State set_state, get_state and any @action methods.
-
-    # Actions
-    # At __enter__, any @action needs to be registered with Historian
-    # Later, when someone calls the @action method on the class,
-    #  that method should route the call to Historian.
-    #  So the body of @action method is completely replaced during __enter__.
-
-    # State
-    # At __enter__, any State needs to be registered with Historian
-    # Later, when someone calls set_state or get_state,
-    #  that method should route the call to Historian.
-    #  So the body of these methods need to be replaced.
-
-    # IMPORTANT: What happens if we try to re-enter a resource? Is that allowed?
-    # To support this, in __exit__ we'd have to restore the original method bodies.
-
-    def decorate(cls):
-
-        def add(func):
-            setattr(cls, func.__name__, func)
-            return func
-
-        @add
-        def _get_name(self, name, member):
-            # Scope name is: self._name, or decorated scope_name, or class name
-            scope_name = getattr(self, '_name', _scope_name or cls.__name__)
-            name = (getattr(member, _quest_action_name) or name)
-            return f'{scope_name}.{name}'
-
-        @add
-        def _get_identity(self):
-            # Identity is: self._identity, or public
-            return getattr(self, '_identity', None)
-
-        @add
-        def _iter_actions(self):
-            for name, method in inspect.getmembers(self, inspect.ismethod):
-                func = method.__func__
-                if hasattr(func, _quest_action_name):
-                    yield name, self._get_name(name, func), method
-
-        @add
-        def _iter_state(self):
-            for name, member in vars(self).items():
-                if isinstance(member, State):
-                    yield name, member
-
-        def decorate_action(method, historian, identity, name):
-            @wraps(method)
-            async def routed(*args, **kwargs):
-                return await historian.invoke_action(identity, name, *args, **kwargs)
-
-            return routed
-
-        @add
-        async def __aenter__(self):
-            # Find all State instances and @action methods
-            historian = find_historian()
-
-            for attr_name, action_name, method in self._iter_actions():
-                # Register original method with Historian
-                await historian.add_action(self._get_identity(), action_name, method, False)
-                # Replace method with route-through-Historian version
-                setattr(self, attr_name, decorate_action(method, historian, self._get_identity(), action_name))
-
-            for name, member in self._iter_state():
-                # Register state with Historian
-                await member.__aenter__()
-
-            return self
-
-        @add
-        async def __aexit__(self, exc_type, exc_val, exc_tb):
-            historian = find_historian()
-
-            for name, member in self._iter_actions():
-                await historian.remove_action(self._get_identity(), name)
-                # TODO - revert member body to original form?
-
-            for name, member in self._iter_state():
-                await member.__aexit__(exc_type, exc_val, exc_tb)
-
-        return cls
-
-    if _cls is None:
-        return decorate
-
-    return decorate(_cls)
-
+# def resource(_cls=None, *, _scope_name=None):
+#     # Add context methods to register all state and actions on class with historian
+# 
+#     # The class should define self._identity in __init__ if it wants to support
+#     # identity-specific resources
+# 
+#     # The class should define self._name in __init__ if it wants to support
+#     # custom runtime resource names
+# 
+#     # Anything that can be mutated and observed by multiple tasks needs to be tracked
+#     #  by Historian. This includes State set_state, get_state and any @action methods.
+# 
+#     # Actions
+#     # At __enter__, any @action needs to be registered with Historian
+#     # Later, when someone calls the @action method on the class,
+#     #  that method should route the call to Historian.
+#     #  So the body of @action method is completely replaced during __enter__.
+# 
+#     # State
+#     # At __enter__, any State needs to be registered with Historian
+#     # Later, when someone calls set_state or get_state,
+#     #  that method should route the call to Historian.
+#     #  So the body of these methods need to be replaced.
+# 
+#     # IMPORTANT: What happens if we try to re-enter a resource? Is that allowed?
+#     # To support this, in __exit__ we'd have to restore the original method bodies.
+# 
+#     def decorate(cls):
+# 
+#         def add(func):
+#             setattr(cls, func.__name__, func)
+#             return func
+# 
+#         @add
+#         def _get_name(self, name, member):
+#             # Scope name is: self._name, or decorated scope_name, or class name
+#             scope_name = getattr(self, '_name', _scope_name or cls.__name__)
+#             name = (getattr(member, _quest_action_name) or name)
+#             return f'{scope_name}.{name}'
+# 
+#         @add
+#         def _get_identity(self):
+#             # Identity is: self._identity, or public
+#             return getattr(self, '_identity', None)
+# 
+#         @add
+#         def _iter_actions(self):
+#             for name, method in inspect.getmembers(self, inspect.ismethod):
+#                 func = method.__func__
+#                 if hasattr(func, _quest_action_name):
+#                     yield name, self._get_name(name, func), method
+# 
+#         @add
+#         def _iter_state(self):
+#             for name, member in vars(self).items():
+#                 if isinstance(member, State):
+#                     yield name, member
+# 
+#         def decorate_action(method, historian, identity, name):
+#             @wraps(method)
+#             async def routed(*args, **kwargs):
+#                 return await historian.invoke_action(identity, name, *args, **kwargs)
+# 
+#             return routed
+# 
+#         @add
+#         async def __aenter__(self):
+#             # Find all State instances and @action methods
+#             historian = find_historian()
+# 
+#             for attr_name, action_name, method in self._iter_actions():
+#                 # Register original method with Historian
+#                 await historian.add_action(self._get_identity(), action_name, method, False)
+#                 # Replace method with route-through-Historian version
+#                 setattr(self, attr_name, decorate_action(method, historian, self._get_identity(), action_name))
+# 
+#             for name, member in self._iter_state():
+#                 # Register state with Historian
+#                 await member.__aenter__()
+# 
+#             return self
+# 
+#         @add
+#         async def __aexit__(self, exc_type, exc_val, exc_tb):
+#             historian = find_historian()
+# 
+#             for name, member in self._iter_actions():
+#                 await historian.remove_action(self._get_identity(), name)
+#                 # TODO - revert member body to original form?
+# 
+#             for name, member in self._iter_state():
+#                 await member.__aexit__(exc_type, exc_val, exc_tb)
+# 
+#         return cls
+# 
+#     if _cls is None:
+#         return decorate
+# 
+#     return decorate(_cls)
+# 
 
 def action(_func=None, *, name=None, external=False):
     def decorator(func):

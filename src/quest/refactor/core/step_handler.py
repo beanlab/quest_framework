@@ -3,11 +3,11 @@ import traceback
 from typing import Callable, TypedDict, Any
 
 from .ledger import Ledger
-from .logging import quest_logger
 from .replay_stream import ReplayStream
 from .serializer import StepSerializer
 from .suspension import is_suspension
 from .unique_ids import UniqueIdHandler
+from ..logs import quest_logger
 
 
 class StepResult(TypedDict):

@@ -5,21 +5,20 @@ from contextvars import ContextVar
 from functools import wraps
 from typing import Callable
 
-from quest.refactor.core.serializer import NoOpSerializer
-
 from .history import History
 from .ledger import Ledger, LedgerEntry
 from .replay_stream import ReplayStream
 from .resources import ResourceManager
+from .serializer import NoOpSerializer
 from .serializer import StepSerializer
 from .step_handler import StepHandler
 from .suspension import is_suspension
 from .tasks import TaskManager
 from .unique_ids import UniqueIdHandler
 from .utils import get_function_name
+from ..logs import current_task_id
 
 historian_context = ContextVar('historian')
-current_task_id = ContextVar('task_id')
 
 
 def find_historian() -> 'Historian':
@@ -58,7 +57,10 @@ class Historian:
         self._task_manager = TaskManager(self._ledger, unique_id_handler, self._replay_stream)
         self._resource_manager = ResourceManager(self._ledger, self._replay_stream)
 
-        self._workflow_task = await self.run()
+        # We don't await the task because we want to decouple
+        # the parent task from the workflow work,
+        # allowing them to run independently
+        self._workflow_task = self.run()
 
         return self
 
@@ -213,7 +215,7 @@ class Historian:
 
         return wrapped
 
-    async def run(self):
+    async def _run(self):
         # TODO - add debug logging throughout
         # quest_logger.debug(f'Running workflow {self.workflow_id}')
 
@@ -244,13 +246,13 @@ class Historian:
                 )
 
                 # noinspection PyTypeChecker
-                return await self.start_task(
+                return await (await self.start_task(
                     func,
                     (),
                     {},
                     task_name=self._workflow_id,
                     task_factory=_task_factory.create_task
-                )
+                ))
 
         except ExceptionGroup as eg:
             if len(eg.exceptions) == 1:
@@ -260,6 +262,10 @@ class Historian:
 
         # Workflow logic completed
 
+    def run(self) -> asyncio.Task:
+        create_task = self._task_factory_with_historian_context(asyncio.create_task)
+        return create_task(self._run(), name=self._workflow_id + '.init')
+    
     def signal_suspend(self):
         # This function is synchronous because it is called by the SIGINT handler,
         #  which requires a synchronous function

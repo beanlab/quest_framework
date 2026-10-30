@@ -208,7 +208,7 @@ async def test_exception():
 
     await failing_listener(historian, None)
 
-    assert historian._resource_stream_manager._resource_streams == {}
+    assert historian._resource_stream_manager._resource_streams_events == {}
     await wtask
 
 

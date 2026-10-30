@@ -38,7 +38,10 @@ async def get_target_score():
 
 async def workflow():
     users = {}
-    async with IdentityQueue(None, 'name') as name_queue:
+    async with (
+        State(None, 'message', 'Enter your name'),
+        IdentityQueue(None, 'name') as name_queue
+    ):
         while len(users) < 3:
             identity, name = await name_queue.get()
             users[identity] = name
@@ -66,7 +69,13 @@ async def main():
     async with Workflow('demo', workflow) as work:
         async for resources in work.resource_stream([None]):
             print(resources)
-
+            if any(name == 'name.put' for _, name in resources.actions):
+                name = input('Name: ')
+                await work.invoke_action(None, 'name.put', name)
+            
 
 if __name__ == '__main__':
+    from quest.refactor.logs import enable_trace_logging, set_suggested_log_format
+    set_suggested_log_format()
+    enable_trace_logging()
     asyncio.run(main())

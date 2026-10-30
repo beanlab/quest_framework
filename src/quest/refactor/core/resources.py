@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, AsyncGenerator
 
 from quest.refactor.core.suspension import raise_suspension
+
 from .ledger import Ledger
 from .replay_stream import ReplayStream
 from .utils import get_function_name
@@ -66,7 +67,7 @@ class ResourceManager:
         self._ledger = ledger
         self._replay_stream = replay_stream
 
-        self._resource_streams: dict[IDENTITY, set[asyncio.Event]] = {}
+        self._resource_streams_events: dict[IDENTITY, set[asyncio.Event]] = {}
         self._fatal_exception = asyncio.Future()
         self._workflow_suspended = False
         self._workflow_complete = False  # TODO - wire this to historian
@@ -90,7 +91,7 @@ class ResourceManager:
         self._trigger_last_round_of_resources()
 
     def _trigger_last_round_of_resources(self):
-        for events in self._resource_streams.values():
+        for events in self._resource_streams_events.values():
             for event in events:
                 event.set()
 
@@ -108,9 +109,9 @@ class ResourceManager:
 
         resources_updated = asyncio.Event()
         for ident in identities:
-            if ident not in self._resource_streams:
-                self._resource_streams[ident] = set()
-            self._resource_streams[ident].add(resources_updated)
+            if ident not in self._resource_streams_events:
+                self._resource_streams_events[ident] = set()
+            self._resource_streams_events[ident].add(resources_updated)
 
         try:
             while True:
@@ -131,7 +132,7 @@ class ResourceManager:
             # When the loop ends (through GeneratorExit or normally)
             #  we clean up the listeners
             for ident in identities:
-                self._resource_streams[ident].remove(resources_updated)
+                self._resource_streams_events[ident].remove(resources_updated)
 
     async def _get_resources(self, identities: list[IDENTITY]) -> Resources:
         """Return a snapshot of external state and actions"""
@@ -165,6 +166,10 @@ class ResourceManager:
     #
     # State and Actions
     #
+    def _notify_resource_change(self, identity: IDENTITY):
+        for event in self._resource_streams_events.get(identity, []):
+            event.set()
+
     async def _with_single_record(self, record_type, task_id, identity, name, value):
         if (next_record := await self._replay_stream.get_next_record(task_id)) is None:
             await self._ledger.add_record(
@@ -183,6 +188,7 @@ class ResourceManager:
         if identity not in self._state:
             self._state[identity] = {}
         self._state[identity][name] = State(value, external)
+        self._notify_resource_change(identity)
 
     async def get_state(self, task_id, identity, name):
         await self._with_single_record('get_state', task_id, identity, name, None)
@@ -192,6 +198,7 @@ class ResourceManager:
     async def delete_state(self, task_id, identity: str, name: str):
         await self._with_single_record('del_state', task_id, identity, name, None)
         del self._state[identity][name]
+        self._notify_resource_change(identity)
 
     async def add_action(self, task_id, identity: str, name: str, func: Callable, external: bool):
         # TODO - raise if action already exists? Treat state differently (state currently overrides)
@@ -202,6 +209,7 @@ class ResourceManager:
         if identity not in self._actions:
             self._actions[identity] = {}
         self._actions[identity][name] = Action(func, external)
+        self._notify_resource_change(identity)
 
     async def remove_action(self, task_id, identity: str, name: str):
         await self._with_single_record('remove_action', task_id, identity, name, None)
@@ -209,10 +217,11 @@ class ResourceManager:
         del self._actions[identity][name]
         if not self._actions[identity]:
             del self._actions[identity]
+        self._notify_resource_change(identity)
 
     async def invoke_action(self, caller_task_id, identity: str, name: str, *args, **kwargs):
         await self._with_single_record('invoke_action', caller_task_id, identity, name, (args, kwargs))
-        await self._actions[identity][name].func(*args, **kwargs)
+        return await self._actions[identity][name].func(*args, **kwargs)
 
     async def invoke_external_action(self, caller_task_id, identity: str, name: str, *args, **kwargs):
         await self._with_single_record(

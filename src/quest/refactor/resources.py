@@ -2,18 +2,16 @@ import asyncio
 import uuid
 from typing import Any
 
-from .decorators import resource, action, step, State, Action, Resource
+from .decorators import action, step, State, Action, Resource
 
 # allow users to import State and Action from here also
 State = State  # "use" to avoid code cleanup removing the import
 Action = Action
 
 
-@resource
-class Queue:
+class Queue(Resource):
     def __init__(self, identity, name):
-        self._identity = identity
-        self._name = name
+        super().__init__(identity, name)
         self._queue = asyncio.Queue()
 
     @action(external=True)
