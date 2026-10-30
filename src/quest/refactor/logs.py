@@ -36,6 +36,10 @@ for logger_name in logging.root.manager.loggerDict.keys():
 _suggested_handler: logging.Handler | None = None
 
 
+def enable_debug_logging():
+    quest_logger.setLevel(logging.DEBUG)
+
+
 def set_suggested_log_format() -> None:
     """Configure quest logging with the suggested console format."""
     global _suggested_handler
@@ -86,9 +90,9 @@ def enable_trace_logging() -> None:
             # In newer CPython versions, f_lasti can point at the RESUME
             # immediately following the YIELD_VALUE that suspended the coroutine.
             return (
-                instruction.opname == "RESUME"
-                and index > 0
-                and code_instructions[index - 1].opname == "YIELD_VALUE"
+                    instruction.opname == "RESUME"
+                    and index > 0
+                    and code_instructions[index - 1].opname == "YIELD_VALUE"
             )
         return False
 
@@ -106,7 +110,7 @@ def enable_trace_logging() -> None:
         arguments = [
             f"{name}={arg_info.locals[name]!r}"
             for name in arg_info.args
-            if name in arg_info.locals
+            if name != "self" and name in arg_info.locals
         ]
         if arg_info.varargs:
             arguments.append(f"*{arg_info.varargs}={arg_info.locals[arg_info.varargs]!r}")

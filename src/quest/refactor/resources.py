@@ -14,11 +14,11 @@ class Queue(Resource):
         super().__init__(identity, name)
         self._queue = asyncio.Queue()
 
-    @action(external=True)
+    @action
     async def put(self, item):
         return await self._queue.put(item)
 
-    @action
+    @action(external=False)
     async def get(self):
         return await self._queue.get()
 
@@ -33,12 +33,12 @@ class IdentityQueue(Resource):
         super().__init__(identity, name)
         self._queue = asyncio.Queue()
 
-    @action(external=True)
+    @action
     async def put(self, item) -> str:
         touch_id = await _generate_id()
         await self._queue.put((touch_id, item))
         return touch_id
 
-    @action
+    @action(external=False)
     async def get(self) -> tuple[str, Any]:
         return await self._queue.get()

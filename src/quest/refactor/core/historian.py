@@ -1,6 +1,5 @@
 import asyncio
 import contextvars
-from asyncio import Task
 from contextvars import ContextVar
 from functools import wraps
 from typing import Callable
@@ -16,13 +15,35 @@ from .suspension import is_suspension
 from .tasks import TaskManager
 from .unique_ids import UniqueIdHandler
 from .utils import get_function_name
-from ..logs import current_task_id
+from ..logs import current_task_id, quest_logger
 
 historian_context = ContextVar('historian')
 
 
 def find_historian() -> 'Historian':
     return historian_context.get()
+
+
+def logged(func):
+    @wraps(func)
+    def wrapped_with_logs(*args, **kwargs):
+        quest_logger.debug('CALL %s(%s, %s)', get_function_name(func), args, kwargs)
+        result = func(*args, **kwargs)
+        quest_logger.debug('RETURN %s(%s, %s) -> %s', get_function_name(func), args, kwargs, result)
+        return result
+
+    return wrapped_with_logs
+
+
+def alogged(func):
+    @wraps(func)
+    async def wrapped_with_logs(*args, **kwargs):
+        quest_logger.debug('CALL %s(%s, %s)', get_function_name(func), args, kwargs)
+        result = await func(*args, **kwargs)
+        quest_logger.debug('RETURN %s(%s, %s) -> %s', get_function_name(func), args, kwargs, result)
+        return result
+
+    return wrapped_with_logs
 
 
 class Historian:
@@ -77,38 +98,46 @@ class Historian:
         return current_task_id.get(self._workflow_id)
 
     # Versioning of code
+    @alogged
     async def when(self):
         return self._replay_stream.when()
 
     # Steps
+    @alogged
     async def run_step(self, func_name, func: Callable, *args, **kwargs):
         task_id = self._get_current_task_id()
         return await self._step_handler.run_step(task_id, func_name, func, *args, **kwargs)
 
     # Resources
+    @alogged
     async def set_state(self, ident, name, value, external):
         return await self._resource_manager.set_state(self._get_current_task_id(), ident, name, value, external)
 
+    @alogged
     async def get_state(self, ident, name):
         return await self._resource_manager.get_state(self._get_current_task_id(), ident, name)
 
+    @alogged
     async def remove_state(self, ident, name):
         return await self._resource_manager.delete_state(self._get_current_task_id(), ident, name)
 
+    @alogged
     async def add_action(self, ident, name, action_func, external):
         return await self._resource_manager.add_action(self._get_current_task_id(), ident, name, action_func, external)
 
+    @alogged
     async def remove_action(self, ident, name):
         return await self._resource_manager.remove_action(self._get_current_task_id(), ident, name)
 
+    @alogged
     async def invoke_action(self, ident, name, *args, **kwargs):
         return await self._resource_manager.invoke_action(self._get_current_task_id(), ident, name, *args, **kwargs)
 
-    async def external_invoke_action(self, ident, name, *args, **kwargs) -> Task:
+    @logged
+    def external_invoke_action(self, ident, name, *args, **kwargs) -> asyncio.Task:
         # This is the function that should be called from tasks that are not managed by the Historian
-        # Yes, an async function returning a Task. See start_task.
 
-        task = await self.start_task(
+        task = self.start_task(
             self._resource_manager.invoke_external_action,
             (self._get_current_task_id(), ident, name, *args),
             kwargs,
@@ -116,22 +145,20 @@ class Historian:
         )
         return task
 
+    @logged
     def get_resource_stream(self, identities: list[str]):
         return self._resource_manager.resource_stream(identities)
 
     # Tasks
-    async def start_task(self, func, args, kwargs, task_name=None, task_factory=asyncio.create_task) -> Task:
-        # Yes, an async function returning a Task
-        # Getting the Task started (submitted) requires a little waiting,
-        # but then the caller can continue without the Task work having completed
-
+    @logged
+    def start_task(self, func, args, kwargs, task_name=None, task_factory=asyncio.create_task) -> asyncio.Task:
         # Normally, we generate the new task name ourselves, but the main and external event tasks will supply their own
 
         # Usually, we want normal asyncio tasks. However, the external event task and the main task need to be coupled.
         # Historian.run will launch these two tasks via a TaskGroup.create factory
 
         parent_task_id = self._get_current_task_id()
-        return await self._task_manager.start_task(
+        return self._task_manager.start_task(
             parent_task_id,
             func,
             args,
@@ -237,7 +264,7 @@ class Historian:
                 # noinspection PyTypeChecker
                 # The typechecker is confused about the signature of create_task
                 # What it expects and what it sees are identical, but it still raises a warning
-                await self.start_task(
+                self.start_task(
                     self._resource_manager.external_action_handler,
                     (external_task_id,),
                     {},
@@ -246,13 +273,13 @@ class Historian:
                 )
 
                 # noinspection PyTypeChecker
-                return await (await self.start_task(
+                return await self.start_task(
                     func,
                     (),
                     {},
                     task_name=self._workflow_id,
                     task_factory=_task_factory.create_task
-                ))
+                )
 
         except ExceptionGroup as eg:
             if len(eg.exceptions) == 1:
@@ -262,10 +289,12 @@ class Historian:
 
         # Workflow logic completed
 
+    @logged
     def run(self) -> asyncio.Task:
         create_task = self._task_factory_with_historian_context(asyncio.create_task)
         return create_task(self._run(), name=self._workflow_id + '.init')
-    
+
+    @logged
     def signal_suspend(self):
         # This function is synchronous because it is called by the SIGINT handler,
         #  which requires a synchronous function
@@ -275,6 +304,7 @@ class Historian:
         self._resource_manager.signal_suspension()
         self._task_manager.signal_suspend()
 
+    @alogged
     async def suspend(self):
         self.signal_suspend()
         await self._task_manager.suspend()

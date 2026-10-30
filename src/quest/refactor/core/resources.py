@@ -148,7 +148,7 @@ class ResourceManager:
             await self._fatal_exception
 
         state = [
-            (ident, name, state)
+            (ident, name, state.value)
             for ident in identities
             for name, state, in self._state.get(ident, {}).items()
             if state.external

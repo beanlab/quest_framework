@@ -29,7 +29,7 @@ class State:
     # All members of this type in a @resource will be registered as state with the historian.
     # You can also use State directly in a workflow.
 
-    def __init__(self, identity, name, value, external=False):
+    def __init__(self, identity, name, value, external=True):
         self._identity = identity
         self._name = name
         self._initial_value = value
@@ -53,7 +53,7 @@ class State:
 
 
 class Action:
-    def __init__(self, identity, name, func, external=False):
+    def __init__(self, identity, name, func, external=True):
         self._identity = identity
         self._name = name
         self._func = func
@@ -245,7 +245,7 @@ class Resource:
 #     return decorate(_cls)
 # 
 
-def action(_func=None, *, name=None, external=False):
+def action(_func=None, *, name=None, external=True):
     def decorator(func):
         setattr(func, _quest_action_name, name)
         setattr(func, _quest_action_external, external)
@@ -273,8 +273,8 @@ def step(func):
 def task(func):
     # TODO - typehint modification to return a Task of result?
     @wraps(func)
-    async def new_func(*args, **kwargs):
-        return await find_historian().start_task(
+    def new_func(*args, **kwargs):
+        return find_historian().start_task(
             func,
             args,
             kwargs

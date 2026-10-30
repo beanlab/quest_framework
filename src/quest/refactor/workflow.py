@@ -34,5 +34,5 @@ class Workflow:
             if attr not in {"__name__", "__qualname__"}
         ),
     )
-    async def invoke_action(self, *args, **kwargs):
-        return await self._historian.external_invoke_action(*args, **kwargs)
+    def invoke_action(self, *args, **kwargs):
+        return self._historian.external_invoke_action(*args, **kwargs)

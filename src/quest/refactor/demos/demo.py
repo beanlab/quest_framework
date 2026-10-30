@@ -1,10 +1,10 @@
 import asyncio
 import random
 
-from .context import these
-from .decorators import step, task
-from .resources import State, Action, IdentityQueue, Queue
-from .workflow import Workflow
+from quest.refactor.context import these
+from quest.refactor.decorators import step, task
+from quest.refactor.resources import State, Action, IdentityQueue, Queue
+from quest.refactor.workflow import Workflow
 
 
 @task
@@ -39,7 +39,7 @@ async def get_target_score():
 async def workflow():
     users = {}
     async with (
-        State(None, 'message', 'Enter your name'),
+        State(None, 'message', 'Enter your name', True),
         IdentityQueue(None, 'name') as name_queue
     ):
         while len(users) < 3:
@@ -59,7 +59,7 @@ async def workflow():
         for identity in users
     )
 
-    async with State(None, 'message', final_message), \
+    async with State(None, 'message', final_message, True), \
             these({identity: Queue(identity, 'confirm') for identity in users}) as confirm_queues:
         for q in confirm_queues.values():
             await q.get()
@@ -67,15 +67,23 @@ async def workflow():
 
 async def main():
     async with Workflow('demo', workflow) as work:
+        identities = {}
         async for resources in work.resource_stream([None]):
             print(resources)
             if any(name == 'name.put' for _, name in resources.actions):
-                name = input('Name: ')
-                await work.invoke_action(None, 'name.put', name)
-            
+                for _ in range(3):
+                    name = input('Name: ')
+                    ident = await work.invoke_action(None, 'name.put', name)
+                    identities[name] = ident
+            break
+
+        async for resources in work.resource_stream([None] + list(identities.values())):
+            print(resources)
+                    
 
 if __name__ == '__main__':
     from quest.refactor.logs import enable_trace_logging, set_suggested_log_format
+
     set_suggested_log_format()
     enable_trace_logging()
     asyncio.run(main())
