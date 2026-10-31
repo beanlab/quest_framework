@@ -7,6 +7,7 @@ from quest.refactor.core.suspension import raise_suspension
 from .ledger import Ledger
 from .replay_stream import ReplayStream
 from .utils import get_function_name
+from ..logs import quest_logger
 
 # Two kinds of actions:
 # 1) Ledger-monitored action on state. For when multiple tasks touch the same state.
@@ -106,16 +107,23 @@ class ResourceManager:
         #  all events listening to that identity are set.
         # Whenever resources for any identity listened to here are changed,
         #  we issue an updated snapshot of all the resources visible to this stream
+        quest_logger.debug('Resource stream started for %s', identities)
 
         resources_updated = asyncio.Event()
+
         for ident in identities:
             if ident not in self._resource_streams_events:
                 self._resource_streams_events[ident] = set()
             self._resource_streams_events[ident].add(resources_updated)
 
+            # The very first time, we set immediately so the listener gets the current version of the resources
+            # From then one we only get an update when something changes
+            resources_updated.set()
+
         try:
             while True:
                 await resources_updated.wait()
+                quest_logger.debug('Resource update observed for %s', identities)
 
                 if self._workflow_complete:
                     return
@@ -167,6 +175,7 @@ class ResourceManager:
     # State and Actions
     #
     def _notify_resource_change(self, identity: IDENTITY):
+        quest_logger.debug('Resource change notified for %s', identity)
         for event in self._resource_streams_events.get(identity, []):
             event.set()
 
@@ -227,7 +236,7 @@ class ResourceManager:
         await self._with_single_record(
             'invoke_external_action', caller_task_id, identity, name, (identity, name, args, kwargs)
         )
-        await self._actions[identity][name].func(*args, **kwargs)
+        return await self._actions[identity][name].func(*args, **kwargs)
 
     async def external_action_handler(self, external_task_id):
         # In live play, external events come from other tasks
