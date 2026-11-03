@@ -2,10 +2,9 @@ import asyncio
 from dataclasses import dataclass
 from typing import Any, Callable, AsyncGenerator
 
-from quest.refactor.core.suspension import raise_suspension
-
 from .ledger import Ledger
 from .replay_stream import ReplayStream
+from .suspension import raise_suspension
 from .utils import get_function_name
 from ..logs import quest_logger
 
@@ -46,15 +45,20 @@ class Resources:
 
 class ResourceStream:
     def __init__(self, resource_iterator: AsyncGenerator[Resources, None]):
+        self._entered = False
         self._resource_iterator = resource_iterator
 
     async def __aenter__(self):
+        self._entered = True
         return self._resource_iterator
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
+        self._entered = False
         await self._resource_iterator.aclose()
 
     def __aiter__(self):
+        if not self._entered:
+            raise Exception('Must use ResourceStream in `async with`')  # TODO - custom exception or better alternate?
         return self._resource_iterator.__aiter__()
 
 
@@ -122,6 +126,7 @@ class ResourceManager:
 
         try:
             while True:
+                quest_logger.debug('Waiting for resources updates to %s', identities)
                 await resources_updated.wait()
                 quest_logger.debug('Resource update observed for %s', identities)
 
@@ -139,8 +144,11 @@ class ResourceManager:
             #  (this isn't a feature of for loops-it's a feature of the ResourceStream context).
             # When the loop ends (through GeneratorExit or normally)
             #  we clean up the listeners
+            quest_logger.debug('Clean up resource listeners: %s %s', self._resource_streams_events, identities)
             for ident in identities:
                 self._resource_streams_events[ident].remove(resources_updated)
+                if not self._resource_streams_events[ident]:
+                    del self._resource_streams_events[ident]
 
     async def _get_resources(self, identities: list[IDENTITY]) -> Resources:
         """Return a snapshot of external state and actions"""

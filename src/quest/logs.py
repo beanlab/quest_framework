@@ -105,6 +105,43 @@ def enable_trace_logging() -> None:
             frame = frame.f_back
         return False
 
+    def traced_function_name(frame) -> str:
+        # @wraps updates the wrapper function, not its code object's co_qualname.
+        # First check wrappers that expose their wrapped callable through self/cls.
+        receiver = frame.f_locals.get("self", frame.f_locals.get("cls"))
+        if receiver is not None:
+            method = inspect.getattr_static(receiver, frame.f_code.co_name, None)
+            if isinstance(method, (staticmethod, classmethod)):
+                method = method.__func__
+            if getattr(method, "__code__", None) is frame.f_code:
+                function = method
+                wrapped = getattr(function, "__wrapped__", None)
+                if wrapped is not None:
+                    try:
+                        return inspect.unwrap(wrapped).__qualname__
+                    except ValueError:
+                        pass
+
+        # Decorator wrappers commonly close over the decorated function.
+        preferred_names = ("func", "method", "wrapped", "original")
+        closure_names = preferred_names + tuple(
+            name for name in frame.f_code.co_freevars if name not in preferred_names
+        )
+        for name in closure_names:
+            if name not in frame.f_code.co_freevars:
+                continue
+            candidate = frame.f_locals.get(name)
+            if callable(candidate):
+                try:
+                    candidate = inspect.unwrap(candidate)
+                except ValueError:
+                    pass
+                wrapped_name = getattr(candidate, "__qualname__", None)
+                if wrapped_name:
+                    return wrapped_name
+
+        return frame.f_code.co_qualname
+
     def format_call_arguments(frame) -> str:
         arg_info = inspect.getargvalues(frame)
         arguments = [
@@ -154,13 +191,21 @@ def enable_trace_logging() -> None:
         else:
             return trace
 
+        local_name = frame.f_code.co_qualname
+        wrapped_name = traced_function_name(frame)
+        function_name = (
+            f"{local_name} aka {wrapped_name}"
+            if wrapped_name != local_name
+            else local_name
+        )
+
         emitting_trace_log = True
         try:
             quest_logger.log(
                 TRACE,
                 "%s %s%s",
                 message,
-                frame.f_code.co_qualname,
+                function_name,
                 detail,
                 stacklevel=stacklevel,
             )

@@ -1,7 +1,6 @@
 import asyncio
 
-from quest.refactor.resources import State, IdentityQueue, Queue
-from quest.refactor.workflow import Workflow
+from quest import State, IdentityQueue, Queue, Workflow
 
 
 async def workflow():
@@ -23,10 +22,11 @@ async def workflow():
 
 
 async def wait_for_action(work: Workflow, identity, action_name):
-    async for resources in work.resource_stream([identity]):
-        print('RESOURCES', resources)
-        if (identity, action_name) in resources.actions:
-            return resources
+    async with work.resource_stream([identity]) as stream:
+        async for resources in stream:
+            print('RESOURCES', resources)
+            if (identity, action_name) in resources.actions:
+                return resources
 
 
 async def main():
@@ -41,13 +41,15 @@ async def main():
         print(resources)
         number = int(input('Number: '))
         await work.invoke_action(ident, 'number.put', number)
-
-        async for resources in work.resource_stream([None, ident]):
-            print(resources)
+        
+        async with work.resource_stream([None, ident]) as stream:
+            async for resources in stream:
+                print(resources)
 
 
 if __name__ == '__main__':
-    from quest.refactor.logs import set_suggested_log_format, enable_debug_logging
+    from quest.logs import set_suggested_log_format, enable_debug_logging
+
     set_suggested_log_format()
-    enable_debug_logging()
+    # enable_debug_logging()
     asyncio.run(main())

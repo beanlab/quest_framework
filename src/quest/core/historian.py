@@ -137,11 +137,16 @@ class Historian:
     def external_invoke_action(self, ident, name, *args, **kwargs) -> asyncio.Task:
         # This is the function that should be called from tasks that are not managed by the Historian
 
+        async def action(*_args, **_kwargs):
+            return await self._resource_manager.invoke_external_action(
+                *_args, **_kwargs
+            )
+        action.__name__ = name
         task = self.start_task(
-            self._resource_manager.invoke_external_action,
+            action,
             (self._get_current_task_id(), ident, name, *args),
             kwargs,
-            task_name=name
+            # task_name=name
         )
         return task
 

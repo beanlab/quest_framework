@@ -1,7 +1,6 @@
 import asyncio
 
-from quest.refactor.resources import State
-from quest.refactor.workflow import Workflow
+from quest import State, Workflow
 
 
 async def workflow():
@@ -17,8 +16,9 @@ async def workflow():
 
 async def main():
     async with Workflow('demo', workflow) as work:
-        async for resources in work.resource_stream([None]):
-            print(resources)
+        async with work.resource_stream([None]) as stream:
+            async for resources in stream:
+                print(resources)
 
 
 if __name__ == '__main__':

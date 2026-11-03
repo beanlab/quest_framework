@@ -42,3 +42,5 @@ class IdentityQueue(Resource):
     @action(external=False)
     async def get(self) -> tuple[str, Any]:
         return await self._queue.get()
+
+

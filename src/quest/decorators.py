@@ -3,9 +3,8 @@ from functools import wraps
 from types import MethodType
 from typing import Self
 
-from quest.refactor.core.resources import IDENTITY
-
 from .core.historian import find_historian
+from .core.resources import IDENTITY
 from .core.utils import get_function_name
 
 
@@ -93,7 +92,7 @@ class Resource:
     def __init__(self, identity: IDENTITY, name: str):
         self._identity = identity
         self._scope_name = name
-        
+
         self._original_actions: dict[str, tuple[str, MethodType]] = {}
 
     def _get_name(self, member_name, member):

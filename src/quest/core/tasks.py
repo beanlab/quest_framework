@@ -90,6 +90,7 @@ class TaskManager:
 
         self._unique_id_handler.start_prefix(task_id)
         self._open_tasks.append(task)
+        quest_logger.debug('Open tasks: %s', self._open_tasks)
         task.add_done_callback(lambda t: self._open_tasks.remove(t) if t in self._open_tasks else None)
 
         return task
