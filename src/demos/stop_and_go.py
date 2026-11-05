@@ -4,13 +4,12 @@ from quest import step, Workflow
 from quest.logs import quest_logger
 
 
-@step
-async def noisy():
-    quest_logger.info('Noisy')
-
-
 async def main():
     pause = asyncio.Event()
+
+    @step
+    async def noisy():
+        quest_logger.info('Noisy')
 
     async def workflow():
         quest_logger.info('Start')
@@ -38,6 +37,6 @@ if __name__ == '__main__':
     from quest.logs import enable_debug_logging, set_suggested_log_format, enable_trace_logging
 
     set_suggested_log_format()
-    enable_debug_logging()
-    enable_trace_logging()
+    # enable_debug_logging()
+    # enable_trace_logging()
     asyncio.run(main())

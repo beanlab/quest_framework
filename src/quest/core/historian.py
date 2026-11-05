@@ -143,6 +143,7 @@ class Historian:
             )
 
         action.__name__ = name
+
         task = self.start_task(
             action,
             (self._get_current_task_id(), ident, name, *args),

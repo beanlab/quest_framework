@@ -245,5 +245,11 @@ class ResourceManager:
             'invoke_external_action', caller_task_id, identity, name, (identity, name, args, kwargs)
         )
         return await self._actions[identity][name].func(*args, **kwargs)
-
+        # TODO - should we use step_handler to run args and kwargs steps like historian.run?
+        # Should historian.run be an external action and all threads start from external?
+        # I really like that idea.
+        # Then only the external thread starts, and it kicks off the main run.
+        # All functions kicked off by the external task have the same guards: input memory, error handling, etc.
+        # Should a subsequent external event be allowed to crash the workflow if there is an error?
+        #  Should all external tasks run in the same TaskGroup?
 
