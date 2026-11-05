@@ -246,27 +246,4 @@ class ResourceManager:
         )
         return await self._actions[identity][name].func(*args, **kwargs)
 
-    async def external_action_handler(self, external_task_id):
-        # In live play, external events come from other tasks
-        # During replay, we need to perform these actions again
-        # Most events in the ledger are encountered through the natural flow of the code in replay.
-        #  In these cases, we simply confirm that the event happening matches what was written in the ledger.
-        # However, the external events are not triggered through the workflow code, so we can't rely on workflow
-        #  code to invoke the events at the right times.
-        # Instead, we use the ledger to identify when external events happened and replay them.
-        # So, this method looks through the ledger for records created by `invoke_external_action` to replay them.
-        try:
-            # quest_logger.debug(f'External event handler {self._get_task_name()} starting')
-            while (next_record := await self._replay_stream.get_next_record(external_task_id)) is not None:
-                with next_record as record:
-                    if record['entry_type'] == 'invoke_external_action':
-                        identity, name, args, kwargs = record['data']
-                        await self._actions[identity][name].func(*args, **kwargs)
 
-                    else:
-                        raise NotImplementedError(record['entry_type'])
-
-            # quest_logger.debug(f'External event handler {self._get_task_name()} completed')
-        except Exception:
-            # quest_logger.exception('Error in _external_handler')
-            raise

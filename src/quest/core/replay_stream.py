@@ -32,7 +32,7 @@ class ReplayStream:
         #  that belong to a specific task.
         # _replay_records stores the generators for each task ID
         # See also _next_record
-        self._replay_records: dict[str, AsyncGenerator[NextRecord, None] | None] = {}
+        self._replay_records: dict[str, AsyncGenerator[NextRecord, bool] | None] = {}
 
         self._current_record_timestamp: dict[str, datetime.datetime] = {}
 
@@ -62,7 +62,7 @@ class ReplayStream:
         if self._last_record_gate is not None:
             await self._last_record_gate
 
-    async def get_next_record(self, task_id) -> NextRecord | None:
+    async def get_next_record(self, task_id, consume=True) -> NextRecord | None:
         if task_id not in self._replay_records:
             self._replay_records[task_id] = self._get_task_replay_records(task_id)
 
@@ -74,7 +74,8 @@ class ReplayStream:
             return None
 
         try:
-            current_record = await self._replay_records[task_id].asend(None)
+            # TODO - first asend must be None
+            current_record = await self._replay_records[task_id].asend(consume)
             self._current_record_timestamp[task_id] = datetime.datetime.fromisoformat(
                 current_record.current_record['timestamp']
             )
@@ -123,7 +124,9 @@ class ReplayStream:
 
                 # noinspection PyUnboundLocalVariable
                 quest_logger.debug(f'Replaying {record}')
-                yield NextRecord(record, complete)
+                consume = yield NextRecord(record, complete)
+                while not consume:
+                    consume = yield NextRecord(record, complete)
 
         quest_logger.debug(f'Replay for complete')
         await self.replay_complete()
