@@ -26,12 +26,29 @@ async def admin_view(work: Workflow):
                     if not resources.actions:
                         continue
 
-                    choice = input('Action: ')
-                    if not choice:
-                        # quest_logger.debug('Next')
+                    while True:
+                        choice = input('Action: ')
+                        parts = choice.split()
+                        if not parts:
+                            # quest_logger.debug('Next')
+                            break
+
+                        index, *args = parts
+                        try:
+                            index = int(index)
+                        except ValueError:
+                            print('Please enter a valid action number.')
+                            continue
+
+                        if not 0 <= index < len(resources.actions):
+                            print('Action number is out of range.')
+                            continue
+                        break
+
+                    if not parts:
                         continue
-                    index, *args = choice.split()
-                    ident, name = resources.actions[int(index)]
+
+                    ident, name = resources.actions[index]
                     result = await work.invoke_action(ident, name, *args)
                     if name == 'name.put' and result not in identities:  # identity queue
                         raise NewIdentity(result)

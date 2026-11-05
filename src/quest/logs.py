@@ -36,6 +36,14 @@ for logger_name in logging.root.manager.loggerDict.keys():
 _suggested_handler: logging.Handler | None = None
 
 
+class _ColorFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        line = super().format(record)
+        if record.levelno == logging.INFO:
+            return f"\033[32m{line}\033[0m"
+        return line
+
+
 def enable_debug_logging():
     quest_logger.setLevel(logging.DEBUG)
 
@@ -44,7 +52,8 @@ def set_suggested_log_format() -> None:
     """Configure quest logging with the suggested console format."""
     global _suggested_handler
 
-    formatter = logging.Formatter(
+    formatter_class = _ColorFormatter if sys.stderr.isatty() else logging.Formatter
+    formatter = formatter_class(
         "%(asctime)s %(levelname).4s %(task)s %(filename)s:%(lineno)d %(message)s"
     )
     if _suggested_handler is None:
@@ -58,7 +67,7 @@ def set_suggested_log_format() -> None:
 
 TRACE = 5
 logging.addLevelName(TRACE, "TRACE")
-REPO_ROOT = Path(__file__).resolve().parents[4]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def enable_trace_logging() -> None:

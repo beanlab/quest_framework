@@ -58,6 +58,8 @@ class StepHandler:
 
         else:
             with next_record as record:
+                quest_logger.debug(f'Skipping step {func_name}: {step_id}')
+
                 assert record['entry_id'] == step_id, f'{record["entry_id"]} != {step_id}'
                 if record['entry_type'] == 'end':
                     # When sub-step records are pruned, only the 'end' record remains

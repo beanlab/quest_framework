@@ -64,7 +64,7 @@ class ReplayStream:
 
     async def get_next_record(self, task_id) -> NextRecord | None:
         if task_id not in self._replay_records:
-            self._replay_records[task_id] = await self._start_task_replay(task_id)
+            self._replay_records[task_id] = self._get_task_replay_records(task_id)
 
         if self._replay_records[task_id] is None:
             # The replay record stream will be None once all records for this task are consumed
@@ -82,7 +82,8 @@ class ReplayStream:
 
         except StopAsyncIteration:
             self._replay_records[task_id] = None
-            del self._current_record_timestamp[task_id]
+            if task_id in self._current_record_timestamp:
+                del self._current_record_timestamp[task_id]
             return None
 
     async def _start_task_replay(self, task_id):
@@ -97,13 +98,13 @@ class ReplayStream:
             if record['task_id'] != task_id:
                 if (gate := self._record_gates[get_id(record)]).done():
                     if gate.exception() is not None:
-                        quest_logger.debug(f'{task_id} found {record} errored: {gate.exception()}')
+                        quest_logger.debug(f'Found {record} erred: {gate.exception()}')
                     else:
-                        quest_logger.debug(f'{task_id} found {record} completed')
+                        quest_logger.debug(f'Found {record} completed')
                 else:
-                    quest_logger.debug(f'{task_id} waiting on {record}')
+                    quest_logger.debug(f'Waiting on {record}')
                 # We await either way: if the gate is pending, we wait;
-                # if the gate is errored, the wait is short
+                # if the gate is erred, the wait is short
                 await gate
 
             else:  # task ID matches
@@ -117,12 +118,12 @@ class ReplayStream:
                     # Thus, even if there was an error when the task completed
                     # we simply want to indicate the gate is finished
                     # The relevant error will be raised in handle_step
-                    quest_logger.debug(f'{task_id} completing {r}')
+                    quest_logger.debug(f'Completing task {r}')
                     self._record_gates[get_id(r)].set_result(None)
 
                 # noinspection PyUnboundLocalVariable
-                quest_logger.debug(f'{task_id} replaying {record}')
+                quest_logger.debug(f'Replaying {record}')
                 yield NextRecord(record, complete)
 
-        quest_logger.debug(f'Replay for {task_id} complete')
+        quest_logger.debug(f'Replay for complete')
         await self.replay_complete()
