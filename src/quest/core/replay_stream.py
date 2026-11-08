@@ -124,9 +124,7 @@ class ReplayStream:
 
                 # noinspection PyUnboundLocalVariable
                 quest_logger.debug(f'Replaying {record}')
-                consume = yield NextRecord(record, complete)
-                while not consume:
-                    consume = yield NextRecord(record, complete)
+                yield NextRecord(record, complete)
 
-        quest_logger.debug(f'Replay for complete')
+        quest_logger.debug(f'Replay complete')
         await self.replay_complete()

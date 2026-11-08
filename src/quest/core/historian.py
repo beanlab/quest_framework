@@ -1,5 +1,6 @@
 import asyncio
 import contextvars
+from asyncio import CancelledError
 from contextvars import ContextVar
 from functools import wraps
 from typing import Callable
@@ -71,17 +72,21 @@ class Historian:
         self._serializer = serializer
 
     async def __aenter__(self):
-        unique_id_handler = UniqueIdHandler()
+        self._unique_id_handler = UniqueIdHandler()
         self._ledger = Ledger(self._storage)
-        self._replay_stream = ReplayStream(await self._ledger.get_records())
-        self._step_handler = StepHandler(self._ledger, unique_id_handler, self._replay_stream, self._serializer)
-        self._task_manager = TaskManager(self._ledger, unique_id_handler, self._replay_stream)
+        history = await self._ledger.get_records()
+        self._external_events = [event for event in history if event['entry_type'] == 'invoke']
+        self._other_events = [event for event in history if event['entry_type'] != 'invoke']
+        self._replay_stream = ReplayStream(self._other_events)
+        self._step_handler = StepHandler(self._ledger, self._unique_id_handler, self._replay_stream, self._serializer)
+        self._task_manager = TaskManager(self._ledger, self._unique_id_handler, self._replay_stream)
         self._resource_manager = ResourceManager(self._ledger, self._replay_stream)
 
         # We don't await the task because we want to decouple
         # the parent task from the workflow work,
         # allowing them to run independently
         self._workflow_task = self.run()
+        self._workflow_complete = False
 
         return self
 
@@ -89,7 +94,18 @@ class Historian:
         # We are outside the historian's context
         # If something has gone wrong on this side, we want the historian to suspend
         # Or if we are exiting the context before the historian finishes, we want to suspend
-        await self.suspend()
+        if not self._workflow_complete:  # TODO - was this necessary?
+            quest_logger.debug('Workflow not complete; suspending')
+            await self.suspend()
+
+        try:
+            await self._workflow_task  # TODO - was this necessary?
+        except CancelledError as cancel:
+            if not is_suspension(cancel):
+                raise
+
+        if exc_val and is_suspension(exc_val):  # TODO - was this necessary?
+            return True
 
     def __await__(self):
         return self._workflow_task.__await__()
@@ -136,23 +152,32 @@ class Historian:
     @logged
     def external_invoke_action(self, ident, name, *args, **kwargs) -> asyncio.Task:
         # This is the function that should be called from tasks that are not managed by the Historian
+        self._ledger.add_record(
+            self._workflow_id,
+            'invoke',
+            action_id := self._unique_id_handler.get_unique_id(self._workflow_id, name),
+            (action_id, ident, name, args, kwargs)
+        )
+        return self._external_invoke_action(action_id, ident, name, args, kwargs)
 
+    def _external_invoke_action(self, action_id, ident, name, args, kwargs) -> asyncio.Task:
         async def action(*_args, **_kwargs):
-            return await self._resource_manager.invoke_external_action(
+            return await self._resource_manager.invoke_action(
                 *_args, **_kwargs
             )
 
         action.__name__ = name
 
+        quest_logger.debug(f'External event starting: %s %s %s', action_id, ident, name)
         task = self.start_task(
             action,
-            (self._get_current_task_id(), ident, name, *args),
-            kwargs,
+            (action_id, ident, name),
+            {},
             # task_name=name
         )
         return task
 
-    async def _external_action_handler(self, external_task_id):
+    async def _external_action_handler(self, external_action_records: list[LedgerEntry]):
         # In live play, external events come from other tasks
         # During replay, we need to perform these actions again
         # Most events in the ledger are encountered through the natural flow of the code in replay.
@@ -162,19 +187,12 @@ class Historian:
         # Instead, we use the ledger to identify when external events happened and replay them.
         # So, this method looks through the ledger for records created by `invoke_external_action` to replay them.
         try:
-            # quest_logger.debug(f'External event handler {self._get_task_name()} starting')
-            while (next_record := await self._replay_stream.get_next_record(external_task_id, consume=False)) is not None:
-                with next_record as record:
-                    if record['entry_type'] == 'invoke_external_action':
-                        identity, name, args, kwargs = record['data']
-                        await self.external_invoke_action(identity, name, *args, **kwargs)
+            for record in external_action_records:
+                action_id, identity, name, args, kwargs = record['data']
+                self._external_invoke_action(action_id, identity, name, args, kwargs)
 
-                    else:
-                        raise NotImplementedError(record['entry_type'])
-
-            # quest_logger.debug(f'External event handler {self._get_task_name()} completed')
         except Exception:
-            # quest_logger.exception('Error in _external_handler')
+            quest_logger.exception('Error in _external_handler')
             raise
 
     @logged
@@ -266,10 +284,12 @@ class Historian:
             try:
                 result = await func(*args, **kwargs)
                 self._resource_manager.signal_workflow_complete()
+                self._workflow_complete = True  # TODO - was this necessary?
                 return result
 
             except BaseException as exc:
                 self._resource_manager.signal_workflow_error(exc)
+                self._workflow_complete = True  # TODO - was this necessary?
                 raise
 
         return wrapped
@@ -286,10 +306,12 @@ class Historian:
         func = self._wrap_with_args_remembered(self._func, self._args, self._kwargs)
         func = self._wrap_with_history_cleanup(func)
         func = self._wrap_with_resource_stream_handling(func)
+        # TODO - set workflow complete when it is finished
 
         # We use a TaskGroup here to ensure that the external_replay task
         #  exits when the main task fails
         # The external_replay will exit normally when replay is complete
+
         try:
             async with asyncio.TaskGroup() as _task_factory:
                 external_task_id = f'{self._workflow_id}.external'
@@ -298,9 +320,9 @@ class Historian:
                 # What it expects and what it sees are identical, but it still raises a warning
                 self.start_task(
                     self._external_action_handler,
-                    (external_task_id,),
+                    (self._external_events,),
                     {},
-                    task_name=external_task_id,
+                    task_name=self._workflow_id + '.external_replay',
                     task_factory=_task_factory.create_task
                 )
 
@@ -325,6 +347,79 @@ class Historian:
     def run(self) -> asyncio.Task:
         create_task = self._task_factory_with_historian_context(asyncio.create_task)
         return create_task(self._run(), name=self._workflow_id + '.init')
+
+    # Historian manages a ledger
+    # It runs a single task that waits for action invocations
+    # Each action is started on a new task with arg/kwarg remembered
+    # Replay simply kicks off these tasks in order.
+    # Perhaps: a queue provides action invocation requests; on replay the queue is repopulated with requests;
+    #  the external task grabs these replayed requests and runs them; each task starts, but is immediately gated
+    #  on the task start records and ultimately replay at the correct times.
+
+    # We need the idea of a core external action: it is run within the same task group as the core historian task.
+    # If any of these fail, they are all canceled together. The main workflow function should be core.
+    # Could a system include multiple core workflows in the same Historian scope?
+
+    # If the main workflow function is just a special action,
+    # should it be treated special besides being the first to be called?
+    # What identity should it be registered with?
+    # Or should Historian support invoking any provided function? `invoke(func, *args, **kwargs)` simply calls
+    #  the provided function within the context of the Historian.
+    # External actions (or internal actions) are just looking up a registered function by name and calling `invoke`.
+
+    # Each external action has the workflow ID + function name, uniquified. These are recorded as external events.
+    # Right at the start of replay, tasks are started for each external action from these records.
+    # These records are ignored when creating the record gates.
+    # These tasks are started immediately, but then gate on the start_task record at the beginning of each.
+
+    # We need special handling around the core workflow functions.
+    # Errors need to propagate to other core functions.
+    #  This involves running in the same task group and in signalling errors to the replay stream.
+    # When all core functions are successfully completed, we clean up the ledger.
+
+    # All external actions need arg/kwarg memory before the task is started.
+    # OR, we remember the args, kwargs in the external event record.
+    # Storing them in the record is more atomic. If a suspension happens before these are stored, we'd have a problem.
+
+    def init(self):
+        for event in self._ledger.get_records():  # get 'invoke' records
+            self._external_events.put(event)
+        create_task(self.event_handler)
+
+    async def event_handler(self):
+        async for event in self._external_events:
+            self.invoke(*event)
+
+    def invoke(self, func, *args, **kwargs) -> asyncio.Task:
+        # Remember args, kwargs in ledger
+        self._ledger.add_record(
+            self._get_current_task_id(),
+            'invoke',
+            self._unique_ids.get(get_function_name(func)),
+            (args, kwargs)
+        )
+        self._external_events.put((func, args, kwargs))
+        # Where does the Task come from?
+
+    async def main(self, func, *args, **kwargs):
+        self.schedule_external_event(func, args, kwargs)
+
+    # It may be that we're not far off already.
+    # Just make sure that some `run` logic is used in external event handling
+    # and that `run` uses external event to call the main function.
+
+    # We need to ensure that __init__ setups up the run to use the replay correctly
+    # Maybe this: calling run starts the external thread and posts to the event queue?
+
+    # The difference between the primary entry point and other external events is that
+    # The primary entry point is explicitly called on replay (this call is what starts the replay),
+    #  whereas other external events need to be kicked off by the historian from records in the ledger.
+    # Thus, all primary entry points would need to be invoked together at the beginning, otherwise
+    #  the subsequent events would need to be replayed by historian (you can't rely on outside the historian
+    #  to replay the other primary events at the right times).
+    # If they are all going to be invoked at the same time, then you might as well just have one function,
+    #  and it can be designed to do however many parallel tasks as desired.
+    # SO, we only need one primary task.
 
     @logged
     def signal_suspend(self):

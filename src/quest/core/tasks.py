@@ -76,8 +76,8 @@ class TaskManager:
 
             else:
                 with next_record as record:
-                    assert record['entry_type'] == 'complete_task'
-                    assert record['task_id'] == task_id
+                    assert record['entry_type'] == 'complete_task', str(record)
+                    assert record['task_id'] == task_id, str(record)
 
             quest_logger.debug(f'Completing task {task_id}')
 

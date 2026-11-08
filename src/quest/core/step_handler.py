@@ -29,20 +29,7 @@ class StepHandler:
 
     async def run_step(self, task_id, func_name, func: Callable, *args, **kwargs):
         step_id = self._unique_id_handler.get_unique_id(task_id, func_name)
-        return await self._run_with_pruning(task_id, step_id, func_name, func, *args, **kwargs)
-
-    async def _run_with_pruning(self, task_id, step_id, func_name, func: Callable, *args, **kwargs):
-        prune_on_exit = True
-        try:
-            return await self._run_step_with_record_check(task_id, step_id, func_name, func, *args, **kwargs)
-
-        except asyncio.CancelledError as cancel:
-            if is_suspension(cancel):
-                prune_on_exit = False
-                raise
-        finally:
-            if prune_on_exit:
-                await _prune(step_id, self._ledger)
+        return await self._run_step_with_record_check(task_id, step_id, func_name, func, *args, **kwargs)
 
     async def _run_step_with_record_check(self, task_id, step_id, func_name, func: Callable, *args, **kwargs):
 
@@ -76,7 +63,20 @@ class StepHandler:
                 else:
                     assert record['entry_type'] == 'start'
 
-        return await self._run_step_with_task_prefix(task_id, step_id, func_name, func, *args, **kwargs)
+        return await self._run_with_pruning(task_id, step_id, func_name, func, *args, **kwargs)
+
+    async def _run_with_pruning(self, task_id, step_id, func_name, func: Callable, *args, **kwargs):
+        prune_on_exit = True
+        try:
+            return await self._run_step_with_task_prefix(task_id, step_id, func_name, func, *args, **kwargs)
+
+        except asyncio.CancelledError as cancel:
+            if is_suspension(cancel):
+                prune_on_exit = False
+                raise
+        finally:
+            if prune_on_exit:
+                await _prune(step_id, self._ledger)
 
     async def _run_step_with_task_prefix(self, task_id, step_id, func_name, func: Callable, *args, **kwargs):
         # We keep add the unique step ID to the prefix in order to clearly identify
@@ -186,7 +186,7 @@ async def _prune(step_id: str, ledger: Ledger):
     items = reversed(await ledger.get_records())
     to_delete = []
 
-    # Last record should be a step with the give step ID
+    # Last record should be a step with the given step ID
     record = next(items)
     assert record['entry_type'] == 'end', f'{record["entry_type"]} != end'
     assert record['entry_id'] == step_id, f'{record["entry_id"]} != {step_id}'
