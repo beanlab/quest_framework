@@ -43,7 +43,7 @@ class Ledger:
         if exc_type is None or not is_suspension(exc_val):
             await self.clear()
             
-    async def add_record(self, task_id, entry_type: str, entry_id: str, data):
+    def add_record(self, task_id, entry_type: str, entry_id: str, data):
         self._history.append(LedgerEntry(
             entry_type=entry_type,
             timestamp=get_current_timestamp().isoformat(),

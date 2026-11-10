@@ -1,3 +1,5 @@
+import asyncio
+
 from quest import Workflow, IDENTITY
 
 
@@ -28,7 +30,7 @@ async def admin_view(work: Workflow):
 
                     while True:
                         choice = input('Action: ')
-                        parts = choice.split()
+                        parts = choice.strip().split()
                         if not parts:
                             # quest_logger.debug('Next')
                             break
@@ -49,7 +51,10 @@ async def admin_view(work: Workflow):
                         continue
 
                     ident, name = resources.actions[index]
+                    print('ARGS', args)
                     result = await work.invoke_action(ident, name, *args)
+                    if isinstance(result, asyncio.Task):
+                        assert False, result
                     if name == 'name.put' and result not in identities:  # identity queue
                         raise NewIdentity(result)
             break

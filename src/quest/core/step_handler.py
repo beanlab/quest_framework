@@ -36,7 +36,7 @@ class StepHandler:
         if (next_record := await self._replay_stream.get_next_record(task_id)) is None:
             # The replay has finished and we are now running live code
             quest_logger.debug(f'Starting step {func_name} with {args} and {kwargs}')
-            await self._ledger.add_record(
+            self._ledger.add_record(
                 task_id=task_id,
                 entry_type='start',
                 entry_id=step_id,
@@ -103,7 +103,7 @@ class StepHandler:
 
             serialized_result = await self._serializer.serialize(result)
 
-            await self._ledger.add_record(
+            self._ledger.add_record(
                 task_id=task_id,
                 entry_type='end',
                 entry_id=step_id,
@@ -118,7 +118,7 @@ class StepHandler:
             else:
                 quest_logger.debug(f'{step_id} canceled')
                 serialized_exception = _serialize_exception(cancel)
-                await self._ledger.add_record(
+                self._ledger.add_record(
                     task_id=task_id,
                     entry_type='end',
                     entry_id=step_id,
@@ -130,7 +130,7 @@ class StepHandler:
             serialized_exception = _serialize_exception(ex)
             quest_logger.debug(f'Exception in {step_id}: {serialized_exception}')
 
-            await self._ledger.add_record(
+            self._ledger.add_record(
                 task_id=task_id,
                 entry_type='end',
                 entry_id=step_id,

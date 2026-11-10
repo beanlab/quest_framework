@@ -128,6 +128,7 @@ class ResourceManager:
             while True:
                 quest_logger.debug('Waiting for resources updates to %s', identities)
                 await resources_updated.wait()
+                resources_updated.clear()
                 quest_logger.debug('Resource update observed for %s', identities)
 
                 if self._workflow_complete:
@@ -135,7 +136,6 @@ class ResourceManager:
                 elif self._workflow_suspended:
                     raise_suspension()
 
-                resources_updated.clear()
                 yield await self._get_resources(identities)
 
         finally:
@@ -189,7 +189,7 @@ class ResourceManager:
 
     async def _with_single_record(self, record_type, task_id, identity, name, value):
         if (next_record := await self._replay_stream.get_next_record(task_id)) is None:
-            await self._ledger.add_record(
+            self._ledger.add_record(
                 task_id,
                 record_type,
                 _create_resource_id(name, identity),

@@ -53,7 +53,7 @@ class TaskManager:
             quest_logger.debug(f'Starting task {task_id}')
 
             if (next_record := await self._replay_stream.get_next_record(task_id)) is None:
-                await self._ledger.add_record(
+                self._ledger.add_record(
                     task_id=task_id,
                     entry_type='start_task',
                     entry_id=task_id + '.start',
@@ -67,7 +67,7 @@ class TaskManager:
             result = await func(*a, **kw)
 
             if (next_record := await self._replay_stream.get_next_record(task_id)) is None:
-                await self._ledger.add_record(
+                self._ledger.add_record(
                     task_id=task_id,
                     entry_type='complete_task',
                     entry_id=task_id + '.complete',

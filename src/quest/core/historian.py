@@ -171,8 +171,8 @@ class Historian:
         quest_logger.debug(f'External event starting: %s %s %s', action_id, ident, name)
         task = self.start_task(
             action,
-            (action_id, ident, name),
-            {},
+            (action_id, ident, name, *args),
+            kwargs,
             # task_name=name
         )
         return task

@@ -1,6 +1,7 @@
 import asyncio
 import random
 
+from demo_tools import admin_view
 from quest import step, task, action, State, IdentityQueue, Workflow, Resource, IDENTITY
 
 
@@ -101,7 +102,7 @@ async def workflow():
         get_confirmation(ident, final_message)
         for ident in users
     ])
-    
+
 
 class NewIdentity(BaseException):
     def __init__(self, ident):
@@ -111,38 +112,11 @@ class NewIdentity(BaseException):
 
 async def main():
     async with Workflow('demo', workflow) as work:
-        identities = [None]
-        while True:
-            try:
-                async with work.resource_stream(identities) as stream:
-                    async for resources in stream:
-                        print('STATE')
-                        for ident, name, value in resources.state:
-                            print(ident, name, value)
-                        print()
-
-                        print('ACTIONS')
-                        for index, (ident, name) in enumerate(resources.actions):
-                            print(index, ident, name)
-                        print()
-
-                        choice = input('Action: ')
-                        if not choice:
-                            # quest_logger.debug('Next')
-                            continue
-                        index, *args = choice.split()
-                        ident, name = resources.actions[int(index)]
-                        result = await work.invoke_action(ident, name, *args)
-                        if name == 'name.put' and result not in identities:  # identity queue
-                            raise NewIdentity(result)
-                break
-
-            except NewIdentity as new_id:
-                identities.append(new_id.identity)
+        await admin_view(work)
 
 
 if __name__ == '__main__':
-    from quest.logs import enable_trace_logging, enable_debug_logging, set_suggested_log_format, quest_logger
+    from quest.logs import set_suggested_log_format, quest_logger, enable_debug_logging, enable_trace_logging
 
     set_suggested_log_format()
     # enable_debug_logging()
