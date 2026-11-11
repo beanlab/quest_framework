@@ -18,7 +18,7 @@ class Workflow:
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self._historian.__aexit__(exc_val, exc_val, exc_tb)
+        await self._historian.__aexit__(exc_type, exc_val, exc_tb)
 
     def __await__(self):
         return self._historian.__await__()

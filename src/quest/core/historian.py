@@ -11,8 +11,9 @@ from .replay_stream import ReplayStream
 from .resources import ResourceManager
 from .serializer import NoOpSerializer
 from .serializer import StepSerializer
+from .signal_handling import track_workflow, untrack_workflow
 from .step_handler import StepHandler
-from .suspension import is_suspension
+from .suspension import is_suspension, is_interrupt_suspension
 from .tasks import TaskManager
 from .unique_ids import UniqueIdHandler
 from .utils import get_function_name
@@ -82,15 +83,18 @@ class Historian:
         self._task_manager = TaskManager(self._ledger, self._unique_id_handler, self._replay_stream)
         self._resource_manager = ResourceManager(self._ledger, self._replay_stream)
 
+        track_workflow(self)
+
         # We don't await the task because we want to decouple
         # the parent task from the workflow work,
         # allowing them to run independently
-        self._workflow_task = self.run()
+        self._workflow_task: asyncio.Task = self.run()
         self._workflow_complete = False
 
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
+        quest_logger.debug('Exiting historian: %s %s', exc_type, exc_val)
         # We are outside the historian's context
         # If something has gone wrong on this side, we want the historian to suspend
         # Or if we are exiting the context before the historian finishes, we want to suspend
@@ -98,13 +102,21 @@ class Historian:
             quest_logger.debug('Workflow not complete; suspending')
             await self.suspend()
 
+        untrack_workflow(self)
+
         try:
             await self._workflow_task  # TODO - was this necessary?
         except CancelledError as cancel:
             if not is_suspension(cancel):
                 raise
 
-        if exc_val and is_suspension(exc_val):  # TODO - was this necessary?
+        # Reconvert SIGINT back into the interrupts the outside world expected
+        if is_interrupt_suspension(exc_val):
+            raise KeyboardInterrupt from exc_val
+
+        # Swallow regular suspensions as the Historian is their boundary
+        #  and the Historian is now exiting
+        if exc_val and is_suspension(exc_val):
             return True
 
     def __await__(self):
@@ -296,8 +308,7 @@ class Historian:
         return wrapped
 
     async def _run(self):
-        # TODO - add debug logging throughout
-        # quest_logger.debug(f'Running workflow {self.workflow_id}')
+        quest_logger.debug(f'Running workflow {self._workflow_id}')
 
         # Wrap func in error handling
         # The order of wrapping is important
@@ -307,7 +318,6 @@ class Historian:
         func = self._wrap_with_args_remembered(self._func, self._args, self._kwargs)
         func = self._wrap_with_history_cleanup(func)
         func = self._wrap_with_exception_handling(func)
-        # TODO - set workflow complete when it is finished
 
         # We use a TaskGroup here to ensure that the external_replay task
         #  exits when the main task fails
@@ -339,6 +349,7 @@ class Historian:
         except CancelledError as cancel:
             if not is_suspension(cancel):
                 raise
+        # TODO - is this important? Users can use except* to catch sub exceptions
         # except ExceptionGroup as eg:
         #     if len(eg.exceptions) == 1:
         #         raise eg.exceptions[0]
@@ -352,6 +363,7 @@ class Historian:
         create_task = self._task_factory_with_historian_context(asyncio.create_task)
         return create_task(self._run(), name=self._workflow_id + '.init')
 
+    # TODO - capture from the thoughts below the details that are still relevant to the current design
     # Historian manages a ledger
     # It runs a single task that waits for action invocations
     # Each action is started on a new task with arg/kwarg remembered
