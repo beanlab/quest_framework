@@ -98,10 +98,10 @@ async def workflow():
         for identity in users
     )
 
-    await asyncio.gather(*[
+    await asyncio.gather(*(
         get_confirmation(ident, final_message)
         for ident in users
-    ])
+    ))
 
 
 class NewIdentity(BaseException):
@@ -116,7 +116,7 @@ async def main():
 
 
 if __name__ == '__main__':
-    from quest.logs import set_suggested_log_format, quest_logger, enable_debug_logging, enable_trace_logging
+    from quest.logs import set_suggested_log_format, quest_logger
 
     set_suggested_log_format()
     # enable_debug_logging()
