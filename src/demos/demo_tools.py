@@ -51,7 +51,6 @@ async def admin_view(work: Workflow):
                         continue
 
                     ident, name = resources.actions[index]
-                    print('ARGS', args)
                     result = await work.invoke_action(ident, name, *args)
                     if isinstance(result, asyncio.Task):
                         assert False, result

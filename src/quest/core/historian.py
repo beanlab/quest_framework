@@ -278,7 +278,7 @@ class Historian:
 
         return wrapped
 
-    def _wrap_with_resource_stream_handling(self, func):
+    def _wrap_with_exception_handling(self, func):
         @wraps(func)
         async def wrapped(*args, **kwargs):
             try:
@@ -288,8 +288,9 @@ class Historian:
                 return result
 
             except BaseException as exc:
-                self._resource_manager.signal_workflow_error(exc)
-                self._workflow_complete = True  # TODO - was this necessary?
+                if not is_suspension(exc):
+                    self._resource_manager.signal_workflow_error(exc)
+                    self._workflow_complete = True  # TODO - was this necessary?
                 raise
 
         return wrapped
@@ -305,7 +306,7 @@ class Historian:
         # And we want errors in any of these to properly close resource streams
         func = self._wrap_with_args_remembered(self._func, self._args, self._kwargs)
         func = self._wrap_with_history_cleanup(func)
-        func = self._wrap_with_resource_stream_handling(func)
+        func = self._wrap_with_exception_handling(func)
         # TODO - set workflow complete when it is finished
 
         # We use a TaskGroup here to ensure that the external_replay task
@@ -335,11 +336,14 @@ class Historian:
                     task_factory=_task_factory.create_task
                 )
 
-        except ExceptionGroup as eg:
-            if len(eg.exceptions) == 1:
-                raise eg.exceptions[0]
-            else:
+        except CancelledError as cancel:
+            if not is_suspension(cancel):
                 raise
+        # except ExceptionGroup as eg:
+        #     if len(eg.exceptions) == 1:
+        #         raise eg.exceptions[0]
+        #     else:
+        #         raise
 
         # Workflow logic completed
 
