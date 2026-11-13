@@ -21,11 +21,11 @@ async def main():
         async for resources in client.stream_resources(wid, None):
             print('Client received resource event', resources)
             if ('message', None) in resources:
-                message = await client.send_event(wid, 'message', None, 'get')
+                message = await client.invoke_action(wid, 'message', None, 'get')
                 print(message, end='')
             if ('response', None) in resources:
                 user_response = await ainput('prompt: ')  # The text here is to make it clear when the client prompts.
-                await client.send_event(wid, 'response', None, 'put', user_response)
+                await client.invoke_action(wid, 'response', None, 'put', user_response)
                 # Uncomment the break statement to see the broken behavior. The client will hang when it should
                 #  close automatically after the workflow finishes up
                 # break

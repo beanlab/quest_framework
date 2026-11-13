@@ -92,7 +92,7 @@ async def test_manager_events():
                                serializer=NoopSerializer()) as manager:
         manager.start_workflow('workflow', 'wid1', 1, delete_on_finish=False)
         await asyncio.sleep(0.1)
-        await manager.send_event('wid1', 'messages', None, 'put', 2)
+        await manager.invoke_action('wid1', 'messages', None, 'put', 2)
         await asyncio.sleep(0.1)
         # Now pause the manager and all workflows
 
@@ -104,8 +104,8 @@ async def test_manager_events():
                                serializer=NoopSerializer()) as manager:
         # At this point, all workflows should be resumed
         await asyncio.sleep(0.1)
-        await manager.send_event('wid1', 'messages', None, 'put', 3)
-        await manager.send_event('wid1', 'messages', None, 'put', 0)  # i.e. end the workflow
+        await manager.invoke_action('wid1', 'messages', None, 'put', 3)
+        await manager.invoke_action('wid1', 'messages', None, 'put', 0)  # i.e. end the workflow
         result = await manager.get_workflow_result('wid1')
         assert result == 6
 
@@ -149,7 +149,7 @@ async def test_manager_background():
                                serializer=NoopSerializer()) as manager:
         manager.start_workflow('workflow', 'wid1', 1)
         await asyncio.sleep(0.1)
-        await manager.send_event('wid1', 'messages', None, 'put', 2)
+        await manager.invoke_action('wid1', 'messages', None, 'put', 2)
         await asyncio.sleep(0.1)
         # Now pause the manager and all workflows
 
@@ -161,8 +161,8 @@ async def test_manager_background():
                                serializer=NoopSerializer()) as manager:
         # At this point, all workflows should be resumed
         await asyncio.sleep(0.1)
-        await manager.send_event('wid1', 'messages', None, 'put', 3)
-        await manager.send_event('wid1', 'messages', None, 'put', 0)  # i.e. end the workflow
+        await manager.invoke_action('wid1', 'messages', None, 'put', 3)
+        await manager.invoke_action('wid1', 'messages', None, 'put', 0)  # i.e. end the workflow
         await asyncio.sleep(0.1)  # workflow now finishes and removes itself
         assert not manager.has_workflow('wid1')
         assert total == 6

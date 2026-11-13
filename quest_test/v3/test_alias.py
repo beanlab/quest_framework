@@ -31,18 +31,18 @@ async def test_alias():
         manager.start_workflow('workflow', 'wid')
         await asyncio.sleep(0.1)
 
-        await manager.send_event('wid', 'data', None, 'put', '1')
+        await manager.invoke_action('wid', 'data', None, 'put', '1')
         await asyncio.sleep(0.1)
 
         assert '1' in data
 
-        await manager.send_event('the_foo', 'data', None, 'put', 'foo')
+        await manager.invoke_action('the_foo', 'data', None, 'put', 'foo')
         first_pause.set()
         await asyncio.sleep(0.1)
 
         assert 'foo' in data
 
-        await manager.send_event('wid', 'data', None, 'put', '2')
+        await manager.invoke_action('wid', 'data', None, 'put', '2')
         second_pause.set()
         await asyncio.sleep(0.1)
 
@@ -91,9 +91,9 @@ async def test_alias_trade():
         await asyncio.sleep(0.1)
 
         first_pause.set()
-        await manager.send_event('wid_a', 'data', None, 'put', 'data a 1')
-        await manager.send_event('wid_b', 'data', None, 'put', 'data b 1')
-        await manager.send_event('the_foo', 'data', None, 'put', 'data foo 1')
+        await manager.invoke_action('wid_a', 'data', None, 'put', 'data a 1')
+        await manager.invoke_action('wid_b', 'data', None, 'put', 'data b 1')
+        await manager.invoke_action('the_foo', 'data', None, 'put', 'data foo 1')
         await asyncio.sleep(0.1)  # yield to the workflows
 
         # now both should be waiting on second gate and no one should be the foo
@@ -106,9 +106,9 @@ async def test_alias_trade():
         await asyncio.sleep(0.1)  # yield
 
         # now workflow b should be the foo
-        await manager.send_event('wid_a', 'data', None, 'put', 'data a 2')
-        await manager.send_event('wid_b', 'data', None, 'put', 'data b 2')
-        await manager.send_event('the_foo', 'data', None, 'put', 'data foo 2')
+        await manager.invoke_action('wid_a', 'data', None, 'put', 'data a 2')
+        await manager.invoke_action('wid_b', 'data', None, 'put', 'data b 2')
+        await manager.invoke_action('the_foo', 'data', None, 'put', 'data foo 2')
 
         third_pause.set()
         await asyncio.sleep(0.1)  # yield to the workflows

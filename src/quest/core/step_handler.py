@@ -1,5 +1,4 @@
 import asyncio
-import traceback
 from typing import Callable, TypedDict, Any
 
 from .ledger import Ledger
@@ -7,6 +6,7 @@ from .replay_stream import ReplayStream
 from .serializer import StepSerializer
 from .suspension import is_suspension
 from .unique_ids import UniqueIdHandler
+from .utils import serialize_exception, deserialize_exception
 from ..logs import quest_logger
 
 
@@ -54,7 +54,7 @@ class StepHandler:
                     #  it means the step has already completed and we should rehydrate the result
                     if record['data']['exception'] is not None:
                         exception_data = record['data']['exception']
-                        ex = _deserialize_exception(exception_data)
+                        ex = deserialize_exception(exception_data)
                         raise ex
 
                     deserialized_result = await self._serializer.deserialize(record['data']['result'])
@@ -117,7 +117,7 @@ class StepHandler:
                 raise
             else:
                 quest_logger.debug(f'{step_id} canceled')
-                serialized_exception = _serialize_exception(cancel)
+                serialized_exception = serialize_exception(cancel)
                 self._ledger.add_record(
                     task_id=task_id,
                     entry_type='end',
@@ -127,7 +127,7 @@ class StepHandler:
                 raise
 
         except BaseException as ex:
-            serialized_exception = _serialize_exception(ex)
+            serialized_exception = serialize_exception(ex)
             quest_logger.debug(f'Exception in {step_id}: {serialized_exception}')
 
             self._ledger.add_record(
@@ -212,29 +212,3 @@ async def _prune(step_id: str, ledger: Ledger):
         pass
 
     await ledger.remove_records(to_delete)
-
-
-def _get_type_name(obj):
-    return obj.__class__.__module__ + '.' + obj.__class__.__name__
-
-
-def _get_exception_class(exception_type: str):
-    module_name, class_name = exception_type.rsplit('.', 1)
-    module = __import__(module_name, fromlist=[class_name])
-    exception_class = getattr(module, class_name)
-    return exception_class
-
-
-def _serialize_exception(ex: BaseException) -> dict:
-    return {
-        "type": _get_type_name(ex),
-        "args": ex.args,
-        "traceback": traceback.format_exc()
-    }
-
-
-def _deserialize_exception(data: dict) -> Exception:
-    exc_cls = _get_exception_class(data["type"])
-    exc_instance: Exception = exc_cls(*data.get("args", ()))
-    exc_instance._original_traceback = data["traceback"]  # Include original tracebook info
-    return exc_instance

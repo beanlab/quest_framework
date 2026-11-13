@@ -31,7 +31,7 @@ async def connect(wid):
             print(resources)
             if ('messages', None) in resources and not messages_seen:
                 messages_seen = True
-                await client.send_event(wid, 'messages', None, 'put', ['Hello world!'])
+                await client.invoke_action(wid, 'messages', None, 'put', ['Hello world!'])
 
         if not messages_seen:
             pytest.fail('Message not found in resources')

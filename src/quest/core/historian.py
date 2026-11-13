@@ -65,7 +65,9 @@ class Historian:
             storage: History[LedgerEntry] = None,
             **kwargs
     ):
-        self._workflow_id = workflow_id
+        # public for `alias`
+        self.workflow_id = workflow_id
+
         self._func = func
         self._args = args
         self._kwargs = kwargs
@@ -88,7 +90,7 @@ class Historian:
         # We don't await the task because we want to decouple
         # the parent task from the workflow work,
         # allowing them to run independently
-        self._workflow_task: asyncio.Task = self.run()
+        self.workflow_task: asyncio.Task = self.run()
         self._workflow_complete = False
 
         return self
@@ -105,7 +107,7 @@ class Historian:
         untrack_workflow(self)
 
         try:
-            await self._workflow_task  # TODO - was this necessary?
+            await self.workflow_task  # TODO - was this necessary?
         except CancelledError as cancel:
             if not is_suspension(cancel):
                 raise
@@ -120,10 +122,10 @@ class Historian:
             return True
 
     def __await__(self):
-        return self._workflow_task.__await__()
+        return self.workflow_task.__await__()
 
     def _get_current_task_id(self):
-        return current_task_id.get(self._workflow_id)
+        return current_task_id.get(self.workflow_id)
 
     # Versioning of code
     @alogged
@@ -165,9 +167,9 @@ class Historian:
     def external_invoke_action(self, ident, name, *args, **kwargs) -> asyncio.Task:
         # This is the function that should be called from tasks that are not managed by the Historian
         self._ledger.add_record(
-            self._workflow_id,
+            self.workflow_id,
             'invoke',
-            action_id := self._unique_id_handler.get_unique_id(self._workflow_id, name),
+            action_id := self._unique_id_handler.get_unique_id(self.workflow_id, name),
             (action_id, ident, name, args, kwargs)
         )
         return self._external_invoke_action(action_id, ident, name, args, kwargs)
@@ -308,7 +310,7 @@ class Historian:
         return wrapped
 
     async def _run(self):
-        quest_logger.debug(f'Running workflow {self._workflow_id}')
+        quest_logger.debug(f'Running workflow {self.workflow_id}')
 
         # Wrap func in error handling
         # The order of wrapping is important
@@ -325,7 +327,7 @@ class Historian:
 
         try:
             async with asyncio.TaskGroup() as _task_factory:
-                external_task_id = f'{self._workflow_id}.external'
+                external_task_id = f'{self.workflow_id}.external'
                 # noinspection PyTypeChecker
                 # The typechecker is confused about the signature of create_task
                 # What it expects and what it sees are identical, but it still raises a warning
@@ -333,7 +335,7 @@ class Historian:
                     self._external_action_handler,
                     (self._external_events,),
                     {},
-                    task_name=self._workflow_id + '.external_replay',
+                    task_name=self.workflow_id + '.external_replay',
                     task_factory=_task_factory.create_task
                 )
 
@@ -342,7 +344,7 @@ class Historian:
                     func,
                     (),
                     {},
-                    task_name=self._workflow_id,
+                    task_name=self.workflow_id,
                     task_factory=_task_factory.create_task
                 )
 
@@ -361,7 +363,7 @@ class Historian:
     @logged
     def run(self) -> asyncio.Task:
         create_task = self._task_factory_with_historian_context(asyncio.create_task)
-        return create_task(self._run(), name=self._workflow_id + '.init')
+        return create_task(self._run(), name=self.workflow_id + '.init')
 
     # TODO - capture from the thoughts below the details that are still relevant to the current design
     # Historian manages a ledger

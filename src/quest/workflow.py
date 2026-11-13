@@ -1,3 +1,4 @@
+import asyncio
 from functools import wraps, WRAPPER_ASSIGNMENTS
 from typing import Self
 
@@ -6,7 +7,7 @@ from .core.historian import Historian
 
 class Workflow:
     # This class embodies the public interface of Historian
-    
+
     @wraps(Historian.__init__)
     def __init__(self, *args, **kwargs):
         self._args = args
@@ -22,6 +23,10 @@ class Workflow:
 
     def __await__(self):
         return self._historian.__await__()
+
+    @property
+    def task(self) -> asyncio.Task:
+        return self._historian.workflow_task
 
     @wraps(Historian.get_resource_stream)
     def resource_stream(self, *args, **kwargs):
