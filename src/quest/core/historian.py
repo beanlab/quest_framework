@@ -1,6 +1,5 @@
 import asyncio
 import contextvars
-from asyncio import CancelledError
 from contextvars import ContextVar
 from functools import wraps
 from typing import Callable
@@ -97,28 +96,25 @@ class Historian:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         quest_logger.debug('Exiting historian: %s %s', exc_type, exc_val)
-        # We are outside the historian's context
-        # If something has gone wrong on this side, we want the historian to suspend
-        # Or if we are exiting the context before the historian finishes, we want to suspend
-        if not self._workflow_complete:  # TODO - was this necessary?
-            quest_logger.debug('Workflow not complete; suspending')
-            await self.suspend()
+        # We are outside the historian's tracked world
+        #  and are now exiting the Historian `with` context.
+        # If the workflow is complete, we have nothing to do.
+        # If the workflow is not yet complete, we want the Historian to suspend.
+        if not self._workflow_complete:
+            quest_logger.debug('Workflow %s not complete; suspending', self.workflow_id)
+            self.signal_suspend()
 
         untrack_workflow(self)
 
-        try:
-            await self.workflow_task  # TODO - was this necessary?
-        except CancelledError as cancel:
-            if not is_suspension(cancel):
-                raise
-
-        # Reconvert SIGINT back into the interrupts the outside world expected
+        # Reconvert SIGINT back into the interrupt the outside world expected
         if is_interrupt_suspension(exc_val):
+            quest_logger.debug('Converting cancellation back to SIGINT')
             raise KeyboardInterrupt from exc_val
 
         # Swallow regular suspensions as the Historian is their boundary
         #  and the Historian is now exiting
         if exc_val and is_suspension(exc_val):
+            quest_logger.debug('Swallowing suspension for %s', self.workflow_id)
             return True
 
     def __await__(self):
@@ -327,7 +323,6 @@ class Historian:
 
         try:
             async with asyncio.TaskGroup() as _task_factory:
-                external_task_id = f'{self.workflow_id}.external'
                 # noinspection PyTypeChecker
                 # The typechecker is confused about the signature of create_task
                 # What it expects and what it sees are identical, but it still raises a warning
@@ -348,22 +343,32 @@ class Historian:
                     task_factory=_task_factory.create_task
                 )
 
-        except CancelledError as cancel:
-            if not is_suspension(cancel):
+        except ExceptionGroup as eg:
+            quest_logger.exception('Task group %s exception', self.workflow_id)
+            if len(eg.exceptions) == 1:
+                raise eg.exceptions[0]
+            else:
                 raise
-        # TODO - is this important? Users can use except* to catch sub exceptions
-        # except ExceptionGroup as eg:
-        #     if len(eg.exceptions) == 1:
-        #         raise eg.exceptions[0]
-        #     else:
-        #         raise
 
         # Workflow logic completed
 
     @logged
     def run(self) -> asyncio.Task:
-        create_task = self._task_factory_with_historian_context(asyncio.create_task)
-        return create_task(self._run(), name=self.workflow_id + '.init')
+        # We use start_task to make sure this task is also under TaskManager control and will be canceled
+        #  correctly when a suspension is signalled
+        return self.start_task(self._run, (), {}, task_name=self.workflow_id + '.init',
+                               task_factory=asyncio.create_task)
+
+    @logged
+    def signal_suspend(self):
+        # This function is synchronous because it is called by the SIGINT handler,
+        #  which requires a synchronous function
+
+        # The resource streams need to know to stop streaming resources
+        self._resource_manager.signal_suspension()
+
+        # This raises a suspension cancellation on ALL tasks
+        self._task_manager.signal_suspend()
 
     # TODO - capture from the thoughts below the details that are still relevant to the current design
     # Historian manages a ledger
@@ -438,18 +443,3 @@ class Historian:
     # If they are all going to be invoked at the same time, then you might as well just have one function,
     #  and it can be designed to do however many parallel tasks as desired.
     # SO, we only need one primary task.
-
-    @logged
-    def signal_suspend(self):
-        # This function is synchronous because it is called by the SIGINT handler,
-        #  which requires a synchronous function
-
-        # quest_logger.debug(f'-- Suspending {self.workflow_id} --')
-
-        self._resource_manager.signal_suspension()
-        self._task_manager.signal_suspend()
-
-    @alogged
-    async def suspend(self):
-        self.signal_suspend()
-        await self._task_manager.suspend()

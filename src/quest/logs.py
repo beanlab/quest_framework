@@ -1,3 +1,4 @@
+import asyncio
 import dis
 import inspect
 import logging
@@ -11,7 +12,9 @@ current_task_id = ContextVar('task_id')
 
 class TaskFieldFilter(logging.Filter):
     def filter(self, record):
-        record.task = current_task_id.get("-")
+        current = asyncio.current_task()
+        # record.task = current_task_id.get(current.get_name() if current else '-')
+        record.task = current.get_name() if current else '-'
         return True
 
 
@@ -88,6 +91,30 @@ def enable_trace_logging() -> None:
     @lru_cache(maxsize=None)
     def instructions(code):
         return tuple(dis.get_instructions(code))
+
+    def is_resuming(frame) -> bool:
+        # On CPython, a fresh frame starts at RESUME 0; suspended generators
+        # and coroutines restart at a RESUME with a nonzero argument.
+        for instruction in instructions(frame.f_code):
+            if instruction.offset == frame.f_lasti:
+                return instruction.opname == "RESUME" and bool(instruction.arg)
+        return False
+
+    def is_return_instruction(frame) -> bool:
+        # f_lasti can point into inline cache entries, so use the most recent
+        # real instruction to identify normal RETURN_VALUE/RETURN_CONST exits.
+        last_instruction = next(
+            (
+                instruction
+                for instruction in reversed(instructions(frame.f_code))
+                if instruction.offset <= frame.f_lasti
+            ),
+            None,
+        )
+        return last_instruction is not None and last_instruction.opname in {
+            "RETURN_VALUE",
+            "RETURN_CONST",
+        }
 
     def is_yield_suspension(frame) -> bool:
         code_instructions = instructions(frame.f_code)
@@ -179,7 +206,7 @@ def enable_trace_logging() -> None:
             if caller is None or not is_in_repo(caller.f_code.co_filename):
                 # Keep tracing this local frame, but don't report an outside-repo callsite.
                 return trace
-            message = "calling"
+            message = "resuming" if is_resuming(frame) else "calling"
             detail = f"({format_call_arguments(frame)})"
             stacklevel = 3
         elif event == "return":
@@ -189,8 +216,13 @@ def enable_trace_logging() -> None:
                 else:
                     # Ignore ordinary generator yields; they are not returns or awaits.
                     return trace
+            elif arg is None and not is_return_instruction(frame):
+                # Trace hooks also report a return event when the frame exits
+                # via an exception; that is not a return value.
+                return trace
             else:
                 message = "returning"
+                detail = f" -> {arg!r}"
         elif event == "exception":
             exception_type, exception_value, _ = arg
             if issubclass(exception_type, StopIteration):

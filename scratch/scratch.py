@@ -1,4 +1,4 @@
-from src.quest.workflow import signal, promised_signal, any_promise
+from quest.core.workflow import signal, promised_signal, any_promise
 from src.quest import step
 
 

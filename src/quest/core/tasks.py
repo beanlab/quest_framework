@@ -44,7 +44,7 @@ class TaskManager:
         self._open_tasks: list[Task] = []
 
     def start_task(self, parent_task_id, func, args, kwargs, task_name: str | None,
-                         task_factory=asyncio.create_task):
+                   task_factory=asyncio.create_task):
         task_id = task_name or self._unique_id_handler.get_unique_id(parent_task_id, get_function_name(func))
         quest_logger.debug(f'Requested {task_id} start')
 
@@ -100,20 +100,15 @@ class TaskManager:
         # If a parent thread cancels, it will cancel a child.
         # We want to be the one that cancels every task,
         #  so we cancel the children before the parents.
+        # We need to be the party that issues the cancel
+        #  because a CancellationError instance is only observed once
+        # We pass a specific arg to the CancellationError to show that it is a suspension
+        #  but asyncio.Task raises a NEW CancellationError if you await the cancelled Task
+        #  a second time.
+        # This means that the original CancellationError is swallowed as it moves up the stack
+        #  being replaced by a generic CancellationError
+        quest_logger.debug('Signalling suspend to %s', self._open_tasks)
         for task in list(reversed(self._open_tasks)):
-            if not task.done() or task.cancelled() or task.cancelling():
+            if not (task.done() or task.cancelled() or task.cancelling()):
                 quest_logger.debug(f'Suspending task {task.get_name()}')
                 suspend_task(task)
-
-    async def suspend(self):
-        # Once each task has been marked for cancellation
-        #  we await each task in order to allow the cancellation
-        #  to play out to completion.
-        self.signal_suspend()
-
-        for task in list(self._open_tasks):
-            try:
-                await task
-            except asyncio.CancelledError:
-                quest_logger.debug(f'Task {task.get_name()} was cancelled')
-                pass

@@ -32,9 +32,6 @@ async def main():
     # Bad form.
     #
 
-    for entry in storage:
-        quest_logger.info(entry)
-
     pause.clear()
     pause.set()
     async with Workflow('demo', workflow, storage=storage) as work:
@@ -46,6 +43,6 @@ if __name__ == '__main__':
 
     set_suggested_log_format()
     quest_logger.setLevel(logging.INFO)
-    enable_debug_logging()
+    # enable_debug_logging()
     # enable_trace_logging()
     asyncio.run(main())

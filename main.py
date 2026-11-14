@@ -51,7 +51,7 @@ async def main():
 
     await historian.record_external_event('input', None, 'put', 'Foo')
     await asyncio.sleep(0.1)
-    await historian.suspend()
+    await historian.wait_for_suspend_to_propagate()
 
     workflow_task = historian.run()
     await asyncio.sleep(0.1)

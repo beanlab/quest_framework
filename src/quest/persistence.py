@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Protocol, Union
 
 from .core.history import History
+from .core.ledger import LedgerEntry
 
 Blob = Union[dict, list, str, int, bool, float]
 
@@ -32,16 +33,16 @@ class PersistentHistory(History):
             for key in self._keys:
                 self._items.append(storage.read_blob(key))
 
-    def _get_key(self, item: Blob) -> str:
-        return self._namespace + '.' + md5((item['timestamp'] + item['step_id'] + item['type']).encode()).hexdigest()
+    def _get_key(self, item: LedgerEntry) -> str:
+        return self._namespace + '.' + md5((item['timestamp'] + item['entry_id'] + item['entry_type']).encode()).hexdigest()
 
-    def append(self, item: Blob):
+    def append(self, item: LedgerEntry):
         self._items.append(item)
         self._keys.append(key := self._get_key(item))
         self._storage.write_blob(key, item)
         self._storage.write_blob(self._namespace, self._keys)
 
-    def remove(self, item: Blob):
+    def remove(self, item: LedgerEntry):
         self._items.remove(item)
         self._keys.remove(key := self._get_key(item))
         self._storage.delete_blob(key)

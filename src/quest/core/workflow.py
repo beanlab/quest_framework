@@ -2,7 +2,7 @@ import asyncio
 from functools import wraps, WRAPPER_ASSIGNMENTS
 from typing import Self
 
-from .core.historian import Historian
+from quest.core.historian import Historian
 
 
 class Workflow:
@@ -26,7 +26,9 @@ class Workflow:
 
     @property
     def task(self) -> asyncio.Task:
-        return self._historian.workflow_task
+        async def wait_on_historian():
+            return await self._historian.workflow_task
+        return asyncio.create_task(wait_on_historian(), name='wait_on.' + self._historian.workflow_id)
 
     @wraps(Historian.get_resource_stream)
     def resource_stream(self, *args, **kwargs):

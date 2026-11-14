@@ -78,7 +78,7 @@ async def main():
     historian = Historian('demo', workflow, [])
     wtask = historian.run()
     await asyncio.sleep(0.1)
-    await historian.suspend()
+    await historian.wait_for_suspend_to_propagate()
 
     pause.set()
 

@@ -1,5 +1,5 @@
-from .manager import find_workflow_manager, WorkflowManager
-from .core.historian import find_historian
+from quest.manager import find_workflow_manager, WorkflowManager
+from quest.core.historian import find_historian
 
 
 class Alias:

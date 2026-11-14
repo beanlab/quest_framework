@@ -1,15 +1,15 @@
 import asyncio
 from contextvars import ContextVar
 from datetime import datetime
-from functools import wraps
 from typing import Protocol, Callable, TypeVar, Any, TypedDict
 
 from .core.history import History
 from .core.serializer import StepSerializer
 from .core.suspension import is_suspension
-from .core.utils import serialize_exception, deserialize_exception
+from .core.utils import serialize_exception, deserialize_exception, get_current_timestamp
+from .core.workflow import Workflow
+from .logs import quest_logger
 from .persistence import BlobStorage
-from .workflow import Workflow
 
 
 class WorkflowNotFound(Exception):
@@ -74,6 +74,7 @@ class WorkflowManager:
         """Load the workflows and get them running again"""
 
         if self._storage.has_blob(self._namespace):
+            quest_logger.debug('Loading workflows from namespace %s', self._namespace)
             self._workflow_data = self._storage.read_blob(self._namespace)
 
         # Check storage to load stored workflow results from persistent storage
@@ -92,7 +93,9 @@ class WorkflowManager:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Save whatever state is necessary before exiting"""
-        for wid, workflow in self._workflows.items():
+        # Suspend running workflows
+        for wid, workflow in list(self._workflows.items()):
+            quest_logger.debug('Calling __aexit__ on %s', wid)
             await workflow.__aexit__(exc_type, exc_val, exc_tb)
 
         self._storage.write_blob(self._namespace, self._workflow_data)
@@ -100,10 +103,20 @@ class WorkflowManager:
 
         self._workflows.clear()
 
+    def __await__(self):
+        return asyncio.gather(*self._workflows.values()).__await__()
+
     async def _start_workflow(self,
                               workflow_type: str, workflow_id: str, workflow_args, workflow_kwargs,
                               delete_on_finish: bool = True):
-
+        quest_logger.debug('Starting workflow %s %s', workflow_type, workflow_id)
+        self._workflow_data[workflow_id] = WorkflowData(
+            workflow_type=workflow_type,
+            workflow_args=workflow_args,
+            workflow_kwargs=workflow_kwargs,
+            delete_on_finish=delete_on_finish,
+            start_time=get_current_timestamp().isoformat()
+        )
         workflow_function = self._create_workflow(workflow_type)
 
         workflow_manager.set(self)
@@ -120,25 +133,30 @@ class WorkflowManager:
 
     def _schedule_store_result(self, workflow_id: str, task: asyncio.Task, delete_on_finish: bool):
         try:
-            asyncio.create_task(self._store_result(workflow_id, task, delete_on_finish))
+            asyncio.create_task(self._store_result(workflow_id, task, delete_on_finish),
+                                name=f'{workflow_id}._store_result')
         except RuntimeError:
             pass
 
     async def _store_result(self, workflow_id: str, task: asyncio.Task, delete_on_finish: bool):
         """Store the result or exception of a completed workflow"""
-
+        quest_logger.debug('Storing result for %s', task.get_name())
         # Should follow the same logic as step_handler.py:_run_step_with_recorded_result
         try:
             result = task.result()
             result = await self._serializer.serialize(result)
+            quest_logger.debug('Workflow %s completed %s', workflow_id, result)
 
         except asyncio.CancelledError as cancel:
             if is_suspension(cancel):
+                quest_logger.debug('Workflow %s was suspended', workflow_id)
                 return
             result = serialize_exception(cancel)
+            quest_logger.exception('Workflow %s failed %s', workflow_id, result)
 
         except BaseException as e:
             result = serialize_exception(e)
+            quest_logger.exception('Workflow %s failed', workflow_id)
 
         if not delete_on_finish:
             wdata = self._workflow_data[workflow_id]
@@ -149,11 +167,12 @@ class WorkflowManager:
                 result=result
             )
 
+        quest_logger.debug('Deleted workflow %s', workflow_id)
         self._workflows.pop(workflow_id, None)
         self._workflow_data.pop(workflow_id, None)
 
-    def start_workflow(self, workflow_type: str, workflow_id: str, *workflow_args, delete_on_finish: bool = True,
-                       **workflow_kwargs):
+    async def start_workflow(self, workflow_type: str, workflow_id: str, *workflow_args, delete_on_finish: bool = True,
+                             **workflow_kwargs):
         """Start the workflow, but do not restart previously canceled ones"""
         start_time = datetime.utcnow().isoformat()  # TODO fix deprecated utcnow()
 
@@ -167,8 +186,8 @@ class WorkflowManager:
             delete_on_finish=delete_on_finish,
             start_time=start_time
         )
-        self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs,
-                             delete_on_finish=delete_on_finish)
+        await self._start_workflow(workflow_type, workflow_id, workflow_args, workflow_kwargs,
+                                   delete_on_finish=delete_on_finish)
 
     def has_workflow(self, workflow_id: str) -> bool:
         workflow_id = self._alias_dictionary.get(workflow_id, workflow_id)

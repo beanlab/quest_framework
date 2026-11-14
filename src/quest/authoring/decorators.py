@@ -3,9 +3,9 @@ from functools import wraps
 from types import MethodType
 from typing import Self
 
-from .core.historian import find_historian
-from .core.resources import IDENTITY
-from .core.utils import get_function_name
+from quest.core.historian import find_historian
+from quest.core.resources import IDENTITY
+from quest.core.utils import get_function_name
 
 
 # Two things need to be tracked for actions:
