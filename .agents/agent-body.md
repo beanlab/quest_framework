@@ -2,6 +2,8 @@
 
 {{ read_file('dev/project.md') }}
 
+{{ read_file('dev/project-tests.md') | increase_headers(1) }}
+
 # `myteam`
 
 We use `myteam` as our agent skills and workflow harness. Load a skill when it directly applies to the task at hand; don't load a skill just because it involves the same system or domain as the task.

@@ -128,8 +128,8 @@ class Historian:
         return current_task_id.get(self.workflow_id)
 
     # Versioning of code
-    @alogged
-    async def when(self):
+    @logged
+    def when(self):
         return self._replay_stream.when()
 
     # Steps

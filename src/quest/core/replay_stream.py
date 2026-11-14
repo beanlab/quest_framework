@@ -54,7 +54,7 @@ class ReplayStream:
     def when(self) -> datetime.datetime:
         return (
             max(self._current_record_timestamp.values())
-            if self._current_record_timestamp
+            if not self._last_record_gate.done()
             else get_current_timestamp()
         )
 
@@ -69,8 +69,6 @@ class ReplayStream:
         if self._replay_records[task_id] is None:
             # The replay record stream will be None once all records for this task are consumed
             # This signals that live play will begin for this task
-            if task_id in self._current_record_timestamp:
-                del self._current_record_timestamp[task_id]
             return None
 
         try:
@@ -83,8 +81,6 @@ class ReplayStream:
 
         except StopAsyncIteration:
             self._replay_records[task_id] = None
-            if task_id in self._current_record_timestamp:
-                del self._current_record_timestamp[task_id]
             return None
 
     async def _start_task_replay(self, task_id):
