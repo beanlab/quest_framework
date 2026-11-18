@@ -19,83 +19,85 @@ Basis: `.agents/remember/quest-design.md`, the current public exports, current `
 
 Scenario IDs below are stable references; one scenario may require several parameterized cases. Suggested files are organizational guidance, not a requirement to create one file per export.
 
+Review pass: each of the 16 test-domain sections received an independent delegate review, reconciled against the design and practical coverage needs. **Covered by** entries retain IDs for traceability but do not request separate tests; **optional** entries are extensions, and **contract-gated** entries await an author decision. Unmarked scenarios are baseline coverage. Reuse tests across related IDs rather than repeating setup or creating a test for every bullet. Real disk-backed recovery tests must use `LocalFileSystemBlobStorage`; focused list-backed replay tests remain useful.
+
 ## 1. `step` — `quest_test/test_step.py`
 
-- **ST01 — Ordinary calls:** An async step receives positional/keyword arguments and returns its result; cover no arguments, defaults, `None`, and representative nested JSON-compatible values.
+- **ST01 — Ordinary calls:** An async step receives positional/keyword arguments and returns its result; cover no arguments, defaults, `None`, and a compact representative nested value. Do not conflate live argument passing with serialized result fidelity; JSON edge cases depend on contract question 6.
 - **ST02 — Completed work:** Suspend after a completed step, restart, and verify its recorded result is supplied without repeating its external effect.
 - **ST03 — Incomplete work:** Interrupt inside a step before completion; restart and verify its body begins again rather than resuming at the interrupted await.
 - **ST04 — Nested completion boundaries:** An incomplete outer step has completed and incomplete substeps. Replay skips completed substeps, reruns incomplete work, and eventually records the outer result.
-- **ST05 — Completed outer step:** Once the outer step completes, replay does not execute either its body or its nested steps again.
-- **ST06 — Recorded exceptions:** A step raises a reconstructable exception; workflow code catches it and continues. Restart reproduces the type/arguments and handling path without repeating the failed step's body. Include a nested caught exception.
+- **ST05 — Completed outer step (extension of ST02):** Use a completed outer step containing nested steps in ST02, and verify replay skips both outer and child bodies. No separate test is needed.
+- **ST06 — Recorded exceptions:** A step raises a reconstructable exception; workflow code catches it and continues. Restart reproduces the type/arguments and handling path without repeating the failed step's body. A nested variant should specifically show a child exception caught by its outer step, rather than repeat exception-encoding checks.
 - **ST07 — Repeated calls:** Repeated calls to the same decorated function in a loop retain distinct results and replay in the original sequence.
-- **ST08 — Reconstruction:** Ordinary deterministic code between steps rebuilds a conversation/history accumulator correctly over multiple restarts.
+- **ST08 — Reconstruction (covered by CX01):** Ordinary deterministic code between steps rebuilds a conversation/history accumulator. Keep any step-only example small rather than repeating the multi-turn integration test.
 - **ST09 — Compatibility violations:** Change a recorded step sequence by inserting, removing, or reordering distinguishable steps; replay rejects incompatible history rather than silently attaching results to the wrong calls. Do not require a non-exported exception type.
-- **ST10 — Best-effort boundary:** An effect occurs inside a step but the process stops before completion is recorded. On recovery the effect may repeat; an idempotent version reaches the intended single logical outcome. Do not assert exactly-once effects.
+- **ST10 — Best-effort boundary (covered by CX09):** Use the abrupt-process recipe to demonstrate effect-before-recording retries and application idempotency. ST03 supplies the focused incomplete-step test; graceful suspension alone is not proof of crash recovery.
 
 ## 2. `task` — `quest_test/test_task.py`
 
 - **TK01 — Basic execution:** Start and await a managed task; positional/keyword arguments and returned values reach their callers.
 - **TK02 — Actual concurrency:** Two managed tasks reach independent waiting points before either is released; both complete and return the correct results.
-- **TK03 — Mixed progress:** Restart with one child complete and another incomplete. Completed recorded work is not repeated, and both tasks reconstruct correctly.
+- **TK03 — Mixed progress:** Restart with one child complete and another incomplete. Ordinary task bodies reconstruct; completed steps inside them supply recorded outcomes without repeating their effects, incomplete steps retry, and both task results reach the correct callers. Do not assume task completion caches a return value or skips the entire task body.
 - **TK04 — Ordering:** Concurrent tasks operate on shared Quest queues/state with deliberately controlled live interleavings. Replay preserves recorded ordering even when test-host scheduling differs.
 - **TK05 — Task trees:** A managed task starts and awaits other managed tasks, including repeated calls to the same task function. Results and task identity remain correctly associated during replay.
-- **TK06 — Exceptions:** A task raises a reconstructable exception; its awaiting parent catches it or leaves it unhandled. Test both recovery of the caught path and terminal workflow failure of the unhandled path.
-- **TK07 — Repeated suspension:** Suspend and resume while several managed tasks wait on different queues; no lost progress, duplicated recorded effects, or cross-delivered results.
+- **TK06 — Awaited exceptions:** A managed task raises and its awaiting parent catches the exception or lets it propagate to fail the workflow. On replay, task code reconstructs the authored path; only exceptions from recorded steps have the step-outcome caching guarantee. Do not imply detached task errors automatically terminate the workflow.
+- **TK07 — Repeated suspension (optional extension of TK03):** Resume managed tasks waiting on distinct queues more than once if this adds a distinct reconstruction check. Avoid repeating the queue concurrency matrix; TK04 owns controlled shared-operation ordering and QU05 owns item delivery.
 - **TK08 — Managed lifetimes:** Workflow code explicitly signals children to finish and awaits them before returning; all resources are cleaned up. Do not treat unawaited children as automatically durable independent workflows.
 
 ## 3. `State` — `quest_test/test_state.py`
 
 - **SA01 — Scope:** Enter a state context, observe the initial value, use `get`/`set`, and observe removal on exit.
-- **SA02 — Values:** Set successive scalar, empty, and nested JSON-compatible values; reads and snapshots agree on the current value.
-- **SA03 — Visibility:** Public, actor-specific, and role-specific state is visible only in the appropriate views; `external=False` state remains usable internally but is absent from external views.
+- **SA02 — Values:** Set a small representative selection of scalar, empty, and nested values; reads and snapshots agree. State is reconstructed by workflow code, not independently restored as a persisted object; disk/type fidelity belongs to PH06 and contract question 6.
+- **SA03 — Visibility:** A compact state-focused case checks public/private scope and internally usable but externally absent `external=False` state. Follow the agreed public-resource selection convention; ID01–ID03 own the broader identity/role combinations.
 - **SA04 — Independence:** Equal names under different identities and different names under one identity do not interfere.
-- **SA05 — Replay:** Rebuild state through recorded reads/writes across suspension; publish the reconstructed current state, not historical intermediate values.
+- **SA05 — Replay:** Rebuild state through recorded reads/writes across suspension and verify the current value. WF10 owns the detailed no-historical-publication assertion.
 - **SA06 — Lifetime cleanup:** Normal exit and a caught exception remove state; a later phase can reuse the same identity/name without stale state leaking.
-- **SA07 — Notifications:** A waiting relevant observer receives a new current snapshot after a change. A slow observer is permitted to skip intermediate values.
+- **SA07 — Notifications:** A waiting relevant observer receives an updated current snapshot after a state change. WF07 owns slow-consumer/coalescing coverage.
 
 ## 4. `Action` — `quest_test/test_action.py`
 
 - **AC01 — Scoped callable:** Register a standalone callable with `Action`, invoke it externally with positional/keyword arguments, and receive its result.
 - **AC02 — Temporal availability:** Invocation before entry and after exit fails, even when the caller knows the action name; invocation while exposed succeeds.
 - **AC03 — Identity scope:** Invoke the correct identity/name combination; other identities cannot access the action. A shared role permits callers presenting that role to use it.
-- **AC04 — Hidden action:** `external=False` actions are not advertised and cannot be externally invoked merely by knowing their names. Internal workflow use remains possible through the supported authoring API.
+- **AC04 — Hidden action:** `external=False` actions are not advertised and cannot be externally invoked merely by knowing their names. Standalone `Action` has no public internal-invoke method; calling its original callable directly would bypass action routing. RE03–RE04 cover tracked internal invocation through decorated resource methods.
 - **AC05 — Invocation failure:** The callable raises; only that invocation fails. The workflow remains usable and can accept a later valid invocation.
-- **AC06 — Request recovery:** An externally submitted request interrupted after durable acceptance is completed through replay. Include a lost-response case and verify recovery via workflow-published confirmation, not a nonexistent invocation-result lookup API.
+- **AC06 — Request recovery:** A request submitted through `Workflow.invoke_action` and interrupted after durable acceptance completes through replay using real persistent history. A published confirmation supports a lost-response caller; there is no invocation-result lookup API. CX04 extends this with manager discovery and nested steps, rather than repeating all variants here.
 - **AC07 — Withdrawal race:** Two callers observe an action; the first invocation causes the workflow to withdraw it before the second invocation. The second fails gracefully, without reviving the resource or failing the workflow.
 - **AC08 — Awaiting action bodies:** Use an action that yields while executing alongside another invocation. Assert application-defined synchronization and valid outcomes, not blanket atomicity across awaits.
 - **AC09 — Replay gate:** A known external action cannot be invoked before reconstruction has finished, even if its registration has already been replayed internally.
-- **AC10 — Cleanup:** Normal exit and a caught exception withdraw the action; reusing the name in a later phase targets the new callable.
+- **AC10 — Cleanup (part of AC02):** Cover normal exit and caught-exception withdrawal in temporal-availability tests. A later phase may reuse the name; simultaneous collisions remain an open contract.
 
 ## 5. `action` and `Resource` — `quest_test/test_resource.py`
 
 These are separate exports exercised together because `action` decorates resource methods.
 
 - **RE01 — Resource registration:** A subclass with multiple decorated methods and `State` members exposes exactly the intended surface during its context and removes it on exit.
-- **RE02 — Decorator forms:** Cover `@action`, `@action()`, explicit `name=...`, and `external=False`; default and custom names are scoped by the resource name.
-- **RE03 — Internal routing:** Call a decorated method from workflow code; its effects are ordered and replayed consistently with external calls, including methods invoking other resource methods.
+- **RE02 — Decorator forms:** A compact resource covers `@action`, `@action()`, and explicit `name=...`; default and custom names are resource-scoped. RE04 supplies the `external=False` variant.
+- **RE03 — Internal routing:** Call a decorated method from workflow code, including one decorated method calling another, across one replay boundary. Verify observable effects participate in recorded ordering; do not imply atomicity across awaits or duplicate external-request recovery.
 - **RE04 — Hidden method:** An internal-only decorated method is callable by workflow code but neither advertised nor externally invocable.
 - **RE05 — Naming isolation:** Two resource instances with different names under the same identity, and the same name under different identities, do not collide.
-- **RE06 — Inheritance:** A subclass uses inherited decorated methods and overrides a decorated method; the visible operations behave as authored, without duplicate registration.
-- **RE07 — State plus action:** An action updates a member `State`; observers receive the updated surface and see both state and actions disappear on scope exit.
-- **RE08 — Reusable phases:** Exit and re-enter a resource through a workflow loop; actions are registered once per active scope and call the correct implementation after replay.
-- **RE09 — Exception cleanup:** A caught exception in a resource scope removes its states and actions; subsequent phases remain usable.
+- **RE06 — Inheritance (optional):** A small case uses an inherited decorated method and a decorated override. Defer undecorated-override semantics unless this becomes an intended consumer requirement.
+- **RE07 — State plus action (part of RE01):** An action updates a member `State`; observe the resulting surface and scope cleanup in the registration test. Do not require every intermediate registration snapshot.
+- **RE08 — Reusable phases:** Use a short loop with a resource per phase; after replay, the active phase calls the correct implementation and no prior-phase operations remain. Keep this focused on registration/routing reuse, not a broad restart matrix.
+- **RE09 — Exception cleanup (variant of RE01):** A caught exception in the resource scope removes states/actions and leaves subsequent phases usable. This is scope cleanup, not the invocation-only failure case AC05.
 
 ## 6. `Queue` — `quest_test/test_queue.py`
 
-- **QU01 — FIFO:** Internal puts and gets preserve item order, including repeated equal items and nested JSON-compatible payloads.
+- **QU01 — FIFO:** Put distinguishable values in a known order, including a repeated equal item and one nested payload, then assert the consumed sequence. Do not expand this into a JSON-fidelity matrix.
 - **QU02 — External input:** The surface exposes `name.put`, not `name.get`; external put delivers its payload to the waiting workflow.
 - **QU03 — Blocking:** An empty get waits without completing; a later put releases it with the correct item.
 - **QU04 — Replay backlog:** Enqueue multiple items, consume only some, suspend, and resume; consumed items are not redelivered and remaining items retain their order.
-- **QU05 — Concurrent users:** Multiple managed producers/consumers neither lose nor duplicate items; verify the controlled, recorded ordering on replay.
-- **QU06 — Scope and lifetime:** Identity filtering and scope exit govern put availability; a new queue in a later phase does not inherit stale items from an old resource instance.
+- **QU05 — Concurrent users:** A small managed-producer/consumer case delivers each distinguishable submission once and preserves explicitly coordinated ordering on replay. Do not assume a universal scheduler order; TK04 owns the broader shared-operation replay-order check.
+- **QU06 — Scope and lifetime:** Queue put availability ends with scope exit. A newly constructed queue in a later phase is independent of the old instance; do not infer a general backlog-retention policy across resource destruction or reopening the same instance. Use one representative scope check, not the whole identity matrix.
 
 ## 7. `IdentityQueue` — `quest_test/test_identity_queue.py`
 
 - **IQ01 — Correlation:** `put(item)` returns an identity and the workflow's `get()` yields that same identity with the same item.
-- **IQ02 — Uniqueness:** Multiple submissions, including equal payloads, produce distinct identities.
+- **IQ02 — Uniqueness:** Multiple submissions to the queue, including equal payloads, produce distinct identities. Do not assert UUID formatting or derive authentication guarantees from identity generation.
 - **IQ03 — Targeted continuation:** Publish subsequent state/actions under the returned identity. That submitter can access them; other submitter identities cannot.
-- **IQ04 — Replay stability:** Suspend after submission and before consumption or later use. The originally returned identity survives restart; replay must not generate a replacement.
-- **IQ05 — Queue semantics:** Repeat blocking, FIFO backlog, concurrent submissions, scope cleanup, and hidden-get scenarios from `Queue`, retaining correct identity/item pairing.
+- **IQ04 — Replay stability:** Capture an externally returned identity, suspend before consumption, reopen real persistent history, and verify the consumed pair retains that identity. Do not require a separate IdentityQueue-only subprocess test.
+- **IQ05 — Identity-preserving delivery:** Verify put is exposed and get is hidden, plus one small FIFO/backlog or controlled concurrent-submission case that could detect swapped identity/item pairs. Do not repeat Queue's generic blocking, cleanup, and concurrency matrix.
 
 ## 8. `IDENTITY` — identity cases across surface tests
 
@@ -104,28 +106,28 @@ These are separate exports exercised together because `action` decorates resourc
 - **ID01 — Public:** `None` resources are available as public resources to every observer under the intended resource-stream identity-selection convention.
 - **ID02 — Private:** String identities scope resources; knowing another identity's resource name does not expand the presented scope.
 - **ID03 — Roles and unions:** A view presenting multiple identities sees the appropriate combined surface; multiple callers presenting one role share its resources.
-- **ID04 — Namespaces:** A routing alias, workflow ID, and resource identity with identical text still perform distinct roles and do not grant additional visibility.
+- **ID04 — Namespaces (covered by AL06):** Routing identifiers and resource identities have distinct roles. Identical text must not grant resource scope, but alias-versus-canonical-ID collision policy remains contract-gated.
 
 Authentication and entitlement to present an identity belong to the hosting application, not Quest tests.
 
 ## 9. `these` — `quest_test/test_these.py`
 
 - **TH01 — Collections:** Enter lists, dictionaries, and generators of real Quest resources. All expected resources are active inside the combined context and absent afterward.
-- **TH02 — Returned values:** Dictionary keys and list/generator ordering associate returned entered resources with their original positions.
+- **TH02 — Returned values:** Dictionary keys and list/generator order associate entered resources with their positions. Do not assert internal container types or unusual context-enter replacement behavior pending contract question 3.
 - **TH03 — Empty and mixed collections:** Empty collections work; non-context values alongside resources remain available unchanged where supported.
 - **TH04 — Dynamic addition:** Add a resource to an entered list context; it becomes active immediately and is removed with the enclosing scope.
-- **TH05 — Nested usage:** Nest grouped contexts and combine `State`, `Action`, `Queue`, and custom `Resource` instances; cleanup leaves no stale surface.
+- **TH05 — Nested usage:** A small nested group of representative resources leaves no stale surface on exit. Combine with TH06's caught-exception variant rather than retesting each member's own behavior.
 - **TH06 — Exceptions:** A caught exception in the grouped body removes all entered resources. Entry-failure cleanup and exact exit ordering require the contract decision below.
-- **TH07 — Replay:** Reconstruct a deterministic generated collection, including dynamic additions, without duplicated registrations or premature publication.
+- **TH07 — Replay:** One small deterministic generated group with dynamic addition reconstructs its intended active surface. WF10 and AC09 own replay publication/invocation barriers; no second broad replay matrix is needed.
 
 ## 10. `when` and `get_current_timestamp` — `quest_test/test_time.py`
 
 - **TI01 — Clock interoperability:** `get_current_timestamp()` values can be compared with `when()` values and used as release boundaries without timezone/type errors. Basic successive clock reads are comparable; do not assume strict monotonicity of a wall clock.
 - **TI02 — Fresh execution:** With no history remaining, `when()` reports current time, bounded by surrounding real clock reads rather than an exact expected timestamp.
 - **TI03 — Replay time:** While events remain, `when()` follows the design's recorded-event time definition, not the restart's wall-clock time.
-- **TI04 — Catch-up transition:** Once the final historical event is replayed, `when()` switches to current time. Exercise boundaries involving steps, managed tasks, and resource creation/actions.
+- **TI04 — Catch-up transition:** Once the final historical event is replayed, `when()` switches to current time. Extend TI03 with representative step/task/resource events rather than a Cartesian boundary matrix. Exact event advancement/inclusivity awaits contract question 10.
 - **TI05 — Compatible code release:** Histories paused at different points run compatible old branches while replaying and new branches for new execution after a release timestamp. Include a fresh workflow started after the release.
-- **TI06 — Multiple releases:** Resume through two compatible code changes and multiple restarts; each historical branch remains faithful.
+- **TI06 — Multiple releases (optional):** Two compatible releases over multiple restarts can extend TI05 if migration complexity warrants it; the baseline is one compatible deployment at different history positions.
 - **TI07 — Incompatible change:** A time branch selecting a history-incompatible path produces a replay mismatch rather than silently accepting it.
 
 ## 11. `Workflow` — `quest_test/test_workflow.py`
@@ -134,47 +136,47 @@ Authentication and entitlement to present an identity belong to the hosting appl
 - **WF02 — Task handle:** Await the public `task` handle for success and failure; its outcome agrees with awaiting the workflow. Do not assume stable object identity between property accesses.
 - **WF03 — Suspension:** Exit while the workflow waits, then resume from the same persistent history using a fresh workflow object. Completion boundaries and deterministic local reconstruction are preserved.
 - **WF04 — Multiple recoveries:** Suspend at several distinct boundaries and resume repeatedly without losing progress or repeating completed effects.
-- **WF05 — Failure:** An unhandled workflow exception reaches awaiters and active resource observers and is terminal; a caught exception permits continued interaction.
+- **WF05 — Failure:** An unhandled workflow exception reaches awaiters and active resource observers and is terminal. A small ordinary caught-exception path continues interacting; ST06 and AC05 separately own step-exception replay and invocation-only failures.
 - **WF06 — Stream initial view:** An observer entering an active workflow's resource stream receives its current visible surface, including the empty view when appropriate.
 - **WF07 — Snapshots, not logs:** A slow consumer sees the latest view after several changes; no requirement to observe every intermediate scene.
 - **WF08 — Independent observers:** Two observers with overlapping/different identities receive their appropriate current views. Closing one stream early does not break the workflow or the other stream.
 - **WF09 — Stream termination:** Active streams close on normal completion and propagate terminal workflow failure. Resource cleanup does not leave observers blocked forever.
 - **WF10 — Replay publication barrier:** Start observing immediately on restart. No historical scenes are published; the first delivered snapshot represents replay-complete execution.
-- **WF11 — Invocation integration:** Exercise successful, failed, withdrawn, and replay-recovered external invocations through `Workflow.invoke_action`, not resource internals.
-- **WF12 — Independent workflows:** Concurrent workflow instances do not leak resources, events, task context, or step results into one another.
+- **WF11 — Invocation integration (covered by AC01–AC09):** Those scenarios must call public `Workflow.invoke_action`, not resource internals; no duplicate workflow-level invocation matrix is needed.
+- **WF12 — Independent workflows:** Two concurrent bare workflow instances with independent histories and distinguishable outcomes demonstrate resource/task/result isolation. Manager namespaces and multi-workflow restart belong to MA04.
 
 ## 12. `WorkflowManager` — `quest_test/test_manager.py`
 
 - **MA01 — Start and route:** Start different workflow types with distinct IDs and arguments; route streams and action invocations to the intended workflow.
 - **MA02 — Active duplicates:** Reject a duplicate active workflow ID without disturbing the original workflow.
 - **MA03 — Manager restart:** Exit with unfinished workflows, reconstruct the manager with fresh factories/history/storage objects, and verify all unfinished workflows resume with their original type and arguments.
-- **MA04 — Isolation:** Several workflows at different progress points resume independently; distinct manager/history namespaces sharing a storage root do not contaminate one another.
+- **MA04 — Isolation:** Use a small set of workflows at different progress points, including one failure (MA11), and verify unaffected execution/recovery. Test distinct manager namespaces sharing one storage root once here; PH03 separately checks history namespaces.
 - **MA05 — Outcomes:** While running, result retrieval waits and returns the eventual value or raises the workflow exception.
 - **MA06 — Retention:** With `delete_on_finish=False`, retrieve successful results and reconstructable exceptions repeatedly, including after a fresh-process restart.
 - **MA07 — Deletion policy:** With `delete_on_finish=True`, completed workflows are removed. With retained outcomes, result retrieval with `delete=True` removes the stored outcome, including across restart.
-- **MA08 — Explicit deletion:** Delete an active workflow or retained outcome and verify it does not reappear after restart. Timing and interaction with retention need the contract decision below; this is distinct from a universal author-facing cancellation primitive.
-- **MA09 — Presence and metrics:** Public presence/metrics accurately distinguish the supported active/retained/deleted states and identify workflow type/ID. Do not hard-code undocumented timestamp formatting.
+- **MA08 — Explicit active deletion (contract-gated):** After agreeing deletion timing and retention semantics, delete an active workflow and verify the agreed restart behavior. MA07 already covers retained-outcome removal. Do not conflate this with a universal author-facing cancellation primitive.
+- **MA09 — Presence and metrics (contract-gated):** Agree whether presence includes retained outcomes and what metrics represent, then assert the supported states/type/ID. Do not freeze current method naming, timestamp formatting, or an assumed active-only view.
 - **MA10 — Missing targets:** Missing workflow routing, result lookup, and deletion fail without affecting other workflows; avoid importing non-exported exception classes.
-- **MA11 — Mixed outcomes:** One workflow fails while others wait or finish; unrelated workflows remain usable and recoverable.
-- **MA12 — Exit races:** A workflow completes or an accepted action progresses during manager shutdown; restart does not lose both the unfinished execution and its retained terminal outcome.
+- **MA11 — Mixed outcomes (part of MA04):** One workflow fails while others wait or finish; unrelated workflows remain usable and recoverable. Reuse the isolation setup.
+- **MA12 — Exit races (contract-gated extension):** Once shutdown/durability boundaries are agreed, coordinate completion or accepted-action progress during manager exit and verify the promised recoverable execution or retained outcome. Do not use undefined write-interruption behavior as a baseline assertion.
 - **MA13 — Abrupt restart:** Terminate a subprocess without normal context exit after externally witnessed progress; a new process discovers and resumes unfinished workflows. Test retained outcomes separately after an externally witnessed completion.
 
 ## 13. `alias` — `quest_test/test_alias.py`
 
 - **AL01 — Temporary routing:** Inside `async with alias(...)`, streams and actions can use the alternate ID and reach the same workflow; canonical routing remains valid.
 - **AL02 — Lifetime:** On normal scope exit or a caught exception, alias routing ceases without deleting the workflow. A later workflow can use the released alias.
-- **AL03 — Conflict:** Two active workflows attempting the same alias cannot silently hijack one another's routing.
+- **AL03 — Conflict:** Two active workflows attempting the same alias cannot silently hijack one another's routing; both remain canonically reachable. Assert observable rejection, not a private exception type. Alias/canonical-ID collisions remain unresolved.
 - **AL04 — Multiple aliases:** One workflow has several scoped aliases; withdrawing one does not remove the others or canonical access.
-- **AL05 — Restart:** Replaying a workflow that is inside an alias scope restores routing when it reaches its live phase; aliases from already-ended scopes are not resurrected.
-- **AL06 — Identity separation:** Routing through an alias does not bypass state/action identity scope.
+- **AL05 — Restart:** Replaying a workflow inside an alias scope restores live routing; ended scopes are not resurrected. This tests replay-driven registration, not independently persisted alias dictionaries, and can reuse a manager-restart test.
+- **AL06 — Identity separation:** One authorized invocation succeeds and a wrong-identity invocation through the alias fails. Routing text, even if equal to a resource identity, does not grant that identity. Broader scope combinations belong to ID01–ID03; only routing operations are required to resolve aliases unless further agreed.
 
 ## 14. `PersistentHistory` — `quest_test/test_persistence.py`
 
 - **PH01 — Real recovery:** A workflow backed by this history records progress, a fresh history instance loads it, and replay reconstructs the correct continuation.
-- **PH02 — Accumulated history:** Many repeated steps, nested steps, exceptions, tasks, and resource interactions survive multiple reconstruction cycles in the correct sequence.
-- **PH03 — Isolation:** Different history namespaces in the same real storage remain independent.
-- **PH04 — Collection operations:** Through public `append`, iteration, reverse iteration, `remove`, and `clear`, valid history entries preserve logical order and removals across reconstruction. Resolve whether caller-authored ledger entries are a supported public contract before implementing direct entry-construction tests.
-- **PH05 — Workflow cleanup:** Finishing or suspending a workflow leaves enough persisted information for the promised subsequent outcome/recovery; do not require a private file layout or undocumented pruning strategy.
+- **PH02 — Accumulated history:** A focused multi-reopen case appends new progress after each reconstruction and preserves logical sequence. Let relevant ST/TK/resource tests use persistent history instead of building an all-features history mega-test.
+- **PH03 — Isolation:** Interleave progress in two history namespaces in the same real storage, reopen them independently, and verify changes to one do not alter the other. Assert outcomes, not namespace filenames or hash formats.
+- **PH04 — Collection operations (contract-gated):** Agree whether raw history entries/schema are public before testing `append`, iteration, reverse iteration, `remove`, and `clear` directly. If supported, use agreed valid entries (potentially obtained from a workflow-backed history), not private ledger imports or invented encodings; assert logical order/removals across reopening.
+- **PH05 — Lifecycle outcomes (covered by PH01 and MA06):** PH01 proves unfinished execution can recover; MA06 proves retained terminal outcomes survive restart. Terminal history pruning is not a separate guarantee without an explicit contract.
 - **PH06 — Serialization boundaries:** Representative supported JSON data and reconstructable exceptions survive real disk serialization, not just in-memory replay.
 
 ## 15. `LocalFileSystemBlobStorage` — `quest_test/test_storage.py`
@@ -183,25 +185,25 @@ Authentication and entitlement to present an identity belong to the hosting appl
 - **BS02 — Round trips:** Write/read supported JSON values, including Unicode, nested/empty structures, booleans, numbers, and null where supported; preserve JSON value semantics.
 - **BS03 — Existence and overwrite:** `has_blob` distinguishes missing/present keys; overwriting a key changes its value without changing another key.
 - **BS04 — Deletion:** Delete an existing blob, verify absence, and recreate it successfully.
-- **BS05 — Reopening:** Fresh instances and a fresh process read the same stored values.
-- **BS06 — Value independence:** Mutating the original input or a returned decoded object does not silently change a stored blob.
-- **BS07 — Real integration:** Use this storage for every required disk-backed history/manager restart scenario rather than an in-memory substitute.
+- **BS05 — Reopening:** Fresh storage instances read the same values. Existing disk-backed manager/process tests supply cross-process coverage; a storage-only subprocess test is optional, not another baseline harness.
+- **BS06 — Value independence:** With one nested mutable value, mutate the original input and a decoded read result, then verify a later read still returns the stored value.
+- **BS07 — Real integration (suite-level rule):** Required disk-backed history/manager restart scenarios use this real storage, not an in-memory substitute. This is a fixture/coverage choice, not a separate storage test.
 
 ## 16. Cross-feature scenarios — `quest_test/test_integration.py` and `quest_test/test_process_recovery.py`
 
-These complement the feature tests; do not duplicate every feature across every axis.
+These complement the feature tests; do not duplicate every feature across every axis. Prioritize CX01–CX04 and CX09. Other entries identify shared coverage or optional consumer examples, not additional mandatory end-to-end suites. Manager-based recipes depend on the serializer setup decision.
 
 - **CX01 — Durable conversation:** A loop consumes queue input, rebuilds local conversation history, and calls a recorded model-like step with a real side-effect witness. Restart across turns without re-requesting consumed input or repeating completed calls. No real model service is necessary.
-- **CX02 — Multi-user phased interaction:** Public `IdentityQueue` enrollment leads to private player state/actions, concurrent managed tasks, a shared-role confirmation phase, then completion. Restart during each phase and verify only the current interface is available.
+- **CX02 — Multi-user phased interaction:** Public `IdentityQueue` enrollment leads to a private participant phase. Recover once across this transition and verify the returned identity scopes the current interface. Add concurrency/shared-role confirmation only if it closes a gap; do not require restart in every phase of a game-like mega-test.
 - **CX03 — External-system routing:** A recorded step obtains an external identifier; `alias` registers it; manager routing delivers queue input under that identifier while identity filtering still applies. Restart and later withdraw the alias.
 - **CX04 — Pending invocation:** Manager + persistent history + a resource action containing nested steps. Stop while the action is incomplete; replay completes the accepted request without repeating its completed nested effects. Publish confirmation for a caller whose response was lost.
-- **CX05 — Failure separation:** An external action error leaves the workflow alive; a caught step/task exception drives a recovery phase; a later unhandled workflow exception terminates observers and remains retrievable as a retained manager outcome after restart.
-- **CX06 — Replay and interface gate:** Restore dynamically grouped resources used by several tasks while observers and an informed caller are already waiting. No historical snapshots or early action invocation escape the replay barrier.
-- **CX07 — Time-compatible deployment:** Manager resumes multiple persistent workflows from different phases using time-branched updated code; old history is honored and subsequent phases use the new interface.
-- **CX08 — Namespace and failure isolation:** Multiple workflows/managers use one filesystem root with independent namespaces; completion, error, deletion, alias withdrawal, and restart in one do not corrupt the others.
+- **CX05 — Failure separation (covered by feature tests):** AC05, TK06, WF05/WF09, and MA06 establish invocation-only failure, caught/awaited errors, terminal streams, and retained exceptions. No combined failure mega-test is required.
+- **CX06 — Replay and interface gate (covered by WF10 and AC09):** Keep both observer publication and known-action invocation barriers as baseline assertions. Combining them with dynamic groups and many tasks is optional; do not drop invocation gating merely because publication gating is covered.
+- **CX07 — Time-compatible deployment (optional):** TI05 establishes compatible deployment and MA03 establishes manager restart. Combine them only if manager-driven multi-history migration adds a distinct risk.
+- **CX08 — Namespace and failure isolation (covered by MA04, PH03, AL02):** Reuse manager/history isolation and alias-lifetime tests rather than multiplying all outcomes, deletion policies, and routing combinations.
 - **CX09 — Idempotent external effects:** A real subprocess is stopped after an effect but before its step completes. An application-provided idempotency key makes retry safe; contrast this with the allowed duplicate-attempt behavior of best-effort execution.
-- **CX10 — Downtime-aware application:** Workflow code records an application deadline in a step. Restart after the deadline, and verify the author's explicit expiry branch, not imaginary uninterrupted execution or an automatic Quest deadline policy.
-- **CX11 — Cooperative permanent stop:** An author-defined action/queue signal asks managed tasks to finish; the parent awaits them and returns. Restart does not revive the completed interaction when the manager's configured completion policy applies.
+- **CX10 — Downtime-aware application (optional consumer example):** Persist an application deadline and recover into an author-defined expiry branch if a real consumer requirement warrants it. Expiry policy is application-owned, not a missing automatic Quest guarantee.
+- **CX11 — Cooperative permanent stop (covered by TK08 and manager completion tests):** An author-defined signal lets children finish and be awaited; configured completion policy governs restart. This is not a separate built-in cancellation contract.
 
 ### Bounded coverage matrix
 
@@ -321,7 +323,7 @@ These do not block the rest of the inventory. Discuss one at a time with the aut
 5. **Persistence failure boundaries:** What durability is promised if interruption occurs during a filesystem write or between history/manager index writes? Distinguish established replay guarantees from filesystem atomicity/fsync, corruption recovery, and unsupported concurrent writers. Abrupt-stop tests should first synchronize at completed durable operations.
 6. **JSON and error boundaries:** What exact JSON value/type fidelity is promised (tuples, non-string dictionary keys, null, non-finite numbers), and how are unsupported values or unreconstructable exceptions reported? Include dict results resembling serialized exceptions to ensure ordinary results are not misclassified once the encoding contract is settled.
 7. **Raw history API:** Are user-created history entries and their field schema part of the supported public API, or should `PersistentHistory` primarily be tested through `Workflow`? What are missing-entry removal and repeated-clear semantics?
-8. **Deletion and shutdown:** When does manager deletion become durable, does it override outcome retention for a running workflow, and what does returning from manager exit guarantee? Which manager operations resolve aliases? Do not conflate manager deletion with a general permanent-cancellation facility.
+8. **Manager lifecycle and inspection:** When does deletion become durable, does it override outcome retention for a running workflow, and what does returning from manager exit guarantee? Which operations resolve aliases? Does `has_workflow` include retained outcomes, and do metrics describe active workflows, retained outcomes, or both? Do not conflate manager deletion with a general permanent-cancellation facility.
 9. **Terminal streams:** Active streams must close/fail as designed. What should opening a new stream for an already completed/retained workflow do, and what is an observer meant to see when a workflow is suspended rather than completed?
 10. **Timestamp precision:** The design defines replay event-time behavior. Confirm boundary inclusivity and which event advances `when()` before writing exact timestamp assertions; require comparison compatibility, not undocumented strict clock monotonicity.
 11. **Storage errors and keys:** Are missing reads/deletes errors or idempotent operations, which keys are valid, and what is the expected response to corrupt JSON or I/O failures? Path confinement/security cases depend on whether keys are trusted or externally supplied.
