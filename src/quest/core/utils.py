@@ -10,7 +10,7 @@ def get_id(item):
     if isinstance(item, dict):
         return tuple((k, get_id(v)) for k, v in item.items())
 
-    if isinstance(item, list):
+    if isinstance(item, (list, tuple)):
         return tuple(get_id(v) for v in item)
 
     return item
