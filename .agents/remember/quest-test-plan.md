@@ -56,7 +56,7 @@ Basis: `.agents/remember/quest-design.md`, the current public exports, current `
 
 - Exercise Quest through imports from `quest` only. Do not import internal historians, ledgers, serializers, resource managers, or replay machinery.
 - Use real async execution, real persistence, and real replay. Do not mock the machinery whose behavior is under test.
-- Each test must include a comment explaining its scenario. Tests should also demonstrate understandable public API usage.
+- Every test must include a scenario comment and concise play-by-play comments, following `quest_test/test_step.py` as the style reference. Explain the meaningful execution phases and ordering, test-host coordination/observation, interruption and reconstruction/replay where relevant, and what the final assertions demonstrate. Retain scenario comments; do not narrate obvious Python or duplicate the test's code.
 - Assert observable outcomes: results, exceptions, snapshots, available actions, routing, persisted recovery, and actual side-effect counts. Avoid assertions about private fields, internal record encodings, hash names, or incidental scheduling.
 - Use `asyncio.Event` or queues as test-host coordination barriers, not arbitrary sleeps. Put bounded timeouts around waits so regressions fail rather than hang. Workflow operations that need durable ordering must use Quest-managed primitives.
 - Test deterministic reconstruction by rebuilding ordinary local variables, not by expecting Python instruction-pointer restoration.

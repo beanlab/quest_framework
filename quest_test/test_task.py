@@ -36,9 +36,12 @@ async def test_managed_task_arguments_and_result():
         observed.append(await combine("item", suffix="?"))
         observed.append(await combine("next", 5))
 
+    # Run both task calls in order and await workflow completion before checking
+    # the values delivered back to ordinary workflow code.
     async with Workflow("task-tk01", workflow) as running:
         await asyncio.wait_for(running, timeout=2)
 
+    # The first call uses the default value; the second overrides it.
     assert observed == ["item:2?", "next:5!"]
 
 
@@ -57,6 +60,8 @@ async def test_managed_tasks_reach_independent_waits_concurrently():
     async def workflow():
         left = worker("left", left_gate)
         right = worker("right", right_gate)
+        # Wait for independent body-entry signals before releasing either task;
+        # this proves both are concurrently waiting rather than merely created.
         await wait_for(left_gate.reached)
         await wait_for(right_gate.reached)
         # Neither task can finish until the test/workflow releases its gate.
@@ -66,9 +71,11 @@ async def test_managed_tasks_reach_independent_waits_concurrently():
         right_gate.release.set()
         results.extend([await left, await right])
 
+    # Let workflow code coordinate both children, release them, and await results.
     async with Workflow("task-tk02", workflow) as running:
         await asyncio.wait_for(running, timeout=3)
 
+    # Each handle delivers the result produced by its own worker.
     assert results == ["LEFT", "RIGHT"]
 
 
@@ -115,11 +122,12 @@ async def test_partial_managed_task_replay_reconstructs_bodies_and_step_outcomes
         completed_child_finished.set()
         received.append((first_result, await second))
 
-    # Wait until the incomplete recorded step is blocked. The workflow awaited
-    # the completed sibling first; its task result is not treated as cached.
+    # First let the workflow receive the completed sibling's result, then wait
+    # until the other child's step is blocked; exit with that step still incomplete.
     async with Workflow("task-tk03", workflow, storage=history):
         await wait_for(completed_child_finished)
         await wait_for(incomplete_gate.reached)
+    # The first attempt ran each step body once, and the first child was awaited.
     assert completed_child_finished.is_set()
     assert executions == [("complete", 4), ("retry", 8)]
 
@@ -129,6 +137,8 @@ async def test_partial_managed_task_replay_reconstructs_bodies_and_step_outcomes
     incomplete_gate = retry_gate
     completed_child_finished = asyncio.Event()
     async with Workflow("task-tk03", workflow, storage=history) as resumed:
+        # The reconstructed child reaches the fresh gate; releasing it lets the
+        # incomplete step finish and both awaited task outcomes reach workflow.
         await wait_for(retry_gate.reached)
         retry_gate.release.set()
         await asyncio.wait_for(resumed, timeout=3)
@@ -193,6 +203,7 @@ async def test_controlled_task_interleaving_replays_queue_operation_order():
         await wait_for(gate.reached)
 
     # Replace host events as well as the queue reconstructed by workflow code.
+    # Replaying under the same workflow path allows only host release timing to vary.
     ready, go, attempted, put_done = (
         fresh_events(), fresh_events(), fresh_events(), fresh_events()
     )
@@ -210,7 +221,8 @@ async def test_controlled_task_interleaving_replays_queue_operation_order():
         await wait_for(gate.reached)
         gate.release.set()
         await asyncio.wait_for(resumed, timeout=3)
-    # Changed host scheduling must not change which consumer receives each item.
+    # Changed host scheduling must not change which consumer receives each item;
+    # the two pairs are observations from the initial run and reconstructed run.
     assert observed == ["one", "two", "one", "two"]
 
 
@@ -241,9 +253,12 @@ async def test_nested_managed_task_tree_and_repeated_function_calls_replay():
         # Capture the branch's returned value at its actual workflow awaiter.
         branch_results_received.append(await branch([3, 7]))
 
+    # Let the branch and both leaf tasks finish before suspending inside the
+    # branch; the parent workflow has not yet received its returned value.
     async with Workflow("task-tk05", workflow, storage=history):
         await wait_for(gate.reached)
 
+    # Reconstruct with the same task call tree but a fresh host checkpoint.
     replay_gate = Gate()
     gate = replay_gate
     async with Workflow("task-tk05", workflow, storage=history) as resumed:
@@ -289,9 +304,12 @@ async def test_awaited_task_exception_is_caught_and_replayed_from_step():
         await gate.wait()
         handled.append("continued")
 
+    # Run the failing step through its handler, then suspend after the caught error.
     async with Workflow("task-tk06-caught", workflow, storage=history):
         await wait_for(gate.reached)
 
+    # Replay reconstructs child code and handler flow; the completed step outcome
+    # supplies the exception without executing the step body again.
     replay_gate = Gate()
     gate = replay_gate
     async with Workflow("task-tk06-caught", workflow, storage=history) as resumed:
@@ -317,6 +335,8 @@ async def test_unhandled_awaited_task_exception_fails_workflow():
     async def workflow():
         await child()
 
+    # With no handler in workflow code, awaiting the child propagates its error
+    # through the public workflow task.
     async with Workflow("task-tk06-unhandled", workflow) as running:
         with pytest.raises(LookupError, match="unhandled child"):
             await asyncio.wait_for(running, timeout=2)
@@ -350,8 +370,11 @@ async def test_workflow_signals_and_awaits_managed_children_before_returning():
     async def capturing_workflow():
         result_in_workflow.append(await workflow())
 
+    # The workflow signals both started children, releases them, and awaits
+    # each handle before its own run is allowed to complete.
     async with Workflow("task-tk08", capturing_workflow) as running:
         await asyncio.wait_for(running, timeout=3)
 
+    # Both managed bodies finished and the workflow received both return values.
     assert sorted(finished) == [1, 2]
     assert result_in_workflow == [[1, 2]]
