@@ -12,8 +12,11 @@ current_task_id = ContextVar('task_id')
 
 class TaskFieldFilter(logging.Filter):
     def filter(self, record):
-        current = asyncio.current_task()
-        # record.task = current_task_id.get(current.get_name() if current else '-')
+        try:
+            current = asyncio.current_task()
+        except RuntimeError:
+            current = None
+
         record.task = current.get_name() if current else '-'
         return True
 
