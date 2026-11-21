@@ -1,10 +1,58 @@
 # Quest test plan
 
+## Current status and session handoff
+
+### Reading order for a new session
+
+1. [quest-design.md](quest-design.md): purpose, intended contracts, and author/application responsibilities. This is design guidance, not verification of implementation completeness.
+2. This document: scenario inventory, current progress, known blockers, recipes, and unresolved contract questions.
+3. [working-with-quest.md](working-with-quest.md): practical workflow authoring, reconstruction, resource lifetimes, replay ordering (including task starts), exception handling, and test-host coordination guidance learned during implementation/review.
+
+For test work, also read the implemented `quest_test/test_step.py` and `quest_test/test_task.py`, plus current `src/quest/__init__.py`. For failure/stream work, read [the unobserved resource-stream exception backlog item](../backlog/resource-stream-unobserved-exceptions.md). Read relevant current implementation as needed, but **do not inspect `quest_test/v3/` or `src/v3/`** without a change in the user's instruction. Scratch probe/review files are not required session context.
+
+### Implemented suites
+
+| Suite | Status | Coverage |
+| --- | --- | --- |
+| `quest_test/test_step.py` | 8 tests passing; user-requested comment/lifecycle revisions applied | ST01–ST07 (ST05 combined with ST02), ST09, plus one dedicated WF03 task-cancellation check; ST08/ST10 remain assigned to later integration coverage |
+| `quest_test/test_task.py` | 8 tests passing; interactive delegate implementation/review and TK04 readiness correction complete | TK01–TK06 and TK08, including TK04's changed-scheduling replay-order assertions; TK07 remains optional |
+| Remaining suites | Planned, not implemented in this effort | Sections 3–16, apart from coverage explicitly supplied by the two suites above |
+
+Both suites have scenario comments and play-by-play explanations. Helpers are currently small/local; no general fixture framework has been built. The task suite received revisions for fresh resources/events per attempt, distinguishing operation attempts from completion, explicit sibling readiness/completion, and checking values at awaiters. TK04 now waits for both producer bodies to start before recording either put; its replay retains the original operation-order assertions while reversing host release order.
+
+Latest verification after the user's `get_id` fix and the delegate's TK04 readiness correction:
+
+```bash
+poetry run pytest -q quest_test/test_task.py::test_controlled_task_interleaving_replays_queue_operation_order
+# 1 passed
+poetry run pytest -q quest_test/test_task.py quest_test/test_step.py
+# 16 passed
+```
+
+The combined run still emitted the known `Future exception was never retrieved` diagnostic for an expected workflow failure. Passing tests do not resolve that observer-Future issue.
+
+Normal pytest invocation works; no logging-suppression wrapper is needed. Run these explicit paths rather than broad discovery of the old suite.
+
+### Known implementation issues
+
+- **TK04 blockers resolved:** The user fixed `get_id` to recursively normalize tuples, resolving replay initialization's unhashable kwargs dictionary. The subsequent timeout was a test coordination error, not evidence of a replay-gating defect: the live history placed producer two's start after producer one's put, but replay's host waited for producer two's attempt signal before releasing producer one. Distinct body-readiness events now establish both task starts before either live put; fresh events are used on replay. TK04 passes without weakening its ordering assertions. Earlier failed runs also emitted pending-task/`coroutine ignored GeneratorExit` teardown diagnostics; their independent cause was not established, and they were not reported in the latest successful combined run.
+- **Unobserved resource-stream exception Future:** Expected workflow failures can emit `Future exception was never retrieved` even though the test catches the workflow exception. Cause and desired behavior are recorded in [the backlog item](../backlog/resource-stream-unobserved-exceptions.md); unresolved.
+- **Workflow return value:** The first delegate reported that awaiting `Workflow` drops the workflow function's returned value. Current step/task tests assert results as received inside workflow code rather than claim workflow-result coverage. Independently verify/address this when implementing WF01; it is not resolved by passing task tests.
+- **Logging fixed:** `TaskFieldFilter` in `src/quest/logs.py` now catches `RuntimeError` from `asyncio.current_task()` when there is no running loop and uses `'-'` for the task field. The previous test-command workaround was removed; there was no suppression code in the test files themselves.
+
+### Decisions and working practices established so far
+
+- Exceptions follow normal async propagation: handled exceptions permit continuation; an exception propagating unhandled out of the workflow fails it. Do not infer automatic parent propagation from an unawaited child.
+- Replay tests reuse history directly after leaving the workflow context; repeated suspension-settling checks were removed at the user's request. One dedicated test checks that the public workflow task raises `CancelledError` after context exit. The supporting probe passed 100 repetitions for each completed/incomplete nested-step and wait/no-wait combination (400 total); this is evidence for these cases, not a universal cleanup guarantee.
+- Workflow-owned resources reconstruct inside workflow execution. Fresh test-host gates/events belong to each attempt. Retain history and external execution witnesses, not live resource state, across attempts.
+- Replay constrains task starts as well as resource operations. A changed-scheduling replay test may attempt a later recorded operation first only if the recorded task-start order permits reaching that attempt. Establish both producer bodies' readiness before either live put, then vary host releases on replay without demanding reversed completion order. Task-handle creation alone does not prove body entry; see [working-with-quest.md](working-with-quest.md) for the TK04 dependency cycle and safe coordination pattern.
+- Use interactive delegates (`--interactive true`) for suite implementation, followed by review. Do not fix framework bugs or weaken expected assertions as an incidental part of test implementation. The broader contract questions below are still open; the passing suites do not finalize them.
+
 ## Scope and principles
 
 This is a scenario inventory for a new suite in `quest_test/`, organized around every export in `src/quest/__init__.py`, followed by cross-feature scenarios. It is not a report of passing behavior or a specification inferred from existing implementation quirks.
 
-Basis: `.agents/remember/quest-design.md`, the current public exports, current `src/quest/` code to identify available operations, and consumer examples in `src/demos/`. Neither `quest_test/v3/` nor `src/v3/` was read. No test files have been created as part of this plan.
+Basis: `.agents/remember/quest-design.md`, the current public exports, current `src/quest/` code to identify available operations, and consumer examples in `src/demos/`. Neither `quest_test/v3/` nor `src/v3/` was read. The plan began as an inventory; implementation progress is tracked above.
 
 - Exercise Quest through imports from `quest` only. Do not import internal historians, ledgers, serializers, resource managers, or replay machinery.
 - Use real async execution, real persistence, and real replay. Do not mock the machinery whose behavior is under test.
@@ -263,7 +311,7 @@ Rules for gates:
 
 ### Two interruption procedures
 
-**Graceful suspension:** Run until the target gate, leave the public `Workflow` context, and wait for the original execution to settle before reopening the history. Capture the public task handle while the context is active. The current context exit requests suspension without itself awaiting workflow termination, so the helper must avoid overlapping old and recovered instances. Treat this as a current implementation consideration, not a permanent public shutdown contract. Account explicitly for the expected suspension outcome and propagate unexpected failures; do not blanket-suppress exceptions or cancel the task merely to implement a timeout.
+**Graceful suspension:** Run until the target gate, leave the public `Workflow` context, and open a fresh workflow against the same history with fresh host gates/events. Do not add an explicit suspension-settling wait or `CancelledError` assertion to every replay test: the user requested direct history reuse, supported by the focused probe described in the status section. One dedicated test checks the cancelled public task handle after exit, using a bounded wait that does not itself cancel the handle. More complex shutdown/cleanup timing remains subject to the contract questions below.
 
 **Abrupt process interruption:** A child process signals its checkpoint through IPC. The parent terminates it without normal context cleanup, waits for process exit, and starts a fresh child using the same storage directory. Use this for cross-process continuity and unclean-exit claims, not for every replay test. It is distinct from graceful suspension and must not be described as a completed durable checkpoint unless the checkpoint actually follows the relevant recorded operation.
 
@@ -290,7 +338,7 @@ The manager fixture must use the agreed public/application-owned serializer setu
 ### Small shared helpers
 
 - **Observe until a predicate:** Consume the real resource stream until a snapshot matches an expected phase, state, or action. Allow intermediate snapshots to coalesce. On timeout, report the predicate and last observed snapshot. Enter and close the stream through its public context protocol.
-- **Suspend and settle:** Encapsulate the graceful-suspension procedure, wait for the captured task handle to terminate, and leave history available for reconstruction. Keep fresh workflow construction and scenario assertions visible in the test.
+- **Replay lifecycle:** Keep the graceful-suspension/reopening sequence visible and simple: exit, refresh host coordination, reopen the same history. Do not introduce a mandatory suspend-and-settle helper. Keep task-cancellation assertions in their dedicated test.
 - **Effect witness:** Record actual executions separately from returned values so a test distinguishes ordinary reconstruction, completed-step replay, and incomplete-step retry. A cross-process witness should make each acknowledged write visible before signaling its checkpoint; do not claim filesystem power-loss durability from ordinary process-restart tests.
 - **Bounded waits and cleanup:** Centralize diagnostic timeouts and cleanup for observer tasks, external invocation tasks, and subprocesses. On failed tests, terminate remaining work before temporary storage is discarded. Prefer explicit checkpoints and predicates over sleeps.
 
@@ -331,7 +379,7 @@ These do not block the rest of the inventory. Discuss one at a time with the aut
 
 ## Suggested implementation order
 
-1. Basic workflow lifecycle, steps, real filesystem storage/history, and a clean restart; establish checkpoint gates, effect witnesses, and suspend-and-settle mechanics.
+1. Basic workflow lifecycle, steps, real filesystem storage/history, and a clean restart; establish checkpoint gates and effect witnesses without mandatory suspension-settling waits. Step tests now supply list-backed replay coverage; real persistence coverage remains planned.
 2. State/action surface, identities, streams, queues, and resource lifecycle; establish snapshot-predicate waiting.
 3. Managed concurrency, nested replay, and exceptional outcomes.
 4. Manager retention, aliases, grouped/dynamic contexts, and time-compatible changes.
